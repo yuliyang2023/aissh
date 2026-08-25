@@ -1,0 +1,313 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"git.example.com/ai/wrd-ai-cli/internal/app"
+	"git.example.com/ai/wrd-ai-cli/internal/history"
+	"git.example.com/ai/wrd-ai-cli/internal/i18n"
+)
+
+var version = "dev"
+
+func main() {
+	config, showHelp, showVersion, err := parseArgs(os.Args[1:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "aissh:", err)
+		os.Exit(2)
+	}
+	if showHelp {
+		printHelp(config.Language)
+		return
+	}
+	if showVersion {
+		fmt.Println("aissh", version)
+		return
+	}
+	application, err := app.New(config)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "aissh:", err)
+		os.Exit(2)
+	}
+	if err := application.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "aissh:", err)
+		os.Exit(1)
+	}
+}
+
+func parseArgs(args []string) (app.Config, bool, bool, error) {
+	config := app.Config{
+		SSHPath:         firstNonEmpty(os.Getenv("AISSH_SSH_PATH"), "/usr/bin/ssh"),
+		AgentProvider:   firstNonEmpty(os.Getenv("AISSH_AGENT_PROVIDER"), os.Getenv("AISSH_AGENT"), "codex"),
+		AgentURL:        os.Getenv("AISSH_AGENT_URL"),
+		AgentToken:      os.Getenv("AISSH_AGENT_TOKEN"),
+		CodexPath:       firstNonEmpty(os.Getenv("AISSH_CODEX_PATH"), "codex"),
+		CodexModel:      os.Getenv("AISSH_CODEX_MODEL"),
+		Language:        i18n.Resolve(firstNonEmpty(os.Getenv("AISSH_LANG"), "auto")),
+		HistoryDir:      firstNonEmpty(os.Getenv("AISSH_HISTORY_DIR"), history.DefaultDir()),
+		Workspace:       currentDirectory(),
+		ModelURL:        os.Getenv("AISSH_MODEL_URL"),
+		ModelAPIKey:     firstNonEmpty(os.Getenv("AISSH_MODEL_API_KEY"), os.Getenv("DEEPSEEK_API_KEY")),
+		ModelName:       os.Getenv("AISSH_MODEL_NAME"),
+		ScrollbackLines: app.DefaultScrollbackLines,
+		AITimeout:       app.DefaultAITimeout,
+	}
+	if value := strings.TrimSpace(os.Getenv("AISSH_SCROLLBACK_LINES")); value != "" {
+		lines, err := positiveLineCount(value)
+		if err != nil {
+			return config, false, false, fmt.Errorf("AISSH_SCROLLBACK_LINES: %w", err)
+		}
+		config.ScrollbackLines = lines
+	}
+	if value := strings.TrimSpace(os.Getenv("AISSH_AI_TIMEOUT")); value != "" {
+		timeout, err := positiveDuration(value)
+		if err != nil {
+			return config, false, false, fmt.Errorf("AISSH_AI_TIMEOUT: %w", err)
+		}
+		config.AITimeout = timeout
+	}
+	if disabledValue(os.Getenv("AISSH_HISTORY")) {
+		config.HistoryDir = ""
+	}
+	if value, exists := os.LookupEnv("AISSH_WORKSPACE"); exists && strings.TrimSpace(value) != "" {
+		if disabledValue(value) {
+			config.Workspace = ""
+		} else {
+			config.Workspace = value
+		}
+	}
+	var sshArgs []string
+	for index := 0; index < len(args); index++ {
+		value := args[index]
+		switch {
+		case value == "--help" || value == "-h":
+			return config, true, false, nil
+		case value == "--version":
+			return config, false, true, nil
+		case value == "--no-history":
+			config.HistoryDir = ""
+		case value == "--no-workspace":
+			config.Workspace = ""
+		case value == "--agent" || value == "--agent-url" || value == "--agent-token" || value == "--codex-path" || value == "--codex-model" || value == "--ssh-path" || value == "--lang" || value == "--history-dir" || value == "--workspace" || value == "--model-url" || value == "--model-name" || value == "--scrollback-lines" || value == "--ai-timeout":
+			if index+1 >= len(args) {
+				return config, false, false, fmt.Errorf("%s requires a value", value)
+			}
+			index++
+			switch value {
+			case "--agent":
+				config.AgentProvider = args[index]
+			case "--agent-url":
+				config.AgentURL = args[index]
+			case "--agent-token":
+				config.AgentToken = args[index]
+			case "--codex-path":
+				config.CodexPath = args[index]
+			case "--codex-model":
+				config.CodexModel = args[index]
+			case "--ssh-path":
+				config.SSHPath = args[index]
+			case "--lang":
+				config.Language = i18n.Resolve(args[index])
+			case "--history-dir":
+				config.HistoryDir = args[index]
+			case "--workspace":
+				config.Workspace = args[index]
+			case "--model-url":
+				config.ModelURL = args[index]
+			case "--model-name":
+				config.ModelName = args[index]
+			case "--scrollback-lines":
+				lines, err := positiveLineCount(args[index])
+				if err != nil {
+					return config, false, false, fmt.Errorf("--scrollback-lines: %w", err)
+				}
+				config.ScrollbackLines = lines
+			case "--ai-timeout":
+				timeout, err := positiveDuration(args[index])
+				if err != nil {
+					return config, false, false, fmt.Errorf("--ai-timeout: %w", err)
+				}
+				config.AITimeout = timeout
+			}
+		case strings.HasPrefix(value, "--agent="):
+			config.AgentProvider = strings.TrimPrefix(value, "--agent=")
+		case strings.HasPrefix(value, "--agent-url="):
+			config.AgentURL = strings.TrimPrefix(value, "--agent-url=")
+		case strings.HasPrefix(value, "--agent-token="):
+			config.AgentToken = strings.TrimPrefix(value, "--agent-token=")
+		case strings.HasPrefix(value, "--codex-path="):
+			config.CodexPath = strings.TrimPrefix(value, "--codex-path=")
+		case strings.HasPrefix(value, "--codex-model="):
+			config.CodexModel = strings.TrimPrefix(value, "--codex-model=")
+		case strings.HasPrefix(value, "--ssh-path="):
+			config.SSHPath = strings.TrimPrefix(value, "--ssh-path=")
+		case strings.HasPrefix(value, "--lang="):
+			config.Language = i18n.Resolve(strings.TrimPrefix(value, "--lang="))
+		case strings.HasPrefix(value, "--history-dir="):
+			config.HistoryDir = strings.TrimPrefix(value, "--history-dir=")
+		case strings.HasPrefix(value, "--workspace="):
+			config.Workspace = strings.TrimPrefix(value, "--workspace=")
+		case strings.HasPrefix(value, "--model-url="):
+			config.ModelURL = strings.TrimPrefix(value, "--model-url=")
+		case strings.HasPrefix(value, "--model-name="):
+			config.ModelName = strings.TrimPrefix(value, "--model-name=")
+		case strings.HasPrefix(value, "--scrollback-lines="):
+			lines, err := positiveLineCount(strings.TrimPrefix(value, "--scrollback-lines="))
+			if err != nil {
+				return config, false, false, fmt.Errorf("--scrollback-lines: %w", err)
+			}
+			config.ScrollbackLines = lines
+		case strings.HasPrefix(value, "--ai-timeout="):
+			timeout, err := positiveDuration(strings.TrimPrefix(value, "--ai-timeout="))
+			if err != nil {
+				return config, false, false, fmt.Errorf("--ai-timeout: %w", err)
+			}
+			config.AITimeout = timeout
+		default:
+			sshArgs = append(sshArgs, value)
+		}
+	}
+	if len(sshArgs) == 0 {
+		return config, true, false, nil
+	}
+	config.SSHArgs = sshArgs
+	return config, false, false, nil
+}
+
+func printHelp(language string) {
+	localizer := i18n.New(language)
+	if localizer.IsEnglish() {
+		fmt.Print(`aissh - AI monitor workspace for SSH
+
+Usage:
+  aissh [aissh options] [OpenSSH options] user@host
+
+Examples:
+  aissh root@192.0.2.1
+  aissh -p 2222 production
+  aissh -J bastion internal-server
+
+aissh options:
+  --agent PROVIDER    AI backend: codex, deepseek, model, or http
+  --codex-path PATH   Local Codex CLI path; defaults to codex
+  --codex-model MODEL Codex model; defaults to the local configuration
+  --agent-url URL     HTTP Agent SSE endpoint
+  --agent-token TOKEN HTTP Agent Bearer token
+  --ssh-path PATH     OpenSSH binary; defaults to /usr/bin/ssh
+  --lang LANG         UI language: zh-CN or en (auto-detected by default)
+  --history-dir DIR   Local per-target AI history directory
+  --no-history        Disable loading and saving AI history
+  --workspace DIR     Read-only local code workspace (default: current directory)
+  --no-workspace      Disable local workspace access for Codex
+  --model-url URL     OpenAI-compatible model API base URL
+  --model-name MODEL  Direct model name
+  --scrollback-lines N SSH scrollback lines kept locally (default: 20000)
+  --ai-timeout DURATION AI request timeout; e.g. 30s, 5m, 1h; bare number = seconds (default: 5m)
+  --version           Show version
+
+Shortcuts:
+  Ctrl+O  Expand the currently folded command in place
+  Ctrl+R  Browse sessions while the AI conversation is focused
+  Ctrl+T  Switch monitor tabs
+  Ctrl+N  Add a monitor tab
+  Esc     Return to the SSH terminal
+
+AI command proposals appear in the left SSH pane; enter yes or no and press Enter.
+
+All unrecognized options are passed through to OpenSSH.
+`)
+		return
+	}
+	fmt.Print(`aissh - AI 监控分屏 SSH
+
+用法:
+  aissh [aissh选项] [原生ssh选项] user@host
+
+示例:
+  aissh root@192.0.2.1
+  aissh -p 2222 production
+  aissh -J bastion internal-server
+
+aissh选项:
+  --agent PROVIDER    AI 后端：codex、deepseek、model 或 http
+  --codex-path PATH   本机 Codex CLI 路径，默认 codex
+  --codex-model MODEL 指定 Codex 模型；默认沿用本机配置
+  --agent-url URL     HTTP Agent SSE 地址；设置后兼容旧模式
+  --agent-token TOKEN HTTP Agent Bearer Token
+  --ssh-path PATH     系统 ssh 路径，默认 /usr/bin/ssh
+  --lang LANG         界面语言：zh-CN 或 en，默认根据系统环境自动选择
+  --history-dir DIR   按目标保存 AI 历史的本机目录
+  --no-history        禁用 AI 历史的读取和写入
+  --workspace DIR     供 Codex 只读分析的本机代码工作区，默认当前目录
+  --no-workspace      禁止 Codex 访问本机工作区
+  --model-url URL     OpenAI-compatible 模型 API 地址
+  --model-name MODEL  直连模型名称
+  --scrollback-lines N 本机保留的 SSH 回滚行数，默认 20000
+  --ai-timeout DURATION AI 请求超时；如 30s、5m、1h；纯数字按秒（默认 5m）
+  --version           显示版本
+
+快捷键:
+  Ctrl+O  就地展开当前折叠的完整命令
+  Ctrl+R  聚焦 AI 对话时浏览当前目标的历史会话
+  Ctrl+T  切换右上监控 Tab
+  Ctrl+N  新增监控 Tab
+  Esc     返回 SSH 主终端
+
+AI 建议命令时，会在左侧 SSH 窗口显示确认卡片；输入 yes 或 no 后回车。
+
+所有未识别参数都会原样传给系统 OpenSSH。
+`)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func disabledValue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "0", "false", "off", "no", "none", "disabled":
+		return true
+	default:
+		return false
+	}
+}
+
+func currentDirectory() string {
+	value, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return value
+}
+
+func positiveLineCount(value string) (int, error) {
+	lines, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || lines <= 0 {
+		return 0, fmt.Errorf("must be a positive integer")
+	}
+	return lines, nil
+}
+
+func positiveDuration(value string) (time.Duration, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, fmt.Errorf("must be a positive duration")
+	}
+	if _, err := strconv.Atoi(value); err == nil {
+		value += "s"
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		return 0, fmt.Errorf("must be a positive duration such as 300s, 5m, or 10m")
+	}
+	return duration, nil
+}

@@ -1,0 +1,654 @@
+package app
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+	"unicode/utf8"
+
+	"github.com/creack/pty"
+	"github.com/hinshun/vt10x"
+	"golang.org/x/term"
+
+	"git.example.com/ai/wrd-ai-cli/internal/agent"
+	"git.example.com/ai/wrd-ai-cli/internal/history"
+	app_i18n "git.example.com/ai/wrd-ai-cli/internal/i18n"
+	"git.example.com/ai/wrd-ai-cli/internal/monitor"
+	"git.example.com/ai/wrd-ai-cli/internal/panel"
+	"git.example.com/ai/wrd-ai-cli/internal/policy"
+	"git.example.com/ai/wrd-ai-cli/internal/sshwrap"
+	"git.example.com/ai/wrd-ai-cli/internal/terminalview"
+	"git.example.com/ai/wrd-ai-cli/internal/trigger"
+)
+
+type Config struct {
+	SSHPath         string
+	SSHArgs         []string
+	AgentProvider   string
+	AgentURL        string
+	AgentToken      string
+	CodexPath       string
+	CodexModel      string
+	Language        string
+	HistoryDir      string
+	Workspace       string
+	ModelURL        string
+	ModelAPIKey     string
+	ModelName       string
+	ScrollbackLines int
+	AITimeout       time.Duration
+}
+
+const terminalFrameInterval = time.Second / 30
+const DefaultScrollbackLines = 20000
+const DefaultAITimeout = 5 * time.Minute
+
+type App struct {
+	config Config
+	parsed sshwrap.Parsed
+
+	ctx    context.Context
+	cancel context.CancelFunc
+	events chan interface{}
+
+	sshCommand   *exec.Cmd
+	sshPTY       *os.File
+	controlDir   string
+	controlPath  string
+	monitor      monitor.Runner
+	virtual      vt10x.Terminal
+	transformer  terminalview.WideTransformer
+	terminalDone bool
+	screenOut    io.Writer
+	zmodem       *zmodemPassthrough
+	zmodemTail   []byte
+
+	cols        int
+	rows        int
+	mainCols    int
+	contentRows int
+	compact     bool
+
+	panels                  *panel.Manager
+	monitorLayout           monitorLayoutMode
+	monitorLast             map[string]time.Time
+	monitorActive           map[string]bool
+	panelScroll             map[string]int
+	monitorSlots            map[monitorLayoutMode]map[int]string
+	monitorSlot             int
+	monitorSlotMode         monitorLayoutMode
+	focus                   focusMode
+	menuStatus              string
+	editor                  []rune
+	approvalInput           []rune
+	approvalStatus          string
+	approvalCommandExpanded bool
+	aiLineCapture           bool
+	lineInput               []byte
+	lineAnchorX             int
+	lineAnchorY             int
+	lineAnchored            bool
+	lineReliable            bool
+	atPrompt                bool
+	sensitive               bool
+	lastCommand             string
+	outputTail              *rollingBuffer
+	recentOutput            *rollingBuffer
+	errorCarry              string
+	pendingError            *trigger.ErrorMatch
+
+	agent                 agent.Provider
+	agentBusy             bool
+	agentInline           *inlineAIState
+	agentSessionID        string
+	agentStatus           string
+	agentThought          string
+	agentLanguage         string
+	agentSeedContext      string
+	chat                  []chatMessage
+	proposal              *agent.Proposal
+	aiExpanded            bool
+	aiScroll              int
+	inlineAI              *inlineAIState
+	inlineHistory         []*inlineAIState
+	execution             *executionState
+	localizer             app_i18n.Localizer
+	historyStore          *history.Store
+	historyTarget         string
+	historyWarned         bool
+	historyConversations  []history.Conversation
+	historyConversationID string
+	historySelection      int
+	mouseCarry            []byte
+	clearCarry            []byte
+	terminalRows          map[int]string
+	terminalHistory       []terminalview.Line
+	terminalScroll        int
+
+	dirty bool
+}
+
+func New(config Config) (*App, error) {
+	if strings.TrimSpace(config.SSHPath) == "" {
+		config.SSHPath = "/usr/bin/ssh"
+	}
+	if config.ScrollbackLines <= 0 {
+		config.ScrollbackLines = DefaultScrollbackLines
+	}
+	if config.AITimeout <= 0 {
+		config.AITimeout = DefaultAITimeout
+	}
+	parsed, err := sshwrap.Parse(config.SSHArgs)
+	if err != nil {
+		return nil, err
+	}
+	if len(parsed.RemoteCommand) > 0 {
+		return nil, fmt.Errorf("aissh interactive workspace does not accept a remote command yet")
+	}
+	localizer := app_i18n.New(config.Language)
+	config.Language = localizer.Language()
+	mode := agentMode(config)
+	if mode == "deepseek" {
+		config.ModelURL = firstText(config.ModelURL, "https://api.deepseek.com")
+		config.ModelName = firstText(config.ModelName, "deepseek-v4-pro")
+	}
+	if mode != "codex" && mode != "local" {
+		config.Workspace = ""
+	}
+	workspace, err := resolveLocalWorkspace(config.Workspace)
+	if err != nil {
+		return nil, fmt.Errorf("%s", localizer.T("无法访问本机代码工作区：%s", err.Error()))
+	}
+	config.Workspace = workspace
+	ctx, cancel := context.WithCancel(context.Background())
+	provider, err := newAgentProvider(config)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	panels := panel.NewManager(parsed.Target)
+	panels.ByID("system").Title = localizer.T("系统")
+	value := &App{
+		config:                config,
+		parsed:                parsed,
+		ctx:                   ctx,
+		cancel:                cancel,
+		events:                make(chan interface{}, 256),
+		panels:                panels,
+		monitorLast:           make(map[string]time.Time),
+		monitorActive:         make(map[string]bool),
+		panelScroll:           make(map[string]int),
+		monitorSlots:          make(map[monitorLayoutMode]map[int]string),
+		monitorSlot:           -1,
+		focus:                 focusTerminal,
+		aiExpanded:            true,
+		lineReliable:          true,
+		outputTail:            newRollingBuffer(16 * 1024),
+		recentOutput:          newRollingBuffer(64 * 1024),
+		agent:                 provider,
+		localizer:             localizer,
+		historyConversationID: history.NewConversationID(),
+		dirty:                 true,
+	}
+	if strings.TrimSpace(config.HistoryDir) != "" {
+		value.historyStore = history.New(config.HistoryDir)
+		value.historyTarget = parsed.Target
+		value.loadChatHistory()
+	}
+	value.appendAIReadyMessages()
+	return value, nil
+}
+
+func (a *App) t(message string, args ...any) string {
+	return a.localizer.T(message, args...)
+}
+
+func newAgentProvider(config Config) (agent.Provider, error) {
+	mode := agentMode(config)
+	switch mode {
+	case "codex", "local":
+		provider := agent.NewCodexProvider(config.CodexPath, config.CodexModel)
+		provider.Language = config.Language
+		provider.Workspace = config.Workspace
+		provider.Timeout = config.AITimeout
+		return provider, nil
+	case "http", "remote":
+		provider := agent.NewClient(config.AgentURL, config.AgentToken)
+		provider.HTTP.Timeout = config.AITimeout
+		return provider, nil
+	case "deepseek":
+		provider := agent.NewDirectModelProvider("DeepSeek", config.ModelURL, config.ModelAPIKey, config.ModelName, true)
+		provider.Language = config.Language
+		provider.HTTP.Timeout = config.AITimeout
+		return provider, nil
+	case "model", "openai-compatible":
+		provider := agent.NewDirectModelProvider("Model", config.ModelURL, config.ModelAPIKey, config.ModelName, false)
+		provider.Language = config.Language
+		provider.HTTP.Timeout = config.AITimeout
+		return provider, nil
+	default:
+		return nil, fmt.Errorf("unsupported AI provider %q (use codex, deepseek, model, or http)", mode)
+	}
+}
+
+func agentMode(config Config) string {
+	mode := strings.ToLower(strings.TrimSpace(config.AgentProvider))
+	if mode == "" {
+		if strings.TrimSpace(config.AgentURL) != "" {
+			mode = "http"
+		} else {
+			mode = "codex"
+		}
+	}
+	return mode
+}
+
+func resolveLocalWorkspace(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	if value == "~" || strings.HasPrefix(value, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		value = filepath.Join(home, strings.TrimPrefix(value, "~/"))
+	}
+	absolute, err := filepath.Abs(value)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s is not a directory", resolved)
+	}
+	return filepath.Clean(resolved), nil
+}
+
+func (a *App) Run() error {
+	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+		return fmt.Errorf("aissh must run in an interactive terminal")
+	}
+	if err := a.updateSize(); err != nil {
+		return err
+	}
+	if err := a.startSSH(); err != nil {
+		return err
+	}
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		a.stopSSH()
+		return err
+	}
+	defer func() {
+		_ = term.Restore(int(os.Stdin.Fd()), oldState)
+		_, _ = io.WriteString(os.Stdout, "\x1b[?2026l\x1b[?1000l\x1b[?1006l\x1b[0m\x1b[?25h\x1b[?1049l")
+		a.stopSSH()
+		if a.controlDir != "" {
+			_ = os.RemoveAll(a.controlDir)
+		}
+	}()
+	_, _ = io.WriteString(os.Stdout, "\x1b[?1049h\x1b[2J\x1b[H\x1b[?1000h\x1b[?1006h")
+
+	a.startInputReader()
+	a.startSignalReader()
+	a.startOutputReader()
+
+	maintenanceTicker := time.NewTicker(120 * time.Millisecond)
+	frameTicker := time.NewTicker(terminalFrameInterval)
+	defer maintenanceTicker.Stop()
+	defer frameTicker.Stop()
+	for {
+		select {
+		case <-a.ctx.Done():
+			return nil
+		case event := <-a.events:
+			a.handleEvent(event)
+		case <-maintenanceTicker.C:
+			a.checkZmodemCompletion(time.Now())
+			a.scheduleMonitors()
+			if a.inlineAI != nil && a.agentBusy {
+				a.inlineAI.Spinner++
+				a.dirty = true
+			}
+		case <-frameTicker.C:
+			if a.dirty && a.zmodem == nil {
+				a.render()
+				a.dirty = false
+			}
+		}
+		if a.terminalDone {
+			if a.dirty {
+				a.render()
+				a.dirty = false
+			}
+			return nil
+		}
+	}
+}
+
+func (a *App) startSSH() error {
+	args := append([]string(nil), a.config.SSHArgs...)
+	if !sshwrap.HasControlPath(args) {
+		directory, err := os.MkdirTemp("", "aissh-")
+		if err != nil {
+			return err
+		}
+		if err := os.Chmod(directory, 0700); err != nil {
+			return err
+		}
+		a.controlDir = directory
+		a.controlPath = filepath.Join(directory, "master")
+		args = append(sshwrap.ControlOptions(a.controlPath), args...)
+	}
+	cmd := exec.CommandContext(a.ctx, a.config.SSHPath, args...)
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: uint16(a.contentRows), Cols: uint16(a.mainCols)})
+	if err != nil {
+		return err
+	}
+	a.sshCommand = cmd
+	a.sshPTY = ptmx
+	a.virtual = vt10x.New(vt10x.WithWriter(ptmx), vt10x.WithSize(a.mainCols, a.contentRows))
+	a.monitor = monitor.Runner{
+		SSHPath:     a.config.SSHPath,
+		Parsed:      a.parsed,
+		ControlPath: a.controlPath,
+		Timeout:     8 * time.Second,
+		Language:    a.localizer.Language(),
+	}
+	go func() { a.events <- sshExitEvent{err: cmd.Wait()} }()
+	return nil
+}
+
+func (a *App) stopSSH() {
+	if a.sshPTY != nil {
+		_ = a.sshPTY.Close()
+	}
+	if a.sshCommand != nil && a.sshCommand.Process != nil {
+		_ = a.sshCommand.Process.Signal(syscall.SIGHUP)
+	}
+}
+
+func (a *App) startOutputReader() {
+	go func() {
+		buffer := make([]byte, 32*1024)
+		for {
+			count, err := a.sshPTY.Read(buffer)
+			if count > 0 {
+				a.events <- outputEvent{data: append([]byte(nil), buffer[:count]...)}
+			}
+			if err != nil {
+				if !errors.Is(err, os.ErrClosed) {
+					a.events <- sshExitEvent{err: err}
+				}
+				return
+			}
+		}
+	}()
+}
+
+func (a *App) writeTerminalOutput(data []byte) []terminalview.Line {
+	var history []terminalview.Line
+	for len(data) > 0 {
+		newline := bytes.IndexByte(data, '\n')
+		if newline < 0 {
+			_, _ = a.virtual.Write(data)
+			break
+		}
+		if newline > 0 {
+			_, _ = a.virtual.Write(data[:newline])
+		}
+		if line, ok := terminalview.CaptureTopLineIfScrolling(a.virtual, a.contentRows-1, a.mainCols); ok {
+			history = append(history, line)
+		}
+		_, _ = a.virtual.Write(data[newline : newline+1])
+		data = data[newline+1:]
+	}
+	return history
+}
+
+func (a *App) startInputReader() {
+	go func() {
+		buffer := make([]byte, 4096)
+		for {
+			count, err := os.Stdin.Read(buffer)
+			if count > 0 {
+				a.events <- inputEvent{data: append([]byte(nil), buffer[:count]...)}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+}
+
+func (a *App) startSignalReader() {
+	resize := make(chan os.Signal, 2)
+	signal.Notify(resize, syscall.SIGWINCH)
+	go func() {
+		defer signal.Stop(resize)
+		for {
+			select {
+			case <-a.ctx.Done():
+				return
+			case <-resize:
+				a.events <- resizeEvent{}
+			}
+		}
+	}()
+}
+
+func (a *App) updateSize() error {
+	cols, rows, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		return err
+	}
+	if cols < 40 || rows < 10 {
+		return fmt.Errorf("terminal is too small; need at least 40x10")
+	}
+	a.cols, a.rows = cols, rows
+	a.contentRows = rows - 2
+	a.compact = cols < 92
+	if a.compact {
+		a.mainCols = cols
+	} else {
+		a.mainCols = cols * 64 / 100
+		if a.mainCols < 48 {
+			a.mainCols = 48
+		}
+		if cols-a.mainCols-1 < 32 {
+			a.mainCols = cols - 33
+		}
+	}
+	if a.virtual != nil {
+		a.virtual.Resize(a.mainCols, a.contentRows)
+	}
+	if a.sshPTY != nil {
+		_ = pty.Setsize(a.sshPTY, &pty.Winsize{Rows: uint16(a.contentRows), Cols: uint16(a.mainCols)})
+	}
+	return nil
+}
+
+func (a *App) handleEvent(event interface{}) {
+	switch value := event.(type) {
+	case inputEvent:
+		a.handleInput(value.data)
+	case outputEvent:
+		a.processSSHOutput(value.data)
+	case resizeEvent:
+		_ = a.updateSize()
+		a.dirty = true
+	case sshExitEvent:
+		if !a.terminalDone && value.err != nil && !strings.Contains(value.err.Error(), "input/output error") {
+			a.appendPersistentChat(chatMessage{Role: "system", Content: a.t("SSH 已结束：%s", value.err.Error()), Time: time.Now()})
+		}
+		a.terminalDone = true
+		a.dirty = true
+	case monitorResultEvent:
+		a.monitorActive[value.panelID] = false
+		a.monitorLast[value.panelID] = time.Now()
+		if value.err != nil {
+			a.panels.SetError(value.panelID, value.err)
+		} else {
+			a.panels.UpdateContent(value.panelID, value.content, a.t("实时"), false)
+		}
+		if a.monitorWorkspaceVisible() {
+			a.dirty = true
+		}
+	case agentStatusEvent:
+		a.agentStatus = a.t(value.status)
+		if a.agentInline != nil {
+			if a.agentInline.StatusPrefix != "" {
+				a.agentInline.Status = a.agentInline.StatusPrefix + " · " + a.t(value.status)
+			} else {
+				a.agentInline.Status = a.t(value.status)
+			}
+		}
+		a.dirty = true
+	case agentThoughtEvent:
+		a.agentThought += value.content
+		if len(a.agentThought) > 12000 {
+			a.agentThought = a.agentThought[len(a.agentThought)-12000:]
+		}
+		a.dirty = true
+	case agentAnswerEvent:
+		a.agentThought = ""
+		a.appendAssistantDelta(value.content)
+		if a.agentInline != nil {
+			a.agentInline.Response += value.content
+		}
+		a.dirty = true
+	case agentTurnEvent:
+		a.finishAgentTurn(value.turn, value.err)
+	case agentPanelEvent:
+		a.applyPanelAction(value.action)
+	case approvalEvent:
+		a.finishApproval(value)
+	case rejectionEvent:
+		a.finishRejection(value)
+	case executionResultEvent:
+		a.finishExecutionResult(value)
+	case delayedErrorTriggerEvent:
+		if a.pendingError != nil && a.pendingError.Kind == value.match.Kind {
+			a.pendingError = nil
+			a.startAI(a.t("刚才命令 %q 执行失败：%s。请分析原因并给出安全的下一步。", value.command, value.match.Message), true)
+		}
+	}
+}
+
+func (a *App) monitorWorkspaceVisible() bool {
+	if !a.compact {
+		return true
+	}
+	return a.focus == focusMonitor || a.focus == focusMonitorSlot || a.focus == focusPanelMenu || a.focus == focusCustomPanel
+}
+
+func estimateTerminalScroll(cursorY int, data []byte, rows int) int {
+	if rows <= 0 || len(data) == 0 {
+		return 0
+	}
+	lineFeeds := bytes.Count(data, []byte{'\n'})
+	scrolls := cursorY + lineFeeds - (rows - 1)
+	if scrolls < 0 {
+		return 0
+	}
+	if scrolls > lineFeeds {
+		return lineFeeds
+	}
+	return scrolls
+}
+
+func (a *App) handleOutput(data []byte) {
+	a.observeTerminalClear(data)
+	plain := trigger.StripANSI(string(data))
+	a.outputTail.Append(plain)
+	a.recentOutput.Append(plain)
+	if a.execution != nil {
+		a.execution.Output += plain
+		if len(a.execution.Output) > 128*1024 {
+			a.execution.Output = a.execution.Output[len(a.execution.Output)-128*1024:]
+		}
+	}
+	a.sensitive = trigger.LooksSensitive(a.outputTail.String())
+	errorWindow := a.errorCarry + plain
+	if match := trigger.MatchError(errorWindow); match != nil {
+		a.pendingError = match
+	}
+	if len(errorWindow) > 512 {
+		errorWindow = errorWindow[len(errorWindow)-512:]
+		for len(errorWindow) > 0 && (errorWindow[0]&0xc0) == 0x80 {
+			errorWindow = errorWindow[1:]
+		}
+	}
+	a.errorCarry = errorWindow
+	if trigger.LooksLikePrompt(a.outputTail.String()) {
+		a.atPrompt = true
+		a.sensitive = false
+		if a.execution != nil {
+			a.submitExecutionResult()
+		} else if a.pendingError != nil && a.pendingError.Kind == "command_not_found" && !a.agentBusy {
+			match := *a.pendingError
+			command := a.lastCommand
+			go func() {
+				time.Sleep(120 * time.Millisecond)
+				a.events <- delayedErrorTriggerEvent{match: match, command: command, createdAt: time.Now()}
+			}()
+		}
+	}
+	a.dirty = true
+}
+
+func (a *App) scheduleMonitors() {
+	now := time.Now()
+	for _, item := range a.panels.Panels() {
+		if item.Kind != panel.KindMonitor && item.Kind != panel.KindTable && item.Kind != panel.KindLog {
+			continue
+		}
+		if item.Command == "" || a.monitorActive[item.ID] {
+			continue
+		}
+		interval := item.Interval
+		if interval < time.Second {
+			interval = time.Second
+		}
+		if last := a.monitorLast[item.ID]; !last.IsZero() && now.Sub(last) < interval {
+			continue
+		}
+		if !policy.IsReadOnlyMonitorCommand(item.Command) {
+			a.panels.SetError(item.ID, fmt.Errorf("%s", a.t("监控命令被只读策略拒绝")))
+			a.monitorLast[item.ID] = now
+			continue
+		}
+		a.monitorActive[item.ID] = true
+		panelID, command := item.ID, item.Command
+		go func() {
+			content, err := a.monitor.Run(a.ctx, command)
+			a.events <- monitorResultEvent{panelID: panelID, content: content, err: err}
+		}()
+	}
+}
+
+func bytesToRunes(data []byte) []rune {
+	if utf8.Valid(data) {
+		return []rune(string(data))
+	}
+	return []rune(string([]byte{data[0]}))
+}
