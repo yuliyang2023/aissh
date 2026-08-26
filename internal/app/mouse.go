@@ -2,17 +2,24 @@ package app
 
 import (
 	"bytes"
+	"io"
 	"strconv"
 	"strings"
 )
 
 var sgrMousePrefix = []byte("\x1b[<")
 
+const (
+	mouseReportingEnable  = "\x1b[?1000h\x1b[?1002h\x1b[?1006h"
+	mouseReportingDisable = "\x1b[?1000l\x1b[?1002l\x1b[?1006l"
+)
+
 type mouseEvent struct {
 	Button  int
 	X       int
 	Y       int
 	Release bool
+	Motion  bool
 }
 
 func (a *App) handleMixedInput(data []byte) {
@@ -81,58 +88,83 @@ func parseSGRMouse(sequence []byte) (mouseEvent, bool) {
 	if values[1] < 1 || values[2] < 1 {
 		return mouseEvent{}, false
 	}
-	return mouseEvent{Button: values[0], X: values[1], Y: values[2], Release: terminator == 'm'}, true
+	return mouseEvent{Button: values[0], X: values[1], Y: values[2], Release: terminator == 'm', Motion: values[0]&32 != 0}, true
 }
 
 func (a *App) handleMouse(event mouseEvent) {
 	if event.Release {
+		if event.Button&3 != 0 {
+			return
+		}
+		if !a.finishTextSelection(event.X, event.Y) {
+			a.handleLeftClick(event.X, event.Y)
+		}
+		return
+	}
+	if event.Motion {
+		if event.Button&3 == 0 {
+			a.updateTextSelection(event.X, event.Y)
+		}
 		return
 	}
 	if event.Button&64 != 0 {
+		a.clearTextSelection()
 		a.handleMouseWheel(event)
+		return
+	}
+	if event.Button&3 == 2 {
+		if a.copyTextSelection() {
+			return
+		}
+		a.enterNativeSelection()
 		return
 	}
 	if event.Button&3 != 0 {
 		return
 	}
-	if a.handleScrollbarClick(event.X, event.Y) {
+	a.beginTextSelection(event.X, event.Y)
+	return
+}
+
+func (a *App) handleLeftClick(x, y int) {
+	if a.handleScrollbarClick(x, y) {
 		return
 	}
-	if a.handleCommandExpandClick(event.X, event.Y) {
+	if a.handleCommandExpandClick(x, y) {
 		return
 	}
-	if a.handleApprovalClick(event.X, event.Y) {
+	if a.handleApprovalClick(x, y) {
 		return
 	}
-	if a.handleInlineAIClick(event.X, event.Y) {
+	if a.handleInlineAIClick(x, y) {
 		return
 	}
 	if a.compact {
-		if a.focus == focusAI && a.handleAICommandExpandClick(event.X, event.Y) {
+		if a.focus == focusAI && a.handleAICommandExpandClick(x, y) {
 			return
 		}
-		a.handleCompactClick(event.X, event.Y)
+		a.handleCompactClick(x, y)
 		return
 	}
-	if event.X <= a.mainCols && event.Y >= 2 && event.Y < a.rows {
+	if x <= a.mainCols && y >= 2 && y < a.rows {
 		if a.proposal == nil {
 			a.focus = focusTerminal
 		}
 		return
 	}
 	monitorTop, monitorLeft, monitorWidth, monitorHeight := a.monitorRegion()
-	if pointInRegion(event.X, event.Y, monitorTop, monitorLeft, monitorWidth, monitorHeight) {
-		if a.focus == focusMonitorSlot && event.Y > monitorTop {
-			a.handleMonitorSlotClick(event.Y)
+	if pointInRegion(x, y, monitorTop, monitorLeft, monitorWidth, monitorHeight) {
+		if a.focus == focusMonitorSlot && y > monitorTop {
+			a.handleMonitorSlotClick(y)
 			return
 		}
-		if event.Y == monitorTop {
-			if event.X >= a.monitorLayoutHeaderStart() {
+		if y == monitorTop {
+			if x >= a.monitorLayoutHeaderStart() {
 				a.cycleMonitorLayout()
 				a.focus = focusMonitor
 				return
 			}
-			if id, add, ok := a.monitorHeaderTarget(event.X); ok {
+			if id, add, ok := a.monitorHeaderTarget(x); ok {
 				if add {
 					a.focus = focusPanelMenu
 					a.menuStatus = ""
@@ -143,22 +175,22 @@ func (a *App) handleMouse(event mouseEvent) {
 				return
 			}
 		}
-		if slot, ok := a.monitorSlotButtonTarget(event.X, event.Y); ok {
+		if slot, ok := a.monitorSlotButtonTarget(x, y); ok {
 			a.openMonitorSlotPicker(slot)
 			return
 		}
-		if item := a.monitorTileAt(event.X, event.Y); item != nil {
+		if item := a.monitorTileAt(x, y); item != nil {
 			a.panels.Activate(item.ID)
 		}
 		a.focus = focusMonitor
 		return
 	}
 	aiTop, aiLeft, aiWidth, aiHeight := a.aiRegion()
-	if pointInRegion(event.X, event.Y, aiTop, aiLeft, aiWidth, aiHeight) {
-		if a.handleAICommandExpandClick(event.X, event.Y) {
+	if pointInRegion(x, y, aiTop, aiLeft, aiWidth, aiHeight) {
+		if a.handleAICommandExpandClick(x, y) {
 			return
 		}
-		if event.Y == aiTop && event.X >= a.aiHistoryHeaderStart() {
+		if y == aiTop && x >= a.aiHistoryHeaderStart() {
 			if a.focus == focusAIHistory {
 				a.focus = focusAI
 			} else {
@@ -167,11 +199,33 @@ func (a *App) handleMouse(event mouseEvent) {
 			return
 		}
 		if a.focus == focusAIHistory {
-			a.handleAIHistoryClick(event.Y)
+			a.handleAIHistoryClick(y)
 			return
 		}
 		a.openAIConversation()
 	}
+}
+
+func (a *App) enterNativeSelection() {
+	if a.nativeSelection {
+		return
+	}
+	a.nativeSelection = true
+	a.selectionNeedsRender = true
+	a.mouseCarry = nil
+	_, _ = io.WriteString(a.outputWriter(), mouseReportingDisable)
+	a.dirty = true
+}
+
+func (a *App) leaveNativeSelection() {
+	if !a.nativeSelection {
+		return
+	}
+	a.nativeSelection = false
+	a.selectionNeedsRender = false
+	a.terminalRows = nil
+	_, _ = io.WriteString(a.outputWriter(), mouseReportingEnable)
+	a.dirty = true
 }
 
 func (a *App) handleInlineAIClick(x, y int) bool {
@@ -389,8 +443,8 @@ func (a *App) handleScrollbarClick(x, y int) bool {
 	if a.focus == focusAIHistory {
 		return false
 	}
-	// Clicking the conversation scrollbar also focuses AI, which reserves the
-	// bottom two rows for its pinned input box.
+	// The input box is always reserved, so clicking the scrollbar does not alter
+	// the conversation viewport or make the scroll position jump.
 	contentHeight := aiConversationViewport(aiHeight, true)
 	if contentHeight <= 1 || x != aiLeft+aiWidth-1 || y < aiTop+1 || y >= aiTop+aiHeight {
 		return false

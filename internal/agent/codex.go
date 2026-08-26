@@ -102,11 +102,12 @@ type codexRunner func(context.Context, string, []string, string) ([]byte, []byte
 // runs in an ephemeral, read-only workspace and only returns structured advice;
 // aissh remains solely responsible for executing approved commands over SSH.
 type CodexProvider struct {
-	Path      string
-	Model     string
-	Timeout   time.Duration
-	Language  string
-	Workspace string
+	Path               string
+	Model              string
+	Timeout            time.Duration
+	Language           string
+	Workspace          string
+	OutputContextChars int
 
 	mu       sync.Mutex
 	sessions map[string]*codexSession
@@ -120,18 +121,36 @@ func NewCodexProvider(path, model string) *CodexProvider {
 		path = "codex"
 	}
 	return &CodexProvider{
-		Path:     path,
-		Model:    strings.TrimSpace(model),
-		Timeout:  90 * time.Second,
-		sessions: make(map[string]*codexSession),
-		run:      runCodex,
-		lookPath: exec.LookPath,
+		Path:               path,
+		Model:              strings.TrimSpace(model),
+		Timeout:            90 * time.Second,
+		OutputContextChars: DefaultOutputContextChars,
+		sessions:           make(map[string]*codexSession),
+		run:                runCodex,
+		lookPath:           exec.LookPath,
 	}
 }
 
 func (p *CodexProvider) Name() string { return "Codex" }
 
 func (p *CodexProvider) localizer() i18n.Localizer { return i18n.New(p.Language) }
+
+// SetLocalWorkspace changes the read-only local directory used by subsequent
+// Codex turns. An empty value disables local workspace access.
+func (p *CodexProvider) SetLocalWorkspace(value string) {
+	p.mu.Lock()
+	p.Workspace = strings.TrimSpace(value)
+	p.mu.Unlock()
+}
+
+func (p *CodexProvider) LocalWorkspace() string {
+	if p == nil {
+		return ""
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return strings.TrimSpace(p.Workspace)
+}
 
 func (p *CodexProvider) Configured() bool {
 	if p == nil || strings.TrimSpace(p.Path) == "" {
@@ -151,8 +170,9 @@ func (p *CodexProvider) Stream(ctx context.Context, request Request, callbacks C
 	}
 	input := p.requestText(session, request)
 	request.SystemContext = cloneContext(request.SystemContext)
-	if strings.TrimSpace(p.Workspace) != "" {
-		request.SystemContext["local_workspace"] = p.Workspace
+	workspace := p.LocalWorkspace()
+	if workspace != "" {
+		request.SystemContext["local_workspace"] = workspace
 	}
 	p.mu.Lock()
 	history := append([]codexHistory(nil), session.History...)
@@ -173,7 +193,7 @@ func (p *CodexProvider) Stream(ctx context.Context, request Request, callbacks C
 		callbacks.OnStatus(p.localizer().T("正在调用本机 Codex"))
 	}
 	prompt := buildCodexPrompt(request, history, input)
-	result, err := p.invoke(ctx, prompt)
+	result, err := p.invoke(ctx, prompt, workspace)
 	if err != nil {
 		if created {
 			p.mu.Lock()
@@ -276,17 +296,17 @@ func (p *CodexProvider) requestText(session *codexSession, request Request) stri
 			delete(session.Proposals, request.ProposalID)
 		}
 		p.mu.Unlock()
-		return fmt.Sprintf("远端命令执行结果\n命令：%s\n完成原因：%s\n输出：\n%s", firstNonEmpty(command, "未知"), request.Completion, trimText(request.Output, 20000))
+		return fmt.Sprintf("远端命令执行结果\n命令：%s\n完成原因：%s\n输出：\n%s", firstNonEmpty(command, "未知"), request.Completion, LimitOutputContext(request.Output, p.OutputContextChars))
 	default:
 		parts := []string{"用户请求：" + trimText(request.Prompt, 8000)}
 		if strings.TrimSpace(request.RecentOutput) != "" {
-			parts = append(parts, "SSH 最近输出：\n"+trimText(request.RecentOutput, 20000))
+			parts = append(parts, "SSH 最近输出：\n"+LimitOutputContext(request.RecentOutput, p.OutputContextChars))
 		}
 		return strings.Join(parts, "\n\n")
 	}
 }
 
-func (p *CodexProvider) invoke(parent context.Context, prompt string) (codexResponse, error) {
+func (p *CodexProvider) invoke(parent context.Context, prompt, workspace string) (codexResponse, error) {
 	timeout := p.Timeout
 	if timeout <= 0 {
 		timeout = 90 * time.Second
@@ -314,7 +334,7 @@ func (p *CodexProvider) invoke(parent context.Context, prompt string) (codexResp
 		"--disable", "plugins", "--disable", "remote_plugin", "--disable", "apps",
 		"--disable", "browser_use", "--disable", "computer_use", "--disable", "image_generation",
 		"--disable", "multi_agent", "--disable", "hooks",
-		"-C", p.workingDirectory(), "--output-schema", schemaPath,
+		"-C", codexWorkingDirectory(workspace), "--output-schema", schemaPath,
 	}
 	if p.Model != "" {
 		args = append(args, "--model", p.Model)
@@ -334,8 +354,8 @@ func (p *CodexProvider) invoke(parent context.Context, prompt string) (codexResp
 	return response, nil
 }
 
-func (p *CodexProvider) workingDirectory() string {
-	if value := strings.TrimSpace(p.Workspace); value != "" {
+func codexWorkingDirectory(workspace string) string {
+	if value := strings.TrimSpace(workspace); value != "" {
 		return value
 	}
 	return os.TempDir()

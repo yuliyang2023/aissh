@@ -45,11 +45,13 @@ type Config struct {
 	ModelAPIKey     string
 	ModelName       string
 	ScrollbackLines int
+	AIContextChars  int
 	AITimeout       time.Duration
 }
 
 const terminalFrameInterval = time.Second / 30
 const DefaultScrollbackLines = 20000
+const DefaultAIContextChars = agent.DefaultOutputContextChars
 const DefaultAITimeout = 5 * time.Minute
 
 type App struct {
@@ -89,6 +91,8 @@ type App struct {
 	focus                   focusMode
 	menuStatus              string
 	editor                  []rune
+	aiEditorCursor          int
+	aiPasteMode             bool
 	approvalInput           []rune
 	approvalStatus          string
 	approvalCommandExpanded bool
@@ -102,7 +106,7 @@ type App struct {
 	sensitive               bool
 	lastCommand             string
 	outputTail              *rollingBuffer
-	recentOutput            *rollingBuffer
+	recentOutput            *contextBuffer
 	errorCarry              string
 	pendingError            *trigger.ErrorMatch
 
@@ -129,6 +133,11 @@ type App struct {
 	historyConversationID string
 	historySelection      int
 	mouseCarry            []byte
+	nativeSelection       bool
+	selectionNeedsRender  bool
+	textSelection         screenTextSelection
+	selectionCanvas       *screenTextCanvas
+	selectionStatus       string
 	clearCarry            []byte
 	terminalRows          map[int]string
 	terminalHistory       []terminalview.Line
@@ -143,6 +152,9 @@ func New(config Config) (*App, error) {
 	}
 	if config.ScrollbackLines <= 0 {
 		config.ScrollbackLines = DefaultScrollbackLines
+	}
+	if config.AIContextChars <= 0 {
+		config.AIContextChars = DefaultAIContextChars
 	}
 	if config.AITimeout <= 0 {
 		config.AITimeout = DefaultAITimeout
@@ -193,7 +205,7 @@ func New(config Config) (*App, error) {
 		aiExpanded:            true,
 		lineReliable:          true,
 		outputTail:            newRollingBuffer(16 * 1024),
-		recentOutput:          newRollingBuffer(64 * 1024),
+		recentOutput:          newContextBuffer(config.AIContextChars),
 		agent:                 provider,
 		localizer:             localizer,
 		historyConversationID: history.NewConversationID(),
@@ -218,8 +230,9 @@ func newAgentProvider(config Config) (agent.Provider, error) {
 	case "codex", "local":
 		provider := agent.NewCodexProvider(config.CodexPath, config.CodexModel)
 		provider.Language = config.Language
-		provider.Workspace = config.Workspace
+		provider.SetLocalWorkspace(config.Workspace)
 		provider.Timeout = config.AITimeout
+		provider.OutputContextChars = config.AIContextChars
 		return provider, nil
 	case "http", "remote":
 		provider := agent.NewClient(config.AgentURL, config.AgentToken)
@@ -229,11 +242,13 @@ func newAgentProvider(config Config) (agent.Provider, error) {
 		provider := agent.NewDirectModelProvider("DeepSeek", config.ModelURL, config.ModelAPIKey, config.ModelName, true)
 		provider.Language = config.Language
 		provider.HTTP.Timeout = config.AITimeout
+		provider.OutputContextChars = config.AIContextChars
 		return provider, nil
 	case "model", "openai-compatible":
 		provider := agent.NewDirectModelProvider("Model", config.ModelURL, config.ModelAPIKey, config.ModelName, false)
 		provider.Language = config.Language
 		provider.HTTP.Timeout = config.AITimeout
+		provider.OutputContextChars = config.AIContextChars
 		return provider, nil
 	default:
 		return nil, fmt.Errorf("unsupported AI provider %q (use codex, deepseek, model, or http)", mode)
@@ -299,13 +314,13 @@ func (a *App) Run() error {
 	}
 	defer func() {
 		_ = term.Restore(int(os.Stdin.Fd()), oldState)
-		_, _ = io.WriteString(os.Stdout, "\x1b[?2026l\x1b[?1000l\x1b[?1006l\x1b[0m\x1b[?25h\x1b[?1049l")
+		_, _ = io.WriteString(os.Stdout, "\x1b[?2026l"+mouseReportingDisable+"\x1b[0m\x1b[?25h\x1b[?1049l")
 		a.stopSSH()
 		if a.controlDir != "" {
 			_ = os.RemoveAll(a.controlDir)
 		}
 	}()
-	_, _ = io.WriteString(os.Stdout, "\x1b[?1049h\x1b[2J\x1b[H\x1b[?1000h\x1b[?1006h")
+	_, _ = io.WriteString(os.Stdout, "\x1b[?1049h\x1b[2J\x1b[H"+mouseReportingEnable)
 
 	a.startInputReader()
 	a.startSignalReader()
@@ -581,11 +596,8 @@ func (a *App) handleOutput(data []byte) {
 	plain := trigger.StripANSI(string(data))
 	a.outputTail.Append(plain)
 	a.recentOutput.Append(plain)
-	if a.execution != nil {
-		a.execution.Output += plain
-		if len(a.execution.Output) > 128*1024 {
-			a.execution.Output = a.execution.Output[len(a.execution.Output)-128*1024:]
-		}
+	if a.execution != nil && a.execution.Output != nil {
+		a.execution.Output.Append(plain)
 	}
 	a.sensitive = trigger.LooksSensitive(a.outputTail.String())
 	errorWindow := a.errorCarry + plain

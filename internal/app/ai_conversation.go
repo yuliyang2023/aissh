@@ -330,10 +330,8 @@ func fillChatRule(prefix string, width int) string {
 }
 
 func aiConversationViewport(height int, focused bool) int {
-	viewport := height - 1
-	if focused {
-		viewport -= 2
-	}
+	_ = focused
+	viewport := height - 2 - aiInputBodyRows(height)
 	if viewport < 0 {
 		return 0
 	}

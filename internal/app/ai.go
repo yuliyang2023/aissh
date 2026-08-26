@@ -83,7 +83,7 @@ func (a *App) startAI(prompt string, foreground bool) {
 		Event:        event,
 		SessionID:    a.agentSessionID,
 		Prompt:       prompt,
-		RecentOutput: a.recentOutput.String(),
+		RecentOutput: agent.LimitOutputContext(a.recentOutput.ContextString(), a.config.AIContextChars),
 		SystemContext: map[string]string{
 			"ui_language":       a.localizer.Language(),
 			"response_language": a.agentLanguage,
@@ -283,9 +283,11 @@ func (a *App) finishApproval(event approvalEvent) {
 		SessionID:  a.agentSessionID,
 		ProposalID: proposalID,
 		Command:    event.command,
+		Output:     newContextBuffer(a.config.AIContextChars),
 		StartedAt:  time.Now(),
 		Inline:     inlineExecution,
 	}
+	a.beginCommandOutput(event.command)
 	a.proposal = nil
 	a.approvalInput = nil
 	a.approvalStatus = ""
@@ -374,11 +376,15 @@ func (a *App) submitExecutionResult() {
 	}
 	a.agentBusy = true
 	a.agentStatus = a.t("AI 正在分析执行结果")
+	output := ""
+	if execution.Output != nil {
+		output = agent.LimitOutputContext(execution.Output.ContextString(), a.config.AIContextChars)
+	}
 	request := agent.Request{
 		Event:      "result",
 		SessionID:  execution.SessionID,
 		ProposalID: execution.ProposalID,
-		Output:     strings.TrimSpace(execution.Output),
+		Output:     output,
 		Completion: "prompt",
 		SystemContext: map[string]string{
 			"ui_language":       a.localizer.Language(),

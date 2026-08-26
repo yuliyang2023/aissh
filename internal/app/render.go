@@ -15,6 +15,9 @@ func (a *App) render() {
 	if a.zmodem != nil {
 		return
 	}
+	if a.nativeSelection && !a.selectionNeedsRender {
+		return
+	}
 	var output strings.Builder
 	terminalCursorRow, terminalCursorCol := 0, 0
 	// DEC mode 2026 lets supporting terminals present the assembled frame atomically.
@@ -68,8 +71,10 @@ func (a *App) render() {
 	}
 
 	output.WriteString(positionedLine(a.rows, 1, a.inputStatus(), a.cols, "\x1b[38;5;245m"))
+	a.captureSelectionCanvas(output.String())
+	a.renderTextSelection(&output)
 	switch {
-	case a.focus == focusTerminal && a.terminalScroll == 0 && !a.agentBusy && a.proposal == nil && !workspaceOnly && a.virtual != nil && a.virtual.CursorVisible():
+	case a.focus == focusTerminal && a.terminalScroll == 0 && a.proposal == nil && !workspaceOnly && a.virtual != nil && (a.virtual.CursorVisible() || a.atPrompt):
 		cursorCol := terminalCursorCol
 		if a.aiLineCapture {
 			cursorCol += textWidth(string(a.lineInput))
@@ -91,11 +96,9 @@ func (a *App) render() {
 		}
 	case a.focus == focusAI:
 		top, left, width, height := a.aiRegion()
-		cursorCol := left + 3 + textWidth(string(a.editor))
-		if cursorCol >= left+width {
-			cursorCol = left + width - 1
+		if cursorRow, cursorCol, ok := a.aiEditorCursorPosition(top, left, width, height); ok {
+			output.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b[?25h", cursorRow, cursorCol))
 		}
-		output.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b[?25h", top+height-1, cursorCol))
 	case a.focus == focusCustomPanel:
 		top, left, _, _ := a.monitorRegion()
 		cursorCol := left + 3 + textWidth(string(a.editor))
@@ -106,6 +109,9 @@ func (a *App) render() {
 	}
 	output.WriteString("\x1b[?2026l")
 	_, _ = io.WriteString(a.outputWriter(), output.String())
+	if a.nativeSelection {
+		a.selectionNeedsRender = false
+	}
 }
 
 func (a *App) renderSidebar(top, left, width, height int) string {
@@ -259,10 +265,22 @@ func (a *App) renderAIWorkspace(top, left, width, height int) string {
 		output.WriteString(positionedLine(top+1+index, left, " "+line.Text, width, line.Style))
 	}
 	output.WriteString(renderScrollbar(top+1, left+width-1, conversationHeight, len(allLines), conversationHeight, a.aiScroll))
-	if a.focus == focusAI && height >= 3 {
-		inputTop := top + height - 2
-		output.WriteString(positionedLine(inputTop, left, " "+a.aiInputTitle(a.agentBusy, contentWidth), width, aiInputTopStyle))
-		output.WriteString(positionedLine(inputTop+1, left, " › "+string(a.editor), width, aiInputStyle))
+	bodyRows := aiInputBodyRows(height)
+	if bodyRows > 0 {
+		inputTop := top + 1 + conversationHeight
+		titleStyle, bodyStyle := aiMutedStyle, aiCanvasStyle
+		if a.focus == focusAI {
+			titleStyle, bodyStyle = aiInputTopStyle, aiInputStyle
+		}
+		output.WriteString(positionedLine(inputTop, left, " "+a.aiInputTitle(a.agentBusy, contentWidth), width, titleStyle))
+		layout := a.buildAIEditorLayout(width, bodyRows)
+		for index := 0; index < bodyRows; index++ {
+			line := ""
+			if index < len(layout.Lines) {
+				line = layout.Lines[index]
+			}
+			output.WriteString(positionedLine(inputTop+1+index, left, line, width, bodyStyle))
+		}
 	}
 	return output.String()
 }

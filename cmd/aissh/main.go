@@ -54,6 +54,7 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 		ModelAPIKey:     firstNonEmpty(os.Getenv("AISSH_MODEL_API_KEY"), os.Getenv("DEEPSEEK_API_KEY")),
 		ModelName:       os.Getenv("AISSH_MODEL_NAME"),
 		ScrollbackLines: app.DefaultScrollbackLines,
+		AIContextChars:  app.DefaultAIContextChars,
 		AITimeout:       app.DefaultAITimeout,
 	}
 	if value := strings.TrimSpace(os.Getenv("AISSH_SCROLLBACK_LINES")); value != "" {
@@ -62,6 +63,13 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 			return config, false, false, fmt.Errorf("AISSH_SCROLLBACK_LINES: %w", err)
 		}
 		config.ScrollbackLines = lines
+	}
+	if value := strings.TrimSpace(os.Getenv("AISSH_AI_CONTEXT_CHARS")); value != "" {
+		characters, err := positiveLineCount(value)
+		if err != nil {
+			return config, false, false, fmt.Errorf("AISSH_AI_CONTEXT_CHARS: %w", err)
+		}
+		config.AIContextChars = characters
 	}
 	if value := strings.TrimSpace(os.Getenv("AISSH_AI_TIMEOUT")); value != "" {
 		timeout, err := positiveDuration(value)
@@ -92,7 +100,7 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 			config.HistoryDir = ""
 		case value == "--no-workspace":
 			config.Workspace = ""
-		case value == "--agent" || value == "--agent-url" || value == "--agent-token" || value == "--codex-path" || value == "--codex-model" || value == "--ssh-path" || value == "--lang" || value == "--history-dir" || value == "--workspace" || value == "--model-url" || value == "--model-name" || value == "--scrollback-lines" || value == "--ai-timeout":
+		case value == "--agent" || value == "--agent-url" || value == "--agent-token" || value == "--codex-path" || value == "--codex-model" || value == "--ssh-path" || value == "--lang" || value == "--history-dir" || value == "--workspace" || value == "--model-url" || value == "--model-name" || value == "--scrollback-lines" || value == "--ai-context-chars" || value == "--ai-timeout":
 			if index+1 >= len(args) {
 				return config, false, false, fmt.Errorf("%s requires a value", value)
 			}
@@ -126,6 +134,12 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 					return config, false, false, fmt.Errorf("--scrollback-lines: %w", err)
 				}
 				config.ScrollbackLines = lines
+			case "--ai-context-chars":
+				characters, err := positiveLineCount(args[index])
+				if err != nil {
+					return config, false, false, fmt.Errorf("--ai-context-chars: %w", err)
+				}
+				config.AIContextChars = characters
 			case "--ai-timeout":
 				timeout, err := positiveDuration(args[index])
 				if err != nil {
@@ -161,6 +175,12 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 				return config, false, false, fmt.Errorf("--scrollback-lines: %w", err)
 			}
 			config.ScrollbackLines = lines
+		case strings.HasPrefix(value, "--ai-context-chars="):
+			characters, err := positiveLineCount(strings.TrimPrefix(value, "--ai-context-chars="))
+			if err != nil {
+				return config, false, false, fmt.Errorf("--ai-context-chars: %w", err)
+			}
+			config.AIContextChars = characters
 		case strings.HasPrefix(value, "--ai-timeout="):
 			timeout, err := positiveDuration(strings.TrimPrefix(value, "--ai-timeout="))
 			if err != nil {
@@ -206,6 +226,7 @@ aissh options:
   --model-url URL     OpenAI-compatible model API base URL
   --model-name MODEL  Direct model name
   --scrollback-lines N SSH scrollback lines kept locally (default: 20000)
+  --ai-context-chars N Maximum SSH output characters sent to AI (default: 120000)
   --ai-timeout DURATION AI request timeout; e.g. 30s, 5m, 1h; bare number = seconds (default: 5m)
   --version           Show version
 
@@ -215,6 +236,11 @@ Shortcuts:
   Ctrl+T  Switch monitor tabs
   Ctrl+N  Add a monitor tab
   Esc     Return to the SSH terminal
+
+Local commands (available after SSH connects):
+  /workspace             Show the current local Codex workspace
+  /workspace LOCAL_PATH  Change the workspace for subsequent Codex requests
+  /workspace off         Disable local workspace access
 
 AI command proposals appear in the left SSH pane; enter yes or no and press Enter.
 
@@ -247,6 +273,7 @@ aissh选项:
   --model-url URL     OpenAI-compatible 模型 API 地址
   --model-name MODEL  直连模型名称
   --scrollback-lines N 本机保留的 SSH 回滚行数，默认 20000
+  --ai-context-chars N 每次交给 AI 的 SSH 输出字符上限，默认 120000
   --ai-timeout DURATION AI 请求超时；如 30s、5m、1h；纯数字按秒（默认 5m）
   --version           显示版本
 
@@ -256,6 +283,11 @@ aissh选项:
   Ctrl+T  切换右上监控 Tab
   Ctrl+N  新增监控 Tab
   Esc     返回 SSH 主终端
+
+本地命令（SSH 连接后可在左侧提示符或右下 AI 输入框使用）:
+  /workspace             查看当前本机 Codex 工作区
+  /workspace 本机路径     切换后续 Codex 请求使用的工作区
+  /workspace off         关闭本机工作区访问
 
 AI 建议命令时，会在左侧 SSH 窗口显示确认卡片；输入 yes 或 no 后回车。
 

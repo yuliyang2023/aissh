@@ -682,7 +682,9 @@ func TestInlineCommandShowsLoadingWhileAIAnalyzesExecutionResult(t *testing.T) {
 	_, _ = application.virtual.Write([]byte("root@server:~# "))
 	provider := executionAnalysisProvider{started: make(chan struct{}), release: make(chan struct{})}
 	application.agent = provider
-	application.execution = &executionState{Command: "uptime", Output: "load average: 0.1", StartedAt: time.Now(), Inline: true}
+	resultOutput := newContextBuffer(application.config.AIContextChars)
+	resultOutput.Append("load average: 0.1")
+	application.execution = &executionState{Command: "uptime", Output: resultOutput, StartedAt: time.Now(), Inline: true}
 
 	application.handleOutput([]byte("root@server:~# "))
 	select {

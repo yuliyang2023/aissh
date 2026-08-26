@@ -45,6 +45,85 @@ func TestLocalWorkspaceMustBeDirectory(t *testing.T) {
 	}
 }
 
+func TestLocalWorkspaceCanBeChangedAfterStartup(t *testing.T) {
+	initial := t.TempDir()
+	next := t.TempDir()
+	application, err := New(Config{SSHArgs: []string{"server"}, Workspace: initial})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := application.applyLocalWorkspaceCommand(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := application.agent.(*agent.CodexProvider)
+	if application.config.Workspace != resolved || provider.LocalWorkspace() != resolved {
+		t.Fatalf("config=%q provider=%q want=%q", application.config.Workspace, provider.LocalWorkspace(), resolved)
+	}
+	if !strings.Contains(message, resolved) || !strings.Contains(message, "后续") {
+		t.Fatalf("message=%q", message)
+	}
+}
+
+func TestWorkspaceCommandWorksInAIConversationAndCanDisableWorkspace(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}, Workspace: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application.focus = focusAI
+	application.handleAIInput([]byte("/workspace off\r"))
+	provider := application.agent.(*agent.CodexProvider)
+	if application.config.Workspace != "" || provider.LocalWorkspace() != "" || application.agentBusy {
+		t.Fatalf("config=%q provider=%q busy=%v", application.config.Workspace, provider.LocalWorkspace(), application.agentBusy)
+	}
+	if len(application.editor) != 0 || !strings.Contains(application.chat[len(application.chat)-1].Content, "已关闭") {
+		t.Fatalf("editor=%q chat=%#v", string(application.editor), application.chat)
+	}
+}
+
+func TestWorkspaceCommandAtSSHPromptIsHandledLocally(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}, Workspace: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	application.sshPTY = writer
+	application.atPrompt = true
+	application.lineInput = []byte("/workspace off")
+	application.submitTerminalLine('\r')
+	forwarded := make([]byte, 1)
+	if count, err := reader.Read(forwarded); err != nil || count != 1 || forwarded[0] != 0x15 {
+		t.Fatalf("forwarded count=%d data=%v err=%v", count, forwarded[:count], err)
+	}
+	if application.inlineAI == nil || application.inlineAI.Prompt != "/workspace off" || application.inlineAI.Error != "" {
+		t.Fatalf("inline=%#v", application.inlineAI)
+	}
+	if application.config.Workspace != "" || !application.atPrompt {
+		t.Fatalf("workspace=%q atPrompt=%v", application.config.Workspace, application.atPrompt)
+	}
+}
+
+func TestWorkspaceCommandIsRejectedForDirectModel(t *testing.T) {
+	application, err := New(Config{
+		SSHArgs: []string{"server"}, AgentProvider: "deepseek", ModelAPIKey: "secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.applyLocalWorkspaceCommand(t.TempDir()); err == nil || !strings.Contains(err.Error(), "不支持") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestHTTPAgentIgnoresLocalWorkspace(t *testing.T) {
 	application, err := New(Config{
 		SSHArgs: []string{"server"}, AgentProvider: "http", AgentURL: "http://agent/stream", Workspace: t.TempDir(),

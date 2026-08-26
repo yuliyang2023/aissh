@@ -64,12 +64,12 @@ func TestMouseOpensMonitorSlotPickerAndSelectsPanel(t *testing.T) {
 		t.Fatal("monitor tiles missing")
 	}
 	first := tiles[0]
-	application.handleMouse(mouseEvent{Button: 0, X: first.Left + first.Width - 3, Y: first.Top})
+	clickMouse(application, first.Left+first.Width-3, first.Top)
 	if application.focus != focusMonitorSlot || application.monitorSlot != 0 {
 		t.Fatalf("focus=%v slot=%d", application.focus, application.monitorSlot)
 	}
 	// Picker rows: title, blank, system, process.
-	application.handleMouse(mouseEvent{Button: 0, X: left + 2, Y: top + 4})
+	clickMouse(application, left+2, top+4)
 	if application.focus != focusMonitor {
 		t.Fatalf("focus=%v", application.focus)
 	}
@@ -87,7 +87,7 @@ func TestMonitorLayoutCyclesWithKeyboardAndMouse(t *testing.T) {
 		t.Fatalf("keyboard layout=%v", application.monitorLayout)
 	}
 	top, _, _, _ := application.monitorRegion()
-	application.handleMouse(mouseEvent{Button: 0, X: application.monitorLayoutHeaderStart(), Y: top})
+	clickMouse(application, application.monitorLayoutHeaderStart(), top)
 	if application.monitorLayout != monitorLayoutSplit {
 		t.Fatalf("mouse layout=%v", application.monitorLayout)
 	}
@@ -99,7 +99,7 @@ func TestMonitorLayoutCyclesWithKeyboardAndMouse(t *testing.T) {
 		monitorLayoutAuto,
 	}
 	for _, want := range wantModes {
-		application.handleMouse(mouseEvent{Button: 0, X: application.monitorLayoutHeaderStart(), Y: top})
+		clickMouse(application, application.monitorLayoutHeaderStart(), top)
 		if application.monitorLayout != want {
 			t.Fatalf("mouse layout=%v, want %v", application.monitorLayout, want)
 		}
@@ -179,7 +179,7 @@ func TestMouseSelectsPanelInsideMonitorGrid(t *testing.T) {
 	if target.Panel == nil {
 		t.Fatal("process tile not found")
 	}
-	application.handleMouse(mouseEvent{Button: 0, X: target.Left + 1, Y: target.Top + 1})
+	clickMouse(application, target.Left+1, target.Top+1)
 	if application.panels.Active().ID != "process" || application.focus != focusMonitor {
 		t.Fatalf("active=%s focus=%v", application.panels.Active().ID, application.focus)
 	}

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"bytes"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +21,41 @@ func TestParseSGRMouse(t *testing.T) {
 	release, ok := parseSGRMouse([]byte("\x1b[<0;103;7m"))
 	if !ok || !release.Release {
 		t.Fatalf("release=%#v ok=%v", release, ok)
+	}
+}
+
+func TestRightClickEntersNativeSelectionUntilNextKeyboardInput(t *testing.T) {
+	application := mouseTestApp(t)
+	var screen bytes.Buffer
+	application.screenOut = &screen
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	application.sshPTY = writer
+
+	application.handleMouse(mouseEvent{Button: 2, X: 10, Y: 5})
+	if !application.nativeSelection || !strings.Contains(screen.String(), mouseReportingDisable) {
+		t.Fatalf("selection=%v output=%q", application.nativeSelection, screen.String())
+	}
+	if status := application.inputStatus(); !strings.Contains(status, "文本选择模式") {
+		t.Fatalf("status=%q", status)
+	}
+	application.handleInput([]byte("\x1b[<2;10;5m"))
+	if !application.nativeSelection {
+		t.Fatal("queued right-button release left selection mode")
+	}
+
+	screen.Reset()
+	application.handleInput([]byte("x"))
+	if application.nativeSelection || !strings.Contains(screen.String(), mouseReportingEnable) {
+		t.Fatalf("selection=%v output=%q", application.nativeSelection, screen.String())
+	}
+	forwarded := make([]byte, 1)
+	if count, err := reader.Read(forwarded); err != nil || count != 1 || forwarded[0] != 'x' {
+		t.Fatalf("forwarded=%q count=%d err=%v", forwarded, count, err)
 	}
 }
 
@@ -42,17 +79,17 @@ func TestMouseClicksMonitorTabAddAndAI(t *testing.T) {
 		t.Fatalf("process=%d add=%d", processX, addX)
 	}
 	monitorTop, _, _, _ := application.monitorRegion()
-	application.handleMouse(mouseEvent{Button: 0, X: processX, Y: monitorTop})
+	clickMouse(application, processX, monitorTop)
 	if application.panels.Active().ID != "process" || application.focus != focusMonitor {
 		t.Fatalf("active=%s focus=%v", application.panels.Active().ID, application.focus)
 	}
-	application.handleMouse(mouseEvent{Button: 0, X: addX, Y: monitorTop})
+	clickMouse(application, addX, monitorTop)
 	if application.focus != focusPanelMenu {
 		t.Fatalf("add focus=%v", application.focus)
 	}
 
 	aiTop, aiLeft, _, _ := application.aiRegion()
-	application.handleMouse(mouseEvent{Button: 0, X: aiLeft + 1, Y: aiTop})
+	clickMouse(application, aiLeft+1, aiTop)
 	if application.focus != focusAI || !application.aiExpanded {
 		t.Fatalf("ai focus=%v expanded=%v", application.focus, application.aiExpanded)
 	}
@@ -85,7 +122,7 @@ func TestMouseClickOnInlineAIOpensConversation(t *testing.T) {
 	if !ok {
 		t.Fatal("inline AI layout missing")
 	}
-	application.handleMouse(mouseEvent{Button: 0, X: layout.Left + 1, Y: layout.Top + 1})
+	clickMouse(application, layout.Left+1, layout.Top+1)
 	if application.focus != focusAI || !application.aiExpanded {
 		t.Fatalf("inline click focus=%v expanded=%v", application.focus, application.aiExpanded)
 	}
@@ -111,11 +148,7 @@ func TestMouseClicksInlineCommandFoldToExpand(t *testing.T) {
 		if marker < 0 {
 			continue
 		}
-		application.handleMouse(mouseEvent{
-			Button: 0,
-			X:      layout.Left + textWidth(line[:marker]) + 1,
-			Y:      layout.Top + 1 + index,
-		})
+		clickMouse(application, layout.Left+textWidth(line[:marker])+1, layout.Top+1+index)
 		clicked = true
 		break
 	}
@@ -146,11 +179,7 @@ func TestMouseClicksAIConversationCommandFoldToExpand(t *testing.T) {
 		if marker < 0 {
 			continue
 		}
-		application.handleMouse(mouseEvent{
-			Button: 0,
-			X:      left + 1 + textWidth(line.Text[:marker]) + 1,
-			Y:      top + 1 + row,
-		})
+		clickMouse(application, left+1+textWidth(line.Text[:marker])+1, top+1+row)
 		clicked = true
 		break
 	}
@@ -176,12 +205,12 @@ func TestMouseOpensAndSelectsAIHistoryConversation(t *testing.T) {
 	application.mainCols = 89
 	application.contentRows = 34
 	aiTop, _, _, _ := application.aiRegion()
-	application.handleMouse(mouseEvent{Button: 0, X: application.aiHistoryHeaderStart(), Y: aiTop})
+	clickMouse(application, application.aiHistoryHeaderStart(), aiTop)
 	if application.focus != focusAIHistory {
 		t.Fatalf("focus=%v", application.focus)
 	}
 	// The first row creates a new session; the second row is the newest saved session.
-	application.handleMouse(mouseEvent{Button: 0, X: application.aiHistoryHeaderStart() - 2, Y: aiTop + 2})
+	clickMouse(application, application.aiHistoryHeaderStart()-2, aiTop+2)
 	if application.focus != focusAI || application.historyConversationID != "nginx" {
 		t.Fatalf("focus=%v conversation=%q", application.focus, application.historyConversationID)
 	}
@@ -233,7 +262,7 @@ func TestMouseRejectsInlineProposal(t *testing.T) {
 	if index < 0 {
 		t.Fatalf("buttons=%q", buttonLine)
 	}
-	application.handleMouse(mouseEvent{Button: 0, X: left + textWidth(buttonLine[:index]), Y: buttonRow})
+	clickMouse(application, left+textWidth(buttonLine[:index]), buttonRow)
 	select {
 	case event := <-application.events:
 		application.handleEvent(event)
@@ -252,6 +281,7 @@ func TestSplitMouseSequenceIsBuffered(t *testing.T) {
 		t.Fatal("partial mouse sequence was not buffered")
 	}
 	application.handleMixedInput([]byte(";2M"))
+	application.handleMixedInput([]byte("\x1b[<0;92;2m"))
 	if len(application.mouseCarry) != 0 || application.focus != focusMonitor {
 		t.Fatalf("carry=%q focus=%v", application.mouseCarry, application.focus)
 	}
@@ -268,4 +298,9 @@ func mouseTestApp(t *testing.T) *App {
 	application.mainCols = 89
 	application.contentRows = 34
 	return application
+}
+
+func clickMouse(application *App, x, y int) {
+	application.handleMouse(mouseEvent{Button: 0, X: x, Y: y})
+	application.handleMouse(mouseEvent{Button: 0, X: x, Y: y, Release: true})
 }

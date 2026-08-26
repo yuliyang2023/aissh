@@ -129,3 +129,18 @@ func TestParseArgsSupportsAITimeout(t *testing.T) {
 		t.Fatal("invalid AI timeout was accepted")
 	}
 }
+
+func TestParseArgsSupportsAIContextChars(t *testing.T) {
+	t.Setenv("AISSH_AI_CONTEXT_CHARS", "")
+	config, help, version, err := parseArgs([]string{"--ai-context-chars", "300000", "server"})
+	if err != nil || help || version || config.AIContextChars != 300000 {
+		t.Fatalf("context chars=%d help=%v version=%v err=%v", config.AIContextChars, help, version, err)
+	}
+	config, _, _, err = parseArgs([]string{"--ai-context-chars=240000", "server"})
+	if err != nil || config.AIContextChars != 240000 {
+		t.Fatalf("inline context chars=%d err=%v", config.AIContextChars, err)
+	}
+	if _, _, _, err := parseArgs([]string{"--ai-context-chars", "0", "server"}); err == nil {
+		t.Fatal("invalid AI context character count was accepted")
+	}
+}

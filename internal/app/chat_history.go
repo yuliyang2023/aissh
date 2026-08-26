@@ -120,6 +120,8 @@ func (a *App) selectHistoryConversation(index int) bool {
 	a.approvalCommandExpanded = false
 	a.execution = nil
 	a.editor = nil
+	a.aiEditorCursor = 0
+	a.aiPasteMode = false
 	a.aiScroll = 0
 	a.focus = focusAI
 	a.aiExpanded = true
@@ -139,6 +141,8 @@ func (a *App) startNewAIConversation() {
 	a.approvalCommandExpanded = false
 	a.execution = nil
 	a.editor = nil
+	a.aiEditorCursor = 0
+	a.aiPasteMode = false
 	a.aiScroll = 0
 	a.chat = nil
 	a.appendAIReadyMessages()

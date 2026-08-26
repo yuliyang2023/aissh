@@ -101,9 +101,11 @@ func (a *App) rememberZmodemTail(data []byte) {
 
 func (a *App) enterZmodemPassthrough(data []byte) {
 	a.zmodem = &zmodemPassthrough{}
+	a.nativeSelection = false
+	a.selectionNeedsRender = false
 	a.mouseCarry = nil
 	a.dirty = false
-	_, _ = io.WriteString(a.outputWriter(), "\x1b[?2026l\x1b[?1000l\x1b[?1006l\x1b[0m\x1b[?25h\x1b[?1049l")
+	_, _ = io.WriteString(a.outputWriter(), "\x1b[?2026l"+mouseReportingDisable+"\x1b[0m\x1b[?25h\x1b[?1049l")
 	a.handleZmodemOutput(data)
 }
 
@@ -230,7 +232,7 @@ func (a *App) leaveZmodemPassthrough() {
 	a.lineInput = nil
 	a.lineAnchored = false
 	a.lineReliable = false
-	_, _ = io.WriteString(a.outputWriter(), "\x1b[?1049h\x1b[2J\x1b[H\x1b[?1000h\x1b[?1006h")
+	_, _ = io.WriteString(a.outputWriter(), "\x1b[?1049h\x1b[2J\x1b[H"+mouseReportingEnable)
 	a.dirty = true
 	// Ask the remote shell for a fresh prompt so the VT model, which intentionally
 	// skipped binary transfer traffic, is synchronized again without replaying it.

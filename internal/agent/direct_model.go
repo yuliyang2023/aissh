@@ -15,13 +15,14 @@ import (
 )
 
 type DirectModelProvider struct {
-	Label        string
-	BaseURL      string
-	APIKey       string
-	Model        string
-	Language     string
-	RequireToken bool
-	HTTP         *http.Client
+	Label              string
+	BaseURL            string
+	APIKey             string
+	Model              string
+	Language           string
+	RequireToken       bool
+	OutputContextChars int
+	HTTP               *http.Client
 
 	mu       sync.Mutex
 	sessions map[string]*codexSession
@@ -52,13 +53,14 @@ type directChatResponse struct {
 
 func NewDirectModelProvider(label, baseURL, apiKey, model string, requireToken bool) *DirectModelProvider {
 	return &DirectModelProvider{
-		Label:        firstNonEmpty(strings.TrimSpace(label), "Model"),
-		BaseURL:      strings.TrimSpace(baseURL),
-		APIKey:       strings.TrimSpace(apiKey),
-		Model:        strings.TrimSpace(model),
-		RequireToken: requireToken,
-		HTTP:         &http.Client{Timeout: 90 * time.Second},
-		sessions:     make(map[string]*codexSession),
+		Label:              firstNonEmpty(strings.TrimSpace(label), "Model"),
+		BaseURL:            strings.TrimSpace(baseURL),
+		APIKey:             strings.TrimSpace(apiKey),
+		Model:              strings.TrimSpace(model),
+		RequireToken:       requireToken,
+		OutputContextChars: DefaultOutputContextChars,
+		HTTP:               &http.Client{Timeout: 90 * time.Second},
+		sessions:           make(map[string]*codexSession),
 	}
 }
 
@@ -209,11 +211,11 @@ func (p *DirectModelProvider) requestText(session *codexSession, request Request
 			delete(session.Proposals, request.ProposalID)
 		}
 		p.mu.Unlock()
-		return fmt.Sprintf("远端命令执行结果\n命令：%s\n完成原因：%s\n输出：\n%s", firstNonEmpty(command, "未知"), request.Completion, trimText(request.Output, 20000))
+		return fmt.Sprintf("远端命令执行结果\n命令：%s\n完成原因：%s\n输出：\n%s", firstNonEmpty(command, "未知"), request.Completion, LimitOutputContext(request.Output, p.OutputContextChars))
 	default:
 		parts := []string{"用户请求：" + trimText(request.Prompt, 8000)}
 		if strings.TrimSpace(request.RecentOutput) != "" {
-			parts = append(parts, "SSH 最近输出：\n"+trimText(request.RecentOutput, 20000))
+			parts = append(parts, "SSH 最近输出：\n"+LimitOutputContext(request.RecentOutput, p.OutputContextChars))
 		}
 		return strings.Join(parts, "\n\n")
 	}

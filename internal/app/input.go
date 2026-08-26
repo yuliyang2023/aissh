@@ -20,6 +20,14 @@ func (a *App) handleInput(data []byte) {
 		a.handleZmodemInput(data)
 		return
 	}
+	if a.nativeSelection {
+		// A right-button release may already be queued when mouse reporting is
+		// disabled. Do not let that stale event immediately leave selection mode.
+		if bytes.HasPrefix(data, sgrMousePrefix) {
+			return
+		}
+		a.leaveNativeSelection()
+	}
 	if bytes.Contains(data, []byte{0x0f}) { // Ctrl+O
 		filtered := make([]byte, 0, len(data))
 		for _, value := range data {
@@ -51,6 +59,9 @@ func terminalInputHasLocalAction(data []byte) bool {
 }
 
 func (a *App) handleKeyboardInput(data []byte) {
+	if a.textSelection.Active || a.textSelection.Dragging || a.selectionStatus != "" {
+		a.clearTextSelection()
+	}
 	switch a.focus {
 	case focusApproval:
 		a.handleApprovalInput(data)
@@ -186,6 +197,14 @@ func (a *App) submitTerminalLine(newline byte) {
 	reliable := a.lineReliable
 	a.lineReliable = true
 	if a.atPrompt && reliable && !a.sensitive {
+		if _, ok := parseLocalWorkspaceCommand(line); ok {
+			if !captured && a.sshPTY != nil {
+				_, _ = a.sshPTY.Write([]byte{0x15})
+			}
+			a.handleLocalWorkspaceCommand(line, true)
+			a.pendingError = nil
+			return
+		}
 		if prompt, ok := trigger.IsAIInput(line); ok {
 			if !captured {
 				_, _ = a.sshPTY.Write([]byte{0x15})
@@ -195,6 +214,7 @@ func (a *App) submitTerminalLine(newline byte) {
 		}
 		if command, ok := trigger.ForceShellInput(line); ok {
 			_, _ = a.sshPTY.Write([]byte{0x15})
+			a.beginCommandOutput(command)
 			_, _ = a.sshPTY.Write([]byte(command + "\r"))
 			a.lastCommand = command
 			a.atPrompt = false
@@ -209,6 +229,7 @@ func (a *App) submitTerminalLine(newline byte) {
 		if newline == '\n' {
 			newline = '\r'
 		}
+		a.beginCommandOutput(line)
 		_, _ = a.sshPTY.Write([]byte(line))
 		_, _ = a.sshPTY.Write([]byte{newline})
 		a.lastCommand = strings.TrimSpace(line)
@@ -220,6 +241,7 @@ func (a *App) submitTerminalLine(newline byte) {
 	if newline == '\n' {
 		newline = '\r'
 	}
+	a.beginCommandOutput(line)
 	_, _ = a.sshPTY.Write([]byte{newline})
 	a.lastCommand = strings.TrimSpace(line)
 	a.atPrompt = false
@@ -239,12 +261,18 @@ func (a *App) captureLineAnchor() {
 
 func (a *App) handleAIInput(data []byte) {
 	for len(data) > 0 {
+		if data[0] == 0x1b {
+			if consumed, handled := a.consumeAIEditorEscape(data); handled {
+				data = data[consumed:]
+				continue
+			}
+			a.focus = focusTerminal
+			a.aiPasteMode = false
+			return
+		}
 		value := data[0]
 		data = data[1:]
 		switch value {
-		case 0x1b:
-			a.focus = focusTerminal
-			return
 		case 0x14: // Ctrl+T
 			a.focus = focusMonitor
 			return
@@ -254,18 +282,52 @@ func (a *App) handleAIInput(data []byte) {
 		case 0x12: // Ctrl+R
 			a.openAIHistory()
 			return
-		case '\r', '\n':
+		case '\r':
+			if a.aiPasteMode {
+				a.insertAIEditorRune('\n')
+				if len(data) > 0 && data[0] == '\n' {
+					data = data[1:]
+				}
+				continue
+			}
 			prompt := strings.TrimSpace(string(a.editor))
+			if prompt != "" {
+				if a.handleLocalWorkspaceCommand(prompt, false) {
+					a.editor = nil
+					a.aiEditorCursor = 0
+					return
+				}
+			}
 			if prompt != "" && !a.agentBusy {
 				a.editor = nil
+				a.aiEditorCursor = 0
 				a.startAI(prompt, true)
 			}
 			return
-		case 0x08, 0x7f:
-			a.editor = appendRuneBackspace(a.editor)
+		case '\n': // Ctrl+J; terminals that distinguish Shift+Enter use an escape sequence.
+			a.insertAIEditorRune('\n')
 			continue
-		case 0x15:
+		case 0x08, 0x7f:
+			a.backspaceAIEditorRune()
+			continue
+		case 0x01: // Ctrl+A
+			a.moveAIEditorHome()
+			continue
+		case 0x02: // Ctrl+B
+			a.moveAIEditorCursor(-1)
+			continue
+		case 0x04: // Ctrl+D
+			a.deleteAIEditorRune()
+			continue
+		case 0x05: // Ctrl+E
+			a.moveAIEditorEnd()
+			continue
+		case 0x06: // Ctrl+F
+			a.moveAIEditorCursor(1)
+			continue
+		case 0x15: // Ctrl+U
 			a.editor = nil
+			a.aiEditorCursor = 0
 			continue
 		}
 		if value < 0x20 {
@@ -275,7 +337,7 @@ func (a *App) handleAIInput(data []byte) {
 		if r == utf8.RuneError && size == 1 {
 			continue
 		}
-		a.editor = append(a.editor, r)
+		a.insertAIEditorRune(r)
 		if size > 1 {
 			data = data[size-1:]
 		}
@@ -511,10 +573,19 @@ func removeLastUTF8Rune(value []byte) []byte {
 func (a *App) openAIConversation() {
 	a.focus = focusAI
 	a.aiExpanded = true
-	a.aiScroll = 0
+	a.clampAIEditorCursor()
 }
 
 func (a *App) inputStatus() string {
+	if a.textSelection.Active {
+		return a.t("已选择文本：普通右键复制；单击或键盘输入取消选择")
+	}
+	if a.selectionStatus != "" {
+		return a.selectionStatus
+	}
+	if a.nativeSelection {
+		return a.t("文本选择模式：拖动选择后右键复制；按任意键恢复 aissh 鼠标操作")
+	}
 	if a.focus == focusTerminal && a.terminalScroll > 0 {
 		return a.t("SSH 历史  ↑ %d / %d 行  滚轮向下回到底部；键盘输入也会返回实时终端", a.terminalScroll, len(a.terminalHistory))
 	}
@@ -531,7 +602,7 @@ func (a *App) inputStatus() string {
 	case focusApproval:
 		return a.t("AI 命令确认：输入 yes 执行，输入 no 拒绝，然后按 Enter")
 	case focusAI:
-		return a.t("AI 对话  Enter发送  Ctrl+R历史会话  Esc返回SSH  Ctrl+T查看监控")
+		return a.t("AI 对话  Enter发送  Shift+Enter/Ctrl+J换行  方向键编辑  Ctrl+R历史会话  Esc返回SSH")
 	case focusAIHistory:
 		return a.t("AI 历史会话  ↑/↓选择  Enter继续  N新建  Esc返回对话")
 	case focusMonitor:

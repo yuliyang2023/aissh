@@ -155,6 +155,19 @@ func TestCodexProviderUsesReadOnlyLocalWorkspace(t *testing.T) {
 	}
 }
 
+func TestCodexProviderWorkspaceCanBeUpdatedBetweenTurns(t *testing.T) {
+	provider := NewCodexProvider("codex", "")
+	workspace := t.TempDir()
+	provider.SetLocalWorkspace(workspace)
+	if got := provider.LocalWorkspace(); got != workspace {
+		t.Fatalf("workspace=%q want=%q", got, workspace)
+	}
+	provider.SetLocalWorkspace("")
+	if got := provider.LocalWorkspace(); got != "" {
+		t.Fatalf("disabled workspace=%q", got)
+	}
+}
+
 func testCodexProvider(t *testing.T, response string) *CodexProvider {
 	t.Helper()
 	provider := NewCodexProvider("codex", "")

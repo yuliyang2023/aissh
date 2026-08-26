@@ -81,7 +81,7 @@ type executionState struct {
 	SessionID  string
 	ProposalID string
 	Command    string
-	Output     string
+	Output     *contextBuffer
 	StartedAt  time.Time
 	Inline     bool
 }
