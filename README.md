@@ -168,6 +168,9 @@ bin/aissh production
 
 Best when investigations should include local source code. It reuses your local Codex authentication and configuration;
 no AI component is installed on the server.
+Each running SSH session owns one local Codex thread. Follow-up questions, command approvals, and execution results
+resume that thread instead of creating a new agent. The thread is removed when the SSH session ends, while aissh's
+local text history remains available.
 
 ```bash
 bin/aissh --agent codex production

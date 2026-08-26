@@ -160,6 +160,8 @@ bin/aissh production
 ### 本机 Codex（默认）
 
 适合需要结合本地代码进行分析的场景。复用本机 Codex 登录和配置，目标服务器不安装任何 AI 组件。
+每条正在运行的 SSH 会话对应一个本机 Codex thread；后续提问、命令审批和执行结果都会继续该
+thread，而不是重新创建 Agent。SSH 会话结束时清理对应 thread，aissh 保存的本机文本历史不受影响。
 
 ```bash
 bin/aissh --agent codex production

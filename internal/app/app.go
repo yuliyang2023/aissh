@@ -322,9 +322,13 @@ func (a *App) Run() error {
 		return err
 	}
 	defer func() {
+		a.cancel()
 		_ = term.Restore(int(os.Stdin.Fd()), oldState)
 		_, _ = io.WriteString(os.Stdout, "\x1b[?2026l"+mouseReportingDisable+"\x1b[0m\x1b[?25h\x1b[?1049l")
 		a.stopSSH()
+		if closer, ok := a.agent.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
 		if a.controlDir != "" {
 			_ = os.RemoveAll(a.controlDir)
 		}

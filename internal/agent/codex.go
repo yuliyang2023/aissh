@@ -92,15 +92,17 @@ type codexHistory struct {
 type codexSession struct {
 	ID               string
 	History          []codexHistory
+	Pending          []string
 	Proposals        map[string]Proposal
 	ResponseLanguage string
 }
 
 type codexRunner func(context.Context, string, []string, string) ([]byte, []byte, error)
 
-// CodexProvider invokes the locally installed Codex CLI. The Codex process
-// runs in an ephemeral, read-only workspace and only returns structured advice;
-// aissh remains solely responsible for executing approved commands over SSH.
+// CodexProvider invokes the locally installed Codex CLI. Each provider keeps a
+// persistent, read-only Codex thread for its aissh SSH session and only returns
+// structured advice; aissh remains solely responsible for executing approved
+// commands over SSH.
 type CodexProvider struct {
 	Path               string
 	Model              string
@@ -110,7 +112,10 @@ type CodexProvider struct {
 	OutputContextChars int
 
 	mu       sync.Mutex
+	active   sync.WaitGroup
+	closed   bool
 	sessions map[string]*codexSession
+	owned    map[string]struct{}
 	run      codexRunner
 	lookPath func(string) (string, error)
 }
@@ -126,6 +131,7 @@ func NewCodexProvider(path, model string) *CodexProvider {
 		Timeout:            90 * time.Second,
 		OutputContextChars: DefaultOutputContextChars,
 		sessions:           make(map[string]*codexSession),
+		owned:              make(map[string]struct{}),
 		run:                runCodex,
 		lookPath:           exec.LookPath,
 	}
@@ -139,7 +145,11 @@ func (p *CodexProvider) localizer() i18n.Localizer { return i18n.New(p.Language)
 // Codex turns. An empty value disables local workspace access.
 func (p *CodexProvider) SetLocalWorkspace(value string) {
 	p.mu.Lock()
-	p.Workspace = strings.TrimSpace(value)
+	workspace := strings.TrimSpace(value)
+	if p.Workspace != workspace {
+		p.sessions = make(map[string]*codexSession)
+	}
+	p.Workspace = workspace
 	p.mu.Unlock()
 }
 
@@ -164,6 +174,15 @@ func (p *CodexProvider) Stream(ctx context.Context, request Request, callbacks C
 	if !p.Configured() {
 		return Turn{}, fmt.Errorf("%s", p.localizer().T("找不到本机 Codex CLI；请先安装 Codex 或设置 AISSH_CODEX_PATH"))
 	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return Turn{}, fmt.Errorf("%s", p.localizer().T("本机 Codex 会话已关闭"))
+	}
+	p.active.Add(1)
+	p.mu.Unlock()
+	defer p.active.Done()
+
 	session, created, err := p.session(request)
 	if err != nil {
 		return Turn{}, err
@@ -176,6 +195,8 @@ func (p *CodexProvider) Stream(ctx context.Context, request Request, callbacks C
 	}
 	p.mu.Lock()
 	history := append([]codexHistory(nil), session.History...)
+	pending := append([]string(nil), session.Pending...)
+	threadID := session.ID
 	responseLanguage := strings.TrimSpace(request.SystemContext["response_language"])
 	if responseLanguage == "" {
 		if request.Event == "result" && session.ResponseLanguage != "" {
@@ -188,19 +209,55 @@ func (p *CodexProvider) Stream(ctx context.Context, request Request, callbacks C
 	session.ResponseLanguage = responseLanguage
 	p.mu.Unlock()
 	request.SystemContext["response_language"] = responseLanguage
+	if !created && len(pending) > 0 {
+		input = strings.Join(pending, "\n") + "\n\n" + input
+	}
 
 	if callbacks.OnStatus != nil {
 		callbacks.OnStatus(p.localizer().T("正在调用本机 Codex"))
 	}
 	prompt := buildCodexPrompt(request, history, input)
-	result, err := p.invoke(ctx, prompt, workspace)
+	if !created {
+		prompt = buildCodexContinuationPrompt(request, input)
+	}
+	result, resumedThreadID, err := p.invoke(ctx, prompt, workspace, threadID)
+	if err != nil && !created && codexSessionMissing(err) {
+		p.mu.Lock()
+		delete(p.sessions, threadID)
+		delete(p.owned, threadID)
+		p.mu.Unlock()
+		prompt = buildCodexPrompt(request, history, input)
+		result, resumedThreadID, err = p.invoke(ctx, prompt, workspace, "")
+		created = true
+	}
 	if err != nil {
-		if created {
-			p.mu.Lock()
-			delete(p.sessions, session.ID)
-			p.mu.Unlock()
-		}
 		return Turn{}, err
+	}
+	if created {
+		if strings.TrimSpace(resumedThreadID) == "" {
+			return Turn{}, fmt.Errorf("%s", p.localizer().T("本机 Codex 没有返回会话 ID"))
+		}
+		var staleThreadIDs []string
+		p.mu.Lock()
+		for ownedThreadID := range p.owned {
+			if ownedThreadID != resumedThreadID {
+				staleThreadIDs = append(staleThreadIDs, ownedThreadID)
+				delete(p.sessions, ownedThreadID)
+			}
+		}
+		session.ID = strings.TrimSpace(resumedThreadID)
+		p.sessions[session.ID] = session
+		p.owned[session.ID] = struct{}{}
+		p.mu.Unlock()
+		for _, staleThreadID := range staleThreadIDs {
+			if p.deleteThread(staleThreadID) == nil {
+				p.mu.Lock()
+				delete(p.owned, staleThreadID)
+				p.mu.Unlock()
+			}
+		}
+	} else if resumedThreadID != "" && resumedThreadID != session.ID {
+		return Turn{}, fmt.Errorf("%s", p.localizer().T("本机 Codex 恢复了意外的会话：%s", resumedThreadID))
 	}
 
 	if result.Type == "command_proposal" && (result.Proposal == nil || strings.TrimSpace(result.Proposal.Command) == "") {
@@ -229,6 +286,10 @@ func (p *CodexProvider) Stream(ctx context.Context, request Request, callbacks C
 	if result.Proposal != nil {
 		session.Proposals[result.Proposal.ID] = *result.Proposal
 	}
+	if request.Event == "result" {
+		delete(session.Proposals, request.ProposalID)
+	}
+	session.Pending = nil
 	p.mu.Unlock()
 
 	status := "finished"
@@ -243,9 +304,56 @@ func (p *CodexProvider) Stream(ctx context.Context, request Request, callbacks C
 	}, nil
 }
 
+// Close removes the persisted Codex threads created for this provider. One
+// provider belongs to one aissh SSH process, so its Codex session lifetime
+// follows the SSH session lifetime while aissh keeps its own text history.
+func (p *CodexProvider) Close() error {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return nil
+	}
+	p.closed = true
+	p.mu.Unlock()
+	p.active.Wait()
+
+	p.mu.Lock()
+	threadIDs := make([]string, 0, len(p.owned))
+	for threadID := range p.owned {
+		threadIDs = append(threadIDs, threadID)
+	}
+	p.sessions = make(map[string]*codexSession)
+	p.owned = make(map[string]struct{})
+	p.mu.Unlock()
+
+	var closeErrors []error
+	for _, threadID := range threadIDs {
+		if err := p.deleteThread(threadID); err != nil {
+			closeErrors = append(closeErrors, err)
+		}
+	}
+	return errors.Join(closeErrors...)
+}
+
+func (p *CodexProvider) deleteThread(threadID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stdout, stderr, err := p.run(ctx, p.Path, []string{"delete", "--force", strings.TrimSpace(threadID)}, "")
+	if err != nil {
+		return codexRunErrorLocalized(err, stdout, stderr, p.localizer())
+	}
+	return nil
+}
+
 func (p *CodexProvider) Action(_ context.Context, request Request) (Turn, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.closed {
+		return Turn{}, fmt.Errorf("%s", p.localizer().T("本机 Codex 会话已关闭"))
+	}
 	session := p.sessions[request.SessionID]
 	if session == nil {
 		return Turn{}, fmt.Errorf("session not found")
@@ -256,11 +364,15 @@ func (p *CodexProvider) Action(_ context.Context, request Request) (Turn, error)
 	}
 	switch request.Event {
 	case "approve":
-		session.History = append(session.History, codexHistory{Role: "user", Content: "用户批准执行命令：" + proposal.Command})
+		message := "用户批准执行命令：" + proposal.Command
+		session.History = append(session.History, codexHistory{Role: "user", Content: message})
+		session.Pending = append(session.Pending, message)
 		return Turn{Type: "approved", Session: Session{ID: session.ID, Status: "running"}}, nil
 	case "reject":
 		delete(session.Proposals, request.ProposalID)
-		session.History = append(session.History, codexHistory{Role: "user", Content: "用户拒绝执行命令：" + proposal.Command})
+		message := "用户拒绝执行命令：" + proposal.Command
+		session.History = append(session.History, codexHistory{Role: "user", Content: message})
+		session.Pending = append(session.Pending, message)
 		return Turn{
 			Type:    "finished",
 			Session: Session{ID: session.ID, Status: "finished"},
@@ -275,9 +387,7 @@ func (p *CodexProvider) session(request Request) (*codexSession, bool, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if request.Event == "start" || request.SessionID == "" {
-		value := &codexSession{ID: newLocalID("codex"), Proposals: make(map[string]Proposal)}
-		p.sessions[value.ID] = value
-		return value, true, nil
+		return &codexSession{Proposals: make(map[string]Proposal)}, true, nil
 	}
 	value := p.sessions[request.SessionID]
 	if value == nil {
@@ -293,7 +403,6 @@ func (p *CodexProvider) requestText(session *codexSession, request Request) stri
 		p.mu.Lock()
 		if proposal, ok := session.Proposals[request.ProposalID]; ok {
 			command = proposal.Command
-			delete(session.Proposals, request.ProposalID)
 		}
 		p.mu.Unlock()
 		return fmt.Sprintf("远端命令执行结果\n命令：%s\n完成原因：%s\n输出：\n%s", firstNonEmpty(command, "未知"), request.Completion, LimitOutputContext(request.Output, p.OutputContextChars))
@@ -306,7 +415,7 @@ func (p *CodexProvider) requestText(session *codexSession, request Request) stri
 	}
 }
 
-func (p *CodexProvider) invoke(parent context.Context, prompt, workspace string) (codexResponse, error) {
+func (p *CodexProvider) invoke(parent context.Context, prompt, workspace, threadID string) (codexResponse, string, error) {
 	timeout := p.Timeout
 	if timeout <= 0 {
 		timeout = 90 * time.Second
@@ -316,42 +425,51 @@ func (p *CodexProvider) invoke(parent context.Context, prompt, workspace string)
 
 	schema, err := os.CreateTemp("", "aissh-codex-schema-*.json")
 	if err != nil {
-		return codexResponse{}, err
+		return codexResponse{}, "", err
 	}
 	schemaPath := schema.Name()
 	defer os.Remove(schemaPath)
 	if _, err := schema.WriteString(codexResponseSchema); err != nil {
 		_ = schema.Close()
-		return codexResponse{}, err
+		return codexResponse{}, "", err
 	}
 	if err := schema.Close(); err != nil {
-		return codexResponse{}, err
+		return codexResponse{}, "", err
 	}
 
-	args := []string{
-		"exec", "--json", "--ephemeral", "--sandbox", "read-only",
-		"--skip-git-repo-check", "--ignore-rules",
+	args := []string{"exec"}
+	if strings.TrimSpace(threadID) != "" {
+		args = append(args, "resume")
+	}
+	args = append(args,
+		"--json", "--skip-git-repo-check", "--ignore-rules",
 		"--disable", "plugins", "--disable", "remote_plugin", "--disable", "apps",
 		"--disable", "browser_use", "--disable", "computer_use", "--disable", "image_generation",
 		"--disable", "multi_agent", "--disable", "hooks",
-		"-C", codexWorkingDirectory(workspace), "--output-schema", schemaPath,
+		"--output-schema", schemaPath,
+	)
+	if strings.TrimSpace(threadID) == "" {
+		args = append(args, "--sandbox", "read-only", "-C", codexWorkingDirectory(workspace))
 	}
 	if p.Model != "" {
 		args = append(args, "--model", p.Model)
 	}
+	if strings.TrimSpace(threadID) != "" {
+		args = append(args, strings.TrimSpace(threadID))
+	}
 	args = append(args, "-")
 	stdout, stderr, runErr := p.run(ctx, p.Path, args, prompt)
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return codexResponse{}, fmt.Errorf("%s", p.localizer().T("本机 Codex 调用超时（%s）", timeout))
+		return codexResponse{}, "", fmt.Errorf("%s", p.localizer().T("本机 Codex 调用超时（%s）", timeout))
 	}
-	response, parseErr := parseCodexJSONLLocalized(stdout, p.localizer())
+	response, returnedThreadID, parseErr := parseCodexInvocationJSONLLocalized(stdout, p.localizer())
 	if runErr != nil {
-		return codexResponse{}, codexRunErrorLocalized(runErr, stdout, stderr, p.localizer())
+		return codexResponse{}, returnedThreadID, codexRunErrorLocalized(runErr, stdout, stderr, p.localizer())
 	}
 	if parseErr != nil {
-		return codexResponse{}, parseErr
+		return codexResponse{}, returnedThreadID, parseErr
 	}
-	return response, nil
+	return response, returnedThreadID, nil
 }
 
 func codexWorkingDirectory(workspace string) string {
@@ -373,19 +491,22 @@ func runCodex(ctx context.Context, path string, args []string, prompt string) ([
 }
 
 func parseCodexJSONL(data []byte) (codexResponse, error) {
-	return parseCodexJSONLLocalized(data, i18n.New(""))
+	response, _, err := parseCodexInvocationJSONLLocalized(data, i18n.New(""))
+	return response, err
 }
 
-func parseCodexJSONLLocalized(data []byte, localizer i18n.Localizer) (codexResponse, error) {
+func parseCodexInvocationJSONLLocalized(data []byte, localizer i18n.Localizer) (codexResponse, string, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
 	var assistantText string
 	var lastError string
+	var threadID string
 	for scanner.Scan() {
 		var event struct {
-			Type    string `json:"type"`
-			Message string `json:"message"`
-			Item    struct {
+			Type     string `json:"type"`
+			Message  string `json:"message"`
+			ThreadID string `json:"thread_id"`
+			Item     struct {
 				Type    string `json:"type"`
 				Text    string `json:"text"`
 				Message string `json:"message"`
@@ -393,6 +514,9 @@ func parseCodexJSONLLocalized(data []byte, localizer i18n.Localizer) (codexRespo
 		}
 		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
 			continue
+		}
+		if event.Type == "thread.started" && strings.TrimSpace(event.ThreadID) != "" {
+			threadID = strings.TrimSpace(event.ThreadID)
 		}
 		if event.Type == "error" && event.Message != "" {
 			lastError = event.Message
@@ -407,17 +531,17 @@ func parseCodexJSONLLocalized(data []byte, localizer i18n.Localizer) (codexRespo
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return codexResponse{}, err
+		return codexResponse{}, threadID, err
 	}
 	if strings.TrimSpace(assistantText) == "" {
-		return codexResponse{}, fmt.Errorf("%s", localizer.T("本机 Codex 没有返回结果%s", optionalDetail(lastError)))
+		return codexResponse{}, threadID, fmt.Errorf("%s", localizer.T("本机 Codex 没有返回结果%s", optionalDetail(lastError)))
 	}
 	assistantText = stripJSONFence(assistantText)
 	var response codexResponse
 	if err := json.Unmarshal([]byte(assistantText), &response); err != nil {
-		return codexResponse{}, fmt.Errorf("%s", localizer.T("无法解析本机 Codex 的结构化结果: %v", err))
+		return codexResponse{}, threadID, fmt.Errorf("%s", localizer.T("无法解析本机 Codex 的结构化结果: %v", err))
 	}
-	return response, nil
+	return response, threadID, nil
 }
 
 func buildCodexPrompt(request Request, history []codexHistory, input string) string {
@@ -478,6 +602,21 @@ func buildCodexPrompt(request Request, history []codexHistory, input string) str
 	return value.String()
 }
 
+func buildCodexContinuationPrompt(request Request, input string) string {
+	var value strings.Builder
+	if len(request.SystemContext) > 0 {
+		value.WriteString("环境上下文更新：\n")
+		for key, item := range request.SystemContext {
+			if key == "conversation_history" || key == "local_workspace" {
+				continue
+			}
+			value.WriteString(key + "=" + trimText(item, 1000) + "\n")
+		}
+	}
+	value.WriteString("\n本轮事件：" + request.Event + "\n" + input)
+	return value.String()
+}
+
 func cloneContext(source map[string]string) map[string]string {
 	result := make(map[string]string, len(source)+1)
 	for key, value := range source {
@@ -507,11 +646,18 @@ func codexRunErrorLocalized(runErr error, stdout, stderr []byte, localizer i18n.
 	if strings.Contains(lower, "401 unauthorized") || strings.Contains(lower, "authentication required") || strings.Contains(lower, "incorrect api key") {
 		return fmt.Errorf("%s", localizer.T("本机 Codex 认证失败；请先确认 `codex exec` 可用，并检查 codex login 或 ~/.codex/config.toml"))
 	}
+	if strings.Contains(lower, "session not found") || strings.Contains(lower, "no session found") || strings.Contains(lower, "unknown session") || strings.Contains(lower, "rollout not found") {
+		return fmt.Errorf("session not found: %s", localizer.T("本机 Codex 会话已失效"))
+	}
 	clean := strings.TrimSpace(detail)
 	if clean == "" {
 		clean = runErr.Error()
 	}
 	return fmt.Errorf("%s", localizer.T("本机 Codex 调用失败: %s", trimText(clean, 800)))
+}
+
+func codexSessionMissing(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "session not found")
 }
 
 func stripJSONFence(value string) string {
