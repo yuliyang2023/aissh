@@ -59,6 +59,8 @@ When common errors such as `command not found` appear, `aissh` can automatically
 with recent terminal output. There is no need to copy logs into another window and explain the situation again.
 
 After an approved command completes, AI can review its output and help determine whether the issue is actually resolved.
+While a long AI turn is running, `aissh` also keeps the SSH transport and an idle shell prompt active to prevent
+automatic logout.
 
 ### 🛡️ AI proposes, you decide
 
@@ -224,6 +226,12 @@ bin/aissh --lang zh-CN production
 
 # Increase the AI request timeout
 bin/aissh --ai-timeout 10m production
+
+# Change the keepalive interval used while AI is running (default: 30s)
+bin/aissh --ai-keepalive 20s production
+
+# Disable AI-time keepalive
+bin/aissh --ai-keepalive off production
 
 # Keep more SSH scrollback lines
 bin/aissh --scrollback-lines 50000 production

@@ -56,6 +56,7 @@ AI: nginx 正常运行，但最近 10 分钟出现了多次上游超时……
 不用再手动复制日志、切换窗口、重新描述现场。
 
 执行 AI 建议的命令后，它还会继续分析执行结果，帮助你判断问题是否真正解决。
+AI 长时间运行期间，`aissh` 还会同时保持 SSH 连接和空闲 Shell 提示符活跃，避免自动登出。
 
 ### 🛡️ AI 建议，用户决策
 
@@ -215,6 +216,12 @@ bin/aissh --lang en production
 
 # 调整 AI 请求超时
 bin/aissh --ai-timeout 10m production
+
+# 调整 AI 执行期间的保活间隔（默认 30 秒）
+bin/aissh --ai-keepalive 20s production
+
+# 关闭 AI 执行期间的保活
+bin/aissh --ai-keepalive off production
 
 # 调整 SSH 历史保留行数
 bin/aissh --scrollback-lines 50000 production

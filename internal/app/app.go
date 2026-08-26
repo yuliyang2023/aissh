@@ -31,28 +31,31 @@ import (
 )
 
 type Config struct {
-	SSHPath         string
-	SSHArgs         []string
-	AgentProvider   string
-	AgentURL        string
-	AgentToken      string
-	CodexPath       string
-	CodexModel      string
-	Language        string
-	HistoryDir      string
-	Workspace       string
-	ModelURL        string
-	ModelAPIKey     string
-	ModelName       string
-	ScrollbackLines int
-	AIContextChars  int
-	AITimeout       time.Duration
+	SSHPath            string
+	SSHArgs            []string
+	AgentProvider      string
+	AgentURL           string
+	AgentToken         string
+	CodexPath          string
+	CodexModel         string
+	Language           string
+	HistoryDir         string
+	Workspace          string
+	ModelURL           string
+	ModelAPIKey        string
+	ModelName          string
+	ScrollbackLines    int
+	AIContextChars     int
+	AITimeout          time.Duration
+	AIKeepalive        time.Duration
+	DisableAIKeepalive bool
 }
 
 const terminalFrameInterval = time.Second / 30
 const DefaultScrollbackLines = 20000
 const DefaultAIContextChars = agent.DefaultOutputContextChars
 const DefaultAITimeout = 5 * time.Minute
+const DefaultAIKeepalive = 30 * time.Second
 
 type App struct {
 	config Config
@@ -118,6 +121,7 @@ type App struct {
 	agentThought          string
 	agentLanguage         string
 	agentSeedContext      string
+	lastAIKeepalive       time.Time
 	chat                  []chatMessage
 	proposal              *agent.Proposal
 	aiExpanded            bool
@@ -158,6 +162,11 @@ func New(config Config) (*App, error) {
 	}
 	if config.AITimeout <= 0 {
 		config.AITimeout = DefaultAITimeout
+	}
+	if config.DisableAIKeepalive {
+		config.AIKeepalive = 0
+	} else if config.AIKeepalive <= 0 {
+		config.AIKeepalive = DefaultAIKeepalive
 	}
 	parsed, err := sshwrap.Parse(config.SSHArgs)
 	if err != nil {
@@ -337,7 +346,9 @@ func (a *App) Run() error {
 		case event := <-a.events:
 			a.handleEvent(event)
 		case <-maintenanceTicker.C:
-			a.checkZmodemCompletion(time.Now())
+			now := time.Now()
+			a.checkZmodemCompletion(now)
+			a.maintainAIKeepalive(now)
 			a.scheduleMonitors()
 			if a.inlineAI != nil && a.agentBusy {
 				a.inlineAI.Spinner++
@@ -361,6 +372,9 @@ func (a *App) Run() error {
 
 func (a *App) startSSH() error {
 	args := append([]string(nil), a.config.SSHArgs...)
+	if a.config.AIKeepalive > 0 {
+		args = append(sshServerAliveOptions(a.config.AIKeepalive), args...)
+	}
 	if !sshwrap.HasControlPath(args) {
 		directory, err := os.MkdirTemp("", "aissh-")
 		if err != nil {

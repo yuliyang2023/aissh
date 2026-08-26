@@ -56,6 +56,7 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 		ScrollbackLines: app.DefaultScrollbackLines,
 		AIContextChars:  app.DefaultAIContextChars,
 		AITimeout:       app.DefaultAITimeout,
+		AIKeepalive:     app.DefaultAIKeepalive,
 	}
 	if value := strings.TrimSpace(os.Getenv("AISSH_SCROLLBACK_LINES")); value != "" {
 		lines, err := positiveLineCount(value)
@@ -77,6 +78,14 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 			return config, false, false, fmt.Errorf("AISSH_AI_TIMEOUT: %w", err)
 		}
 		config.AITimeout = timeout
+	}
+	if value := strings.TrimSpace(os.Getenv("AISSH_AI_KEEPALIVE")); value != "" {
+		keepalive, disabled, err := durationOrDisabled(value)
+		if err != nil {
+			return config, false, false, fmt.Errorf("AISSH_AI_KEEPALIVE: %w", err)
+		}
+		config.AIKeepalive = keepalive
+		config.DisableAIKeepalive = disabled
 	}
 	if disabledValue(os.Getenv("AISSH_HISTORY")) {
 		config.HistoryDir = ""
@@ -100,7 +109,10 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 			config.HistoryDir = ""
 		case value == "--no-workspace":
 			config.Workspace = ""
-		case value == "--agent" || value == "--agent-url" || value == "--agent-token" || value == "--codex-path" || value == "--codex-model" || value == "--ssh-path" || value == "--lang" || value == "--history-dir" || value == "--workspace" || value == "--model-url" || value == "--model-name" || value == "--scrollback-lines" || value == "--ai-context-chars" || value == "--ai-timeout":
+		case value == "--no-ai-keepalive":
+			config.AIKeepalive = 0
+			config.DisableAIKeepalive = true
+		case value == "--agent" || value == "--agent-url" || value == "--agent-token" || value == "--codex-path" || value == "--codex-model" || value == "--ssh-path" || value == "--lang" || value == "--history-dir" || value == "--workspace" || value == "--model-url" || value == "--model-name" || value == "--scrollback-lines" || value == "--ai-context-chars" || value == "--ai-timeout" || value == "--ai-keepalive":
 			if index+1 >= len(args) {
 				return config, false, false, fmt.Errorf("%s requires a value", value)
 			}
@@ -146,6 +158,13 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 					return config, false, false, fmt.Errorf("--ai-timeout: %w", err)
 				}
 				config.AITimeout = timeout
+			case "--ai-keepalive":
+				keepalive, disabled, err := durationOrDisabled(args[index])
+				if err != nil {
+					return config, false, false, fmt.Errorf("--ai-keepalive: %w", err)
+				}
+				config.AIKeepalive = keepalive
+				config.DisableAIKeepalive = disabled
 			}
 		case strings.HasPrefix(value, "--agent="):
 			config.AgentProvider = strings.TrimPrefix(value, "--agent=")
@@ -187,6 +206,13 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 				return config, false, false, fmt.Errorf("--ai-timeout: %w", err)
 			}
 			config.AITimeout = timeout
+		case strings.HasPrefix(value, "--ai-keepalive="):
+			keepalive, disabled, err := durationOrDisabled(strings.TrimPrefix(value, "--ai-keepalive="))
+			if err != nil {
+				return config, false, false, fmt.Errorf("--ai-keepalive: %w", err)
+			}
+			config.AIKeepalive = keepalive
+			config.DisableAIKeepalive = disabled
 		default:
 			sshArgs = append(sshArgs, value)
 		}
@@ -228,6 +254,8 @@ aissh options:
   --scrollback-lines N SSH scrollback lines kept locally (default: 20000)
   --ai-context-chars N Maximum SSH output characters sent to AI (default: 120000)
   --ai-timeout DURATION AI request timeout; e.g. 30s, 5m, 1h; bare number = seconds (default: 5m)
+  --ai-keepalive DURATION Keep SSH and an idle shell alive while AI runs (default: 30s; use off to disable)
+  --no-ai-keepalive Disable AI-time SSH and shell keepalive
   --version           Show version
 
 Shortcuts:
@@ -275,6 +303,8 @@ aissh选项:
   --scrollback-lines N 本机保留的 SSH 回滚行数，默认 20000
   --ai-context-chars N 每次交给 AI 的 SSH 输出字符上限，默认 120000
   --ai-timeout DURATION AI 请求超时；如 30s、5m、1h；纯数字按秒（默认 5m）
+  --ai-keepalive DURATION AI 执行期间的 SSH 与 Shell 保活间隔（默认 30s；off 可关闭）
+  --no-ai-keepalive 关闭 AI 执行期间的 SSH 与 Shell 保活
   --version           显示版本
 
 快捷键:
@@ -342,4 +372,12 @@ func positiveDuration(value string) (time.Duration, error) {
 		return 0, fmt.Errorf("must be a positive duration such as 300s, 5m, or 10m")
 	}
 	return duration, nil
+}
+
+func durationOrDisabled(value string) (time.Duration, bool, error) {
+	if disabledValue(value) {
+		return 0, true, nil
+	}
+	duration, err := positiveDuration(value)
+	return duration, false, err
 }

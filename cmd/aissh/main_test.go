@@ -130,6 +130,25 @@ func TestParseArgsSupportsAITimeout(t *testing.T) {
 	}
 }
 
+func TestParseArgsSupportsAIKeepalive(t *testing.T) {
+	t.Setenv("AISSH_AI_KEEPALIVE", "")
+	config, help, version, err := parseArgs([]string{"--ai-keepalive", "45s", "server"})
+	if err != nil || help || version || config.AIKeepalive != 45*time.Second || config.DisableAIKeepalive {
+		t.Fatalf("keepalive=%s disabled=%v help=%v version=%v err=%v", config.AIKeepalive, config.DisableAIKeepalive, help, version, err)
+	}
+	config, _, _, err = parseArgs([]string{"--ai-keepalive=off", "server"})
+	if err != nil || config.AIKeepalive != 0 || !config.DisableAIKeepalive {
+		t.Fatalf("disabled keepalive=%s disabled=%v err=%v", config.AIKeepalive, config.DisableAIKeepalive, err)
+	}
+	config, _, _, err = parseArgs([]string{"--no-ai-keepalive", "server"})
+	if err != nil || config.AIKeepalive != 0 || !config.DisableAIKeepalive {
+		t.Fatalf("flag keepalive=%s disabled=%v err=%v", config.AIKeepalive, config.DisableAIKeepalive, err)
+	}
+	if _, _, _, err := parseArgs([]string{"--ai-keepalive", "later", "server"}); err == nil {
+		t.Fatal("invalid AI keepalive was accepted")
+	}
+}
+
 func TestParseArgsSupportsAIContextChars(t *testing.T) {
 	t.Setenv("AISSH_AI_CONTEXT_CHARS", "")
 	config, help, version, err := parseArgs([]string{"--ai-context-chars", "300000", "server"})

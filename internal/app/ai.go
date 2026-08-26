@@ -69,6 +69,7 @@ func (a *App) startAI(prompt string, foreground bool) {
 	a.appendPersistentChat(chatMessage{Role: "user", Content: prompt, Time: time.Now()})
 	a.aiScroll = 0
 	a.agentBusy = true
+	a.lastAIKeepalive = time.Now()
 	a.agentStatus = a.t("正在连接 AI")
 	a.agentThought = ""
 	a.agentLanguage = app_i18n.PreferredResponseLanguage(prompt, a.localizer.Language())
@@ -375,6 +376,7 @@ func (a *App) submitExecutionResult() {
 		a.startInlineExecutionAnalysis(execution.Command)
 	}
 	a.agentBusy = true
+	a.lastAIKeepalive = time.Now()
 	a.agentStatus = a.t("AI 正在分析执行结果")
 	output := ""
 	if execution.Output != nil {
