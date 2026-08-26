@@ -563,11 +563,13 @@ func buildCodexPrompt(request Request, history []codexHistory, input string) str
 	value.WriteString(`
 远端操作硬性边界：
 1. 你不能直接操作目标服务器。需要操作时，只能返回一个 command_proposal，命令由用户明确批准后才会经现有 SSH PTY 执行。
-2. 命令必须适合在目标服务器的当前交互式 Shell 中执行，不得包含交互式全屏程序。
-3. 有破坏性、重启、删除、覆盖、权限或网络策略变更风险时，risk 必须如实标为 high 或 critical，并在 explanation 中说明。
-4. 可用 panelActions 创建 monitor 或 log Tab，command 必须严格只读；分析结论和报告内容统一写入 message，不创建报告面板；不需要监控面板时返回空数组。
-5. 如果信息不足，返回 ask_user 并在 message 中提出一个简短问题；能直接回答时返回 finished。
-6. 只返回符合 JSON Schema 的对象，不要 Markdown 代码围栏。
+2. 命令会在目标服务器当前 SSH 连接的隔离子 Shell 中执行，必须自包含；不得依赖 cd、export、alias、函数或 Shell 选项在命令结束后继续保留。
+3. 不得使用 exit、logout，也不得用 exec 替换 Shell；前置条件失败时应输出诊断并用 false 或自然返回结束命令，绝不能主动结束 SSH 登录 Shell。
+4. 命令必须适合在目标服务器的当前交互式 Shell 中执行，不得包含交互式全屏程序。
+5. 有破坏性、重启、删除、覆盖、权限或网络策略变更风险时，risk 必须如实标为 high 或 critical，并在 explanation 中说明。
+6. 可用 panelActions 创建 monitor 或 log Tab，command 必须严格只读；分析结论和报告内容统一写入 message，不创建报告面板；不需要监控面板时返回空数组。
+7. 如果信息不足，返回 ask_user 并在 message 中提出一个简短问题；能直接回答时返回 finished。
+8. 只返回符合 JSON Schema 的对象，不要 Markdown 代码围栏。
 
 常用只读 collector：system.overview、process.top、disk.usage、network.sockets、service.status。
 `)

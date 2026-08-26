@@ -296,8 +296,15 @@ func (a *App) finishApproval(event approvalEvent) {
 	a.atPrompt = false
 	a.pendingError = nil
 	a.focus = focusTerminal
-	_, _ = a.sshPTY.Write([]byte(event.command + "\r"))
+	_, _ = a.sshPTY.Write([]byte(isolateApprovedCommand(event.command)))
 	a.dirty = true
+}
+
+// isolateApprovedCommand keeps shell-local control flow from an AI proposal
+// inside a child shell. Remote side effects still apply, but exit, exec, cd,
+// traps, and shell options cannot terminate or mutate the outer login shell.
+func isolateApprovedCommand(command string) string {
+	return "(\n" + command + "\n)\r"
 }
 
 func (a *App) rejectProposal() {

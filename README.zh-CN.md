@@ -66,6 +66,8 @@ AI 生成的命令不会自动执行，而是先在左侧终端中展示用途�
 - 输入 `no` 拒绝；
 - 高风险命令使用红色醒目标记；
 - 长命令自动折行，也可以展开查看完整内容。
+- 获批命令会在同一 SSH 连接的隔离子 Shell 中执行，因此 `exit`、`exec`、`set -e`、`cd` 等
+  Shell 局部控制不会结束或污染外层登录 Shell。
 
 你始终知道即将执行什么，也始终拥有最后决定权。
 
@@ -230,6 +232,9 @@ bin/aissh --scrollback-lines 50000 production
 
 # 临时关闭本机 AI 历史
 bin/aissh --no-history production
+
+# 记录 OpenSSH 协议调试日志（适合排查 SSH 返回 EOF）
+bin/aissh -vvv -E /tmp/aissh-ssh.log production
 ```
 
 更多参数请运行：

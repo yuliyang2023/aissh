@@ -71,6 +71,8 @@ expected effect, and risk level.
 - Enter `no` to reject it.
 - High-risk commands are highlighted in red.
 - Long commands are formatted for readability and can be expanded in place.
+- Approved commands run in an isolated child shell on the same SSH connection, so shell-local control flow such as
+  `exit`, `exec`, `set -e`, or `cd` cannot terminate or mutate the outer login shell.
 
 You always know what is about to run, and you always make the final decision.
 
@@ -241,6 +243,9 @@ bin/aissh --scrollback-lines 50000 production
 
 # Disable local AI history for this connection
 bin/aissh --no-history production
+
+# Record OpenSSH protocol diagnostics (useful when the session ends with EOF)
+bin/aissh -vvv -E /tmp/aissh-ssh.log production
 ```
 
 Run the following command for the complete option reference:

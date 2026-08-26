@@ -80,7 +80,7 @@ func TestChineseAIInputIsCapturedBeforeSSH(t *testing.T) {
 	}
 }
 
-func TestYesExecutesProposalThroughExistingSSHPTY(t *testing.T) {
+func TestYesExecutesProposalThroughIsolatedShellOnExistingSSHPTY(t *testing.T) {
 	application, err := New(Config{SSHArgs: []string{"server"}})
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +96,8 @@ func TestYesExecutesProposalThroughExistingSSHPTY(t *testing.T) {
 	application.atPrompt = true
 	application.focus = focusApproval
 	application.agentSessionID = "s1"
-	application.proposal = &agent.Proposal{ID: "p1", Command: "uptime", Risk: "read_only"}
+	command := "if ! command -v strace >/dev/null 2>&1; then\n  echo missing strace\n  exit 2\nfi\nstrace -V"
+	application.proposal = &agent.Proposal{ID: "p1", Command: command, Risk: "read_only"}
 	application.handleApprovalInput([]byte("yes\r"))
 	select {
 	case event := <-application.events:
@@ -104,16 +105,27 @@ func TestYesExecutesProposalThroughExistingSSHPTY(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("approval action timed out")
 	}
-	buffer := make([]byte, 32)
+	buffer := make([]byte, 256)
 	count, err := reader.Read(buffer)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(buffer[:count]); got != "uptime\r" {
+	if got, want := string(buffer[:count]), "(\n"+command+"\n)\r"; got != want {
 		t.Fatalf("ssh input = %q", got)
 	}
-	if conversation := strings.Join(application.aiLines(60), "\n"); !strings.Contains(conversation, "已批准执行命令：uptime") {
+	if application.execution == nil || application.execution.Command != command {
+		t.Fatalf("execution did not preserve original command: %#v", application.execution)
+	}
+	conversation := strings.Join(application.aiLines(60), "\n")
+	if !strings.Contains(conversation, "已批准执行命令：") || !strings.Contains(conversation, "exit 2") || !strings.Contains(conversation, "strace -V") {
 		t.Fatalf("approval was not synchronized: %q", conversation)
+	}
+}
+
+func TestIsolateApprovedCommandProtectsOuterLoginShell(t *testing.T) {
+	command := "printf 'missing\\n'\nexit 1"
+	if got, want := isolateApprovedCommand(command), "(\nprintf 'missing\\n'\nexit 1\n)\r"; got != want {
+		t.Fatalf("isolated command = %q, want %q", got, want)
 	}
 }
 
