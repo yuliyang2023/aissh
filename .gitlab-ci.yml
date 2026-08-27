@@ -12,6 +12,8 @@ default:
     CGO_ENABLED: "0"
     GOCACHE: "$CI_PROJECT_DIR/.cache/go-build"
     GOMODCACHE: "$CI_PROJECT_DIR/.cache/go-mod"
+    GOPROXY: "https://goproxy.cn,direct"
+    GOSUMDB: "sum.golang.google.cn"
   cache:
     key: "go-${CI_COMMIT_REF_SLUG}"
     paths:

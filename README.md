@@ -171,6 +171,10 @@ Go container image, so a Docker or Kubernetes GitLab Runner does not need Go ins
 are retained as job artifacts for seven days. Tags matching `vX.Y.Z` are also uploaded to the Generic Package Registry
 and exposed through a GitLab Release.
 
+Go jobs use `https://goproxy.cn,direct` for module downloads and `sum.golang.google.cn` for checksum verification by
+default. To use an internal mirror, define the `GOPROXY` and, if necessary, `GOSUMDB` variables in the project's CI/CD
+settings; project variables override these pipeline defaults.
+
 Create a release by pushing a version tag:
 
 ```bash

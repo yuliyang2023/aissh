@@ -164,6 +164,10 @@ Go 容器镜像，因此 Docker 或 Kubernetes 类型的 GitLab Runner 无需在
 保留 7 天；推送符合 `vX.Y.Z` 格式的 Tag 后，制品还会上传到 Generic Package Registry，并创建对应的
 GitLab Release 下载入口。
 
+Go 任务默认使用 `https://goproxy.cn,direct` 下载模块，并通过 `sum.golang.google.cn` 校验依赖。如果需要
+使用内部代理，可以在项目 CI/CD Variables 中配置 `GOPROXY`，必要时同时配置 `GOSUMDB`；项目变量会覆盖
+流水线中的默认值。
+
 正常发布只需推送版本 Tag：
 
 ```bash
