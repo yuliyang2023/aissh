@@ -63,7 +63,7 @@ func (a *App) render() {
 			}
 		}
 	} else {
-		borderCol := a.mainCols + 1
+		borderCol := a.mainCols + 2
 		for row := 2; row < a.rows; row++ {
 			output.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b[38;5;238m│", row, borderCol))
 		}
@@ -151,7 +151,7 @@ func (a *App) monitorRegion() (top, left, width, height int) {
 		return 2, 1, a.cols, a.contentRows
 	}
 	monitorHeight, _ := a.sidebarHeights(a.contentRows)
-	return 2, a.mainCols + 2, a.cols - a.mainCols - 1, monitorHeight
+	return 2, a.mainCols + 3, a.cols - a.mainCols - 2, monitorHeight
 }
 
 func (a *App) aiRegion() (top, left, width, height int) {
@@ -159,7 +159,7 @@ func (a *App) aiRegion() (top, left, width, height int) {
 		return 2, 1, a.cols, a.contentRows
 	}
 	monitorHeight, aiHeight := a.sidebarHeights(a.contentRows)
-	return 3 + monitorHeight, a.mainCols + 2, a.cols - a.mainCols - 1, aiHeight
+	return 3 + monitorHeight, a.mainCols + 3, a.cols - a.mainCols - 2, aiHeight
 }
 
 func (a *App) renderMonitorWorkspace(top, left, width, height int) string {

@@ -64,7 +64,7 @@ func (a *App) renderTerminalWorkspace() (string, int, int) {
 				positionedLine(row, layout.Left, line, layout.Width, a.inlineLineStyle(state, line))
 		}
 	}
-	a.addScrollbarToRows(rows, 2, a.mainCols, a.contentRows, len(a.terminalHistory)+a.contentRows, a.contentRows, 0)
+	a.addScrollbarToRows(rows, 2, a.terminalScrollbarCol(), a.contentRows, len(a.terminalHistory)+a.contentRows, a.contentRows, 0)
 	output := a.renderTerminalRowChanges(rows)
 	cursor := a.virtual.Cursor()
 	cursorRow := 2 + model.CursorLogical - model.Viewport
