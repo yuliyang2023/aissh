@@ -592,7 +592,7 @@ func (a *App) inputStatus() string {
 	if a.inlineAI != nil && a.focus == focusTerminal {
 		if a.agentBusy {
 			frame := inlineSpinnerFrames[a.inlineAI.Spinner%len(inlineSpinnerFrames)]
-			return a.t("AI %s 本机 Codex 正在处理；点击左侧 AI 内容可查看完整对话", frame)
+			return a.t("AI %s 本机 %s 正在处理；点击左侧 AI 内容可查看完整对话", frame, a.agent.Name())
 		}
 		if a.proposal == nil {
 			return a.t("AI 回答已显示在原输入下方；继续输入即可返回 SSH，点击内容查看完整对话")

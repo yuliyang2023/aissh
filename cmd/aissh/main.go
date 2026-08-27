@@ -47,6 +47,8 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 		AgentToken:      os.Getenv("AISSH_AGENT_TOKEN"),
 		CodexPath:       firstNonEmpty(os.Getenv("AISSH_CODEX_PATH"), "codex"),
 		CodexModel:      os.Getenv("AISSH_CODEX_MODEL"),
+		ClaudePath:      firstNonEmpty(os.Getenv("AISSH_CLAUDE_PATH"), "claude"),
+		ClaudeModel:     os.Getenv("AISSH_CLAUDE_MODEL"),
 		Language:        i18n.Resolve(firstNonEmpty(os.Getenv("AISSH_LANG"), "auto")),
 		HistoryDir:      firstNonEmpty(os.Getenv("AISSH_HISTORY_DIR"), history.DefaultDir()),
 		Workspace:       currentDirectory(),
@@ -112,7 +114,7 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 		case value == "--no-ai-keepalive":
 			config.AIKeepalive = 0
 			config.DisableAIKeepalive = true
-		case value == "--agent" || value == "--agent-url" || value == "--agent-token" || value == "--codex-path" || value == "--codex-model" || value == "--ssh-path" || value == "--lang" || value == "--history-dir" || value == "--workspace" || value == "--model-url" || value == "--model-name" || value == "--scrollback-lines" || value == "--ai-context-chars" || value == "--ai-timeout" || value == "--ai-keepalive":
+		case value == "--agent" || value == "--agent-url" || value == "--agent-token" || value == "--codex-path" || value == "--codex-model" || value == "--claude-path" || value == "--claude-model" || value == "--ssh-path" || value == "--lang" || value == "--history-dir" || value == "--workspace" || value == "--model-url" || value == "--model-name" || value == "--scrollback-lines" || value == "--ai-context-chars" || value == "--ai-timeout" || value == "--ai-keepalive":
 			if index+1 >= len(args) {
 				return config, false, false, fmt.Errorf("%s requires a value", value)
 			}
@@ -128,6 +130,10 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 				config.CodexPath = args[index]
 			case "--codex-model":
 				config.CodexModel = args[index]
+			case "--claude-path":
+				config.ClaudePath = args[index]
+			case "--claude-model":
+				config.ClaudeModel = args[index]
 			case "--ssh-path":
 				config.SSHPath = args[index]
 			case "--lang":
@@ -176,6 +182,10 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 			config.CodexPath = strings.TrimPrefix(value, "--codex-path=")
 		case strings.HasPrefix(value, "--codex-model="):
 			config.CodexModel = strings.TrimPrefix(value, "--codex-model=")
+		case strings.HasPrefix(value, "--claude-path="):
+			config.ClaudePath = strings.TrimPrefix(value, "--claude-path=")
+		case strings.HasPrefix(value, "--claude-model="):
+			config.ClaudeModel = strings.TrimPrefix(value, "--claude-model=")
 		case strings.HasPrefix(value, "--ssh-path="):
 			config.SSHPath = strings.TrimPrefix(value, "--ssh-path=")
 		case strings.HasPrefix(value, "--lang="):
@@ -238,9 +248,11 @@ Examples:
   aissh -J bastion internal-server
 
 aissh options:
-  --agent PROVIDER    AI backend: codex, deepseek, model, or http
+  --agent PROVIDER    AI backend: codex, claude, deepseek, model, or http
   --codex-path PATH   Local Codex CLI path; defaults to codex
   --codex-model MODEL Codex model; defaults to the local configuration
+  --claude-path PATH  Local Claude Code CLI path; defaults to claude
+  --claude-model MODEL Claude model; defaults to the local configuration
   --agent-url URL     HTTP Agent SSE endpoint
   --agent-token TOKEN HTTP Agent Bearer token
   --ssh-path PATH     OpenSSH binary; defaults to /usr/bin/ssh
@@ -248,7 +260,7 @@ aissh options:
   --history-dir DIR   Local per-target AI history directory
   --no-history        Disable loading and saving AI history
   --workspace DIR     Read-only local code workspace (default: current directory)
-  --no-workspace      Disable local workspace access for Codex
+  --no-workspace      Disable local workspace access for Codex/Claude
   --model-url URL     OpenAI-compatible model API base URL
   --model-name MODEL  Direct model name
   --scrollback-lines N SSH scrollback lines kept locally (default: 20000)
@@ -266,8 +278,8 @@ Shortcuts:
   Esc     Return to the SSH terminal
 
 Local commands (available after SSH connects):
-  /workspace             Show the current local Codex workspace
-  /workspace LOCAL_PATH  Change the workspace for subsequent Codex requests
+  /workspace             Show the current local AI workspace
+  /workspace LOCAL_PATH  Change the workspace for subsequent AI requests
   /workspace off         Disable local workspace access
 
 AI command proposals appear in the left SSH pane; enter yes or no and press Enter.
@@ -287,17 +299,19 @@ All unrecognized options are passed through to OpenSSH.
   aissh -J bastion internal-server
 
 aissh选项:
-  --agent PROVIDER    AI 后端：codex、deepseek、model 或 http
+  --agent PROVIDER    AI 后端：codex、claude、deepseek、model 或 http
   --codex-path PATH   本机 Codex CLI 路径，默认 codex
   --codex-model MODEL 指定 Codex 模型；默认沿用本机配置
+  --claude-path PATH  本机 Claude Code CLI 路径，默认 claude
+  --claude-model MODEL 指定 Claude 模型；默认沿用本机配置
   --agent-url URL     HTTP Agent SSE 地址；设置后兼容旧模式
   --agent-token TOKEN HTTP Agent Bearer Token
   --ssh-path PATH     系统 ssh 路径，默认 /usr/bin/ssh
   --lang LANG         界面语言：zh-CN 或 en，默认根据系统环境自动选择
   --history-dir DIR   按目标保存 AI 历史的本机目录
   --no-history        禁用 AI 历史的读取和写入
-  --workspace DIR     供 Codex 只读分析的本机代码工作区，默认当前目录
-  --no-workspace      禁止 Codex 访问本机工作区
+  --workspace DIR     供 Codex/Claude 只读分析的本机代码工作区，默认当前目录
+  --no-workspace      禁止 Codex/Claude 访问本机工作区
   --model-url URL     OpenAI-compatible 模型 API 地址
   --model-name MODEL  直连模型名称
   --scrollback-lines N 本机保留的 SSH 回滚行数，默认 20000
@@ -315,8 +329,8 @@ aissh选项:
   Esc     返回 SSH 主终端
 
 本地命令（SSH 连接后可在左侧提示符或右下 AI 输入框使用）:
-  /workspace             查看当前本机 Codex 工作区
-  /workspace 本机路径     切换后续 Codex 请求使用的工作区
+  /workspace             查看当前本机 AI 工作区
+  /workspace 本机路径     切换后续 AI 请求使用的工作区
   /workspace off         关闭本机工作区访问
 
 AI 建议命令时，会在左侧 SSH 窗口显示确认卡片；输入 yes 或 no 后回车。
