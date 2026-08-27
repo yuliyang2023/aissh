@@ -90,8 +90,8 @@ Stay focused on a small screen, or turn a large terminal into a lightweight oper
 
 ### 🔗 Connect local code with the remote environment
 
-With the local Codex provider, `aissh` can inspect a local project in read-only mode and analyze it together with output
-from the remote server.
+With the local Codex or Claude Code provider, `aissh` can inspect a local project in read-only mode and analyze it
+together with output from the remote server.
 
 ```bash
 cd /path/to/local/project
@@ -164,6 +164,8 @@ export AISSH_CODEX_MODEL='gpt-5.2'
 bin/aissh production
 ```
 
+Claude Code is also supported as a local provider; see “Choose an AI provider” below.
+
 ## Release builds and GitLab distribution
 
 The included GitLab pipeline tests the project and builds Linux/macOS packages for AMD64 and ARM64. It uses a pinned
@@ -214,6 +216,34 @@ local text history remains available.
 bin/aissh --agent codex production
 ```
 
+### Local Claude Code
+
+The same local-first experience backed by the Claude Code CLI, including read-only access to the local code workspace.
+Make sure the `claude` CLI is installed and authenticated:
+
+```bash
+claude -p "reply with ok only"
+```
+
+Then connect with:
+
+```bash
+bin/aissh --agent claude production
+```
+
+To select a Claude executable or model:
+
+```bash
+export AISSH_CLAUDE_PATH='/usr/local/bin/claude'
+export AISSH_CLAUDE_MODEL='opus'
+bin/aissh --agent claude production
+```
+
+Each running SSH session owns one persistent Claude session that is resumed across follow-up questions, approvals, and
+result reviews. Claude runs with a hard read-only tool allowlist; with `--no-workspace`, local file access is disabled
+entirely. Note that the Claude Code CLI keeps its own local session transcripts and provides no delete command, so
+unlike Codex threads they are not removed when the SSH session ends.
+
 ### DeepSeek
 
 No Codex CLI is required. Configure an API key and connect:
@@ -240,7 +270,7 @@ receive access to the local code workspace.
 | Input | Action |
 | --- | --- |
 | Chinese question / `/ai question` | Ask AI from the current SSH prompt |
-| `/workspace PATH` | Change the local Codex workspace |
+| `/workspace PATH` | Change the local AI code workspace |
 | `yes` / `no` | Run or reject an AI command proposal |
 | `Ctrl+O` | Expand the currently folded command |
 | `Ctrl+R` | Browse sessions while the AI conversation is focused |
@@ -295,7 +325,7 @@ bin/aissh --help
 - Nothing needs to be installed on the target server.
 - Every AI command proposal requires explicit user approval.
 - High-risk commands are clearly highlighted in both views.
-- Local Codex can inspect the configured workspace in read-only mode only.
+- Local Codex and Claude Code can inspect the configured workspace in read-only mode only.
 - AI-created monitors are restricted to read-only commands.
 - User-created monitor data is not shared with AI by default.
 - Local code is never modified, uploaded, or deployed automatically.

@@ -33,7 +33,7 @@ func (a *App) startInlineAI(prompt, sourceLine string, locallyCaptured bool) {
 		Prompt:  strings.TrimSpace(prompt),
 		AnchorX: anchorX,
 		AnchorY: anchorY,
-		Status:  a.t("正在连接本机 Codex"),
+		Status:  a.t("正在连接本机 %s", a.agent.Name()),
 		Started: time.Now(),
 	}
 	a.focus = focusTerminal

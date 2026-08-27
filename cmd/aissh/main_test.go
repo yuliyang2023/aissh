@@ -44,6 +44,26 @@ func TestParseArgsDefaultsToLocalCodex(t *testing.T) {
 	}
 }
 
+func TestParseArgsSupportsClaudeProvider(t *testing.T) {
+	t.Setenv("AISSH_CLAUDE_PATH", "")
+	t.Setenv("AISSH_CLAUDE_MODEL", "")
+	config, help, version, err := parseArgs([]string{
+		"--agent", "claude",
+		"--claude-path", "/opt/bin/claude",
+		"--claude-model=opus",
+		"server",
+	})
+	if err != nil || help || version {
+		t.Fatalf("help=%v version=%v err=%v", help, version, err)
+	}
+	if config.AgentProvider != "claude" || config.ClaudePath != "/opt/bin/claude" || config.ClaudeModel != "opus" {
+		t.Fatalf("provider=%q path=%q model=%q", config.AgentProvider, config.ClaudePath, config.ClaudeModel)
+	}
+	if !reflect.DeepEqual(config.SSHArgs, []string{"server"}) {
+		t.Fatalf("ssh args = %#v", config.SSHArgs)
+	}
+}
+
 func TestParseArgsSupportsLanguage(t *testing.T) {
 	config, help, version, err := parseArgs([]string{"--lang", "en-US", "server"})
 	if err != nil || help || version {

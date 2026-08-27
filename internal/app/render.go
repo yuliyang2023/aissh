@@ -403,7 +403,7 @@ func (a *App) inlineConversationLinesFor(state *inlineAIState, width, available 
 	}
 	if !state.Done {
 		frame := inlineSpinnerFrames[state.Spinner%len(inlineSpinnerFrames)]
-		status := firstText(a.t(state.Status), a.t("本机 Codex 正在分析"))
+		status := firstText(a.t(state.Status), a.t("本机 %s 正在分析", a.agent.Name()))
 		elapsed := time.Since(state.Started).Round(time.Second)
 		lines := []string{fmt.Sprintf("AI %s %s · %s", frame, status, elapsed)}
 		if strings.TrimSpace(state.Response) != "" && available > 1 {

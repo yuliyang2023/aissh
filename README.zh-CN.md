@@ -84,7 +84,7 @@ AI 生成的命令不会自动执行，而是先在左侧终端中展示用途�
 
 ### 🔗 同时理解本地代码与线上环境
 
-使用本机 Codex 时，`aissh` 可以只读查看本地项目，再结合服务器输出进行分析。
+使用本机 Codex 或 Claude Code 时，`aissh` 可以只读查看本地项目，再结合服务器输出进行分析。
 
 ```bash
 cd /path/to/local/project
@@ -157,6 +157,8 @@ export AISSH_CODEX_MODEL='gpt-5.2'
 bin/aissh production
 ```
 
+也支持使用本机 Claude Code 作为 AI 后端，见下方「选择 AI 后端」。
+
 ## 多平台打包与 GitLab 分发
 
 仓库内置的 GitLab CI 会执行测试，并生成 Linux/macOS 的 AMD64、ARM64 四种安装包。流水线使用固定版本的
@@ -205,6 +207,32 @@ thread，而不是重新创建 Agent。SSH 会话结束时清理对应 thread，
 bin/aissh --agent codex production
 ```
 
+### 本机 Claude Code
+
+基于 Claude Code CLI 的同款本机体验，同样支持只读分析本机代码工作区。先确认 `claude` CLI 已安装并登录：
+
+```bash
+claude -p "只回答 ok"
+```
+
+然后连接：
+
+```bash
+bin/aissh --agent claude production
+```
+
+如需指定 Claude 路径或模型：
+
+```bash
+export AISSH_CLAUDE_PATH='/usr/local/bin/claude'
+export AISSH_CLAUDE_MODEL='opus'
+bin/aissh --agent claude production
+```
+
+每条正在运行的 SSH 会话对应一个持久的 Claude 会话；后续提问、命令审批和执行结果都会续用该会话。
+Claude 以只读工具白名单运行；使用 `--no-workspace` 时会完全禁止本机文件访问。注意：Claude Code CLI
+自身会在本机保留会话记录且没有删除命令，因此与 Codex thread 不同，SSH 会话结束时不会自动清理。
+
 ### DeepSeek
 
 不需要安装 Codex CLI，配置 API Key 后即可使用：
@@ -230,7 +258,7 @@ bin/aissh --agent model production
 | 操作 | 功能 |
 | --- | --- |
 | 中文问题 / `/ai 问题` | 在当前 SSH 提示符向 AI 提问 |
-| `/workspace 路径` | 切换本机 Codex 工作区 |
+| `/workspace 路径` | 切换本机 AI 代码工作区 |
 | `yes` / `no` | 执行或拒绝 AI 命令建议 |
 | `Ctrl+O` | 展开当前折叠的完整命令 |
 | `Ctrl+R` | 在 AI 对话中浏览历史会话 |
@@ -284,7 +312,7 @@ bin/aissh --help
 - 目标服务器无需安装任何组件；
 - AI 命令建议必须由用户明确批准；
 - 高风险命令在左右两侧都会醒目标记；
-- 本机 Codex 仅以只读方式查看工作区；
+- 本机 Codex 与 Claude Code 仅以只读方式查看工作区；
 - AI 创建的监控仅允许使用只读命令；
 - 用户创建的监控默认不会交给 AI 分析；
 - 本地代码不会自动修改、上传或部署；
