@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
+	"git.example.com/ai/wrd-ai-cli/internal/terminalview"
 )
 
 func TestBuiltinOverviewLabelsUseSelectedLanguage(t *testing.T) {
@@ -18,5 +19,35 @@ func TestBuiltinOverviewLabelsUseSelectedLanguage(t *testing.T) {
 	chinese := formatBuiltin(panel.BuiltinOverviewCommand, output, "zh-CN")
 	if !strings.Contains(chinese, "主机") || !strings.Contains(chinese, "根分区") {
 		t.Fatalf("Chinese overview=%q", chinese)
+	}
+}
+
+func TestBuiltinOverviewValuesAlignInCells(t *testing.T) {
+	values := []string{"server", "1 day", "0.1", "1/2 GB", "1/10 GB", "20"}
+	output := "HOST=server\nUPTIME=1 day\nLOAD=0.1\nMEM=1/2 GB\nDISK=1/10 GB\nPROCS=20\n"
+	cellWidth := func(s string) int {
+		cells := 0
+		for _, r := range s {
+			cells += terminalview.CellWidth(r)
+		}
+		return cells
+	}
+	for _, language := range []string{"en", "zh-CN"} {
+		lines := strings.Split(formatBuiltin(panel.BuiltinOverviewCommand, output, language), "\n")
+		if len(lines) != len(values) {
+			t.Fatalf("language %s: got %d lines, want %d", language, len(lines), len(values))
+		}
+		column := -1
+		for i, line := range lines {
+			if !strings.HasSuffix(line, values[i]) {
+				t.Fatalf("language %s: line %q does not end with value %q", language, line, values[i])
+			}
+			start := cellWidth(line) - cellWidth(values[i])
+			if column == -1 {
+				column = start
+			} else if start != column {
+				t.Fatalf("language %s: value column %d != %d in line %q", language, start, column, line)
+			}
+		}
 	}
 }
