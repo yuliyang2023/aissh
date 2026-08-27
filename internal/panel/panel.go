@@ -174,7 +174,7 @@ func (m *Manager) SetError(id string, err error) {
 	}
 }
 
-const BuiltinOverviewCommand = `LC_ALL=C; printf 'HOST='; hostname 2>/dev/null; printf 'UPTIME='; uptime 2>/dev/null; printf 'LOAD='; (cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || sysctl -n vm.loadavg 2>/dev/null); printf 'MEM='; (free -m 2>/dev/null | awk 'NR==2 {printf "%s/%s MB (%.1f%%)\n", $3,$2,$3*100/$2}' || true); printf 'DISK='; df -hP / 2>/dev/null | awk 'NR==2 {printf "%s/%s (%s)\n", $3,$2,$5}'; printf 'PROCS='; (ps -e 2>/dev/null | wc -l | tr -d ' '); printf '\n'`
+const BuiltinOverviewCommand = `LC_ALL=C; printf 'HOST='; hostname 2>/dev/null; printf 'UPTIME='; uptime 2>/dev/null; printf 'LOAD='; (cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || sysctl -n vm.loadavg 2>/dev/null); printf 'MEM='; (free -m 2>/dev/null | awk 'NR==2 {printf "%s/%s MB (%.1f%%)", $3,$2,$3*100/$2}' || true); printf '\nDISK='; df -hP / 2>/dev/null | awk 'NR==2 {printf "%s/%s (%s)\n", $3,$2,$5}'; printf 'PROCS='; (ps -e 2>/dev/null | wc -l | tr -d ' '); printf '\n'`
 
 const BuiltinProcessCommand = `LC_ALL=C; ps -eo pid,user,comm,%cpu,%mem --sort=-%cpu 2>/dev/null | head -n 18 || ps aux 2>/dev/null | head -n 18`
 
