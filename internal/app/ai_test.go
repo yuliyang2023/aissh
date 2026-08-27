@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -77,6 +78,61 @@ func TestChineseAIInputIsCapturedBeforeSSH(t *testing.T) {
 	application.handleTerminalInput([]byte("帮"))
 	if !application.aiLineCapture || string(application.lineInput) != "帮" {
 		t.Fatalf("capture=%v input=%q", application.aiLineCapture, application.lineInput)
+	}
+}
+
+func TestBracketedMultilineAIPasteDoesNotLeakIntoSSH(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	application.sshPTY = writer
+	application.agent = turnTestProvider{}
+	application.atPrompt = true
+
+	paste := "\x1b[200~帮我复核这段命令：\nprintf '%s\\n' ok\ndate\x1b[201~"
+	application.handleTerminalInput([]byte(paste[:len(paste)-2]))
+	application.handleTerminalInput([]byte(paste[len(paste)-2:]))
+	_ = writer.Close()
+	written, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != 0 {
+		t.Fatalf("AI paste leaked into SSH: %q", written)
+	}
+	if application.inlineAI == nil || application.inlineAI.Prompt != "帮我复核这段命令：\nprintf '%s\\n' ok\ndate" {
+		t.Fatalf("inline AI prompt=%#v", application.inlineAI)
+	}
+}
+
+func TestBracketedShellPasteStillPassesThrough(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	application.sshPTY = writer
+	application.atPrompt = true
+
+	paste := "\x1b[200~printf 'one\\ntwo\\n'\x1b[201~"
+	application.handleTerminalInput([]byte(paste))
+	_ = writer.Close()
+	written, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(written) != paste {
+		t.Fatalf("shell paste=%q, want %q", written, paste)
 	}
 }
 

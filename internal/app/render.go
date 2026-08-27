@@ -192,6 +192,12 @@ func (a *App) renderMonitorWorkspace(top, left, width, height int) string {
 		}
 	default:
 		if tiles := a.monitorTiles(contentTop, left, width, contentHeight); len(tiles) > 0 {
+			// Grid pages are not always full, and their geometry can change when the
+			// sidebar or layout mode changes. Clear the complete monitor canvas so an
+			// unused tile cannot retain colors and text from an older frame.
+			for row := 0; row < contentHeight; row++ {
+				output.WriteString(positionedLine(contentTop+row, left, "", width, "\x1b[0m"))
+			}
 			output.WriteString(a.renderMonitorTiles(tiles))
 			return output.String()
 		}

@@ -105,6 +105,8 @@ type App struct {
 	lineAnchorY             int
 	lineAnchored            bool
 	lineReliable            bool
+	terminalPasteMode       bool
+	terminalPasteBuffer     []byte
 	atPrompt                bool
 	sensitive               bool
 	lastCommand             string
@@ -324,7 +326,7 @@ func (a *App) Run() error {
 	defer func() {
 		a.cancel()
 		_ = term.Restore(int(os.Stdin.Fd()), oldState)
-		_, _ = io.WriteString(os.Stdout, "\x1b[?2026l"+mouseReportingDisable+"\x1b[0m\x1b[?25h\x1b[?1049l")
+		_, _ = io.WriteString(os.Stdout, "\x1b[?2026l"+bracketedPasteDisable+mouseReportingDisable+"\x1b[0m\x1b[?25h\x1b[?1049l")
 		a.stopSSH()
 		if closer, ok := a.agent.(interface{ Close() error }); ok {
 			_ = closer.Close()
@@ -333,7 +335,7 @@ func (a *App) Run() error {
 			_ = os.RemoveAll(a.controlDir)
 		}
 	}()
-	_, _ = io.WriteString(os.Stdout, "\x1b[?1049h\x1b[2J\x1b[H"+mouseReportingEnable)
+	_, _ = io.WriteString(os.Stdout, "\x1b[?1049h\x1b[2J\x1b[H"+bracketedPasteEnable+mouseReportingEnable)
 
 	a.startInputReader()
 	a.startSignalReader()

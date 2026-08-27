@@ -28,6 +28,22 @@ func TestAutomaticMonitorLayoutUsesGridOnLargeScreens(t *testing.T) {
 	}
 }
 
+func TestMonitorGridClearsUnusedTilesFromPreviousFrame(t *testing.T) {
+	application := layoutTestApp(t)
+	application.monitorLayout = monitorLayoutGrid
+	application.panels.Open(panel.Panel{ID: "process", Kind: panel.KindTable, Title: "进程"})
+	application.panels.Open(panel.Panel{ID: "disk", Kind: panel.KindMonitor, Title: "磁盘"})
+	application.panels.Open(panel.Panel{ID: "network", Kind: panel.KindMonitor, Title: "网络"})
+	application.panels.Open(panel.Panel{ID: "service", Kind: panel.KindTable, Title: "服务"})
+
+	canvas := newScreenTextCanvas(50, 300)
+	canvas.apply("\x1b[16;164HSTALE", 50, 300)
+	canvas.apply(application.renderMonitorWorkspace(2, 100, 96, 25), 50, 300)
+	if got := canvas.cellText(16, 164, 168); got != "     " {
+		t.Fatalf("unused grid tile retained previous frame: %q", got)
+	}
+}
+
 func TestMonitorGridSlotCanBeAssignedIndependently(t *testing.T) {
 	application := layoutTestApp(t)
 	application.monitorLayout = monitorLayoutGrid

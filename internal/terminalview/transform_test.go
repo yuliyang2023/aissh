@@ -34,3 +34,13 @@ func TestClipPadWide(t *testing.T) {
 		t.Fatalf("value = %q", value)
 	}
 }
+
+func TestClipPadKeepsControlCharactersOnOnePhysicalLine(t *testing.T) {
+	value := ClipPad("first\nsecond\tend", 24)
+	if strings.ContainsAny(value, "\r\n\t") {
+		t.Fatalf("ClipPad emitted terminal controls: %q", value)
+	}
+	if value != "first second    end     " {
+		t.Fatalf("value = %q", value)
+	}
+}

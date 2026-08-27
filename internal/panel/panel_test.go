@@ -1,6 +1,9 @@
 package panel
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAICannotCloseUserPanel(t *testing.T) {
 	manager := NewManager("server")
@@ -23,5 +26,16 @@ func TestTabsCycle(t *testing.T) {
 	manager.Previous()
 	if manager.Active().ID != "system" {
 		t.Fatalf("active = %s", manager.Active().ID)
+	}
+}
+
+func TestBuiltinOverviewCommandPrintsRealLineBreaks(t *testing.T) {
+	if strings.Contains(BuiltinOverviewCommand, `\\n`) {
+		t.Fatalf("overview command contains a literal escaped newline: %q", BuiltinOverviewCommand)
+	}
+	for _, want := range []string{`(%.1f%%)\n`, `(%s)\n`} {
+		if !strings.Contains(BuiltinOverviewCommand, want) {
+			t.Fatalf("overview command missing %q: %q", want, BuiltinOverviewCommand)
+		}
 	}
 }

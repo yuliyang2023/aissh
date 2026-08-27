@@ -12,6 +12,16 @@ import (
 	"git.example.com/ai/wrd-ai-cli/internal/trigger"
 )
 
+var (
+	terminalPasteStart = []byte("\x1b[200~")
+	terminalPasteEnd   = []byte("\x1b[201~")
+)
+
+const (
+	bracketedPasteEnable  = "\x1b[?2004h"
+	bracketedPasteDisable = "\x1b[?2004l"
+)
+
 func (a *App) handleInput(data []byte) {
 	if len(data) == 0 {
 		return
@@ -105,6 +115,42 @@ func (a *App) handleTerminalInput(data []byte) {
 		}
 	}
 	for len(data) > 0 {
+		if a.terminalPasteMode {
+			a.terminalPasteBuffer = append(a.terminalPasteBuffer, data...)
+			end := bytes.Index(a.terminalPasteBuffer, terminalPasteEnd)
+			if end < 0 {
+				return
+			}
+			payload := append([]byte(nil), a.terminalPasteBuffer[:end]...)
+			data = append([]byte(nil), a.terminalPasteBuffer[end+len(terminalPasteEnd):]...)
+			a.terminalPasteBuffer = nil
+			a.terminalPasteMode = false
+			if a.finishTerminalPaste(payload) {
+				return
+			}
+			continue
+		}
+
+		start := bytes.Index(data, terminalPasteStart)
+		if start < 0 {
+			a.handleTerminalBytes(data)
+			return
+		}
+		if start > 0 {
+			a.handleTerminalBytes(data[:start])
+			if a.inlineAI != nil && a.agentBusy {
+				return
+			}
+		}
+		a.captureLineAnchor()
+		a.terminalPasteMode = true
+		a.terminalPasteBuffer = nil
+		data = data[start+len(terminalPasteStart):]
+	}
+}
+
+func (a *App) handleTerminalBytes(data []byte) {
+	for len(data) > 0 {
 		size := 1
 		if data[0] >= utf8.RuneSelf {
 			_, decodedSize := utf8.DecodeRune(data)
@@ -156,6 +202,9 @@ func (a *App) handleTerminalInput(data []byte) {
 			a.clearInlineTerminalOutput()
 		case '\r', '\n':
 			a.submitTerminalLine(value)
+			if a.inlineAI != nil && a.agentBusy {
+				return
+			}
 			continue
 		case 0x08, 0x7f:
 			if a.lineReliable {
@@ -187,6 +236,36 @@ func (a *App) handleTerminalInput(data []byte) {
 			_, _ = a.sshPTY.Write(unit)
 		}
 	}
+}
+
+func (a *App) finishTerminalPaste(payload []byte) bool {
+	value := strings.ReplaceAll(string(payload), "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	captured := a.aiLineCapture
+	line := string(a.lineInput) + value
+	if a.atPrompt && a.lineReliable && !a.sensitive {
+		if prompt, ok := trigger.IsAIInput(line); ok {
+			if !captured && len(a.lineInput) > 0 && a.sshPTY != nil {
+				_, _ = a.sshPTY.Write([]byte{0x15})
+			}
+			a.lineInput = nil
+			a.aiLineCapture = false
+			a.lineReliable = true
+			a.startInlineAI(prompt, line, true)
+			return true
+		}
+	}
+
+	a.lineInput = nil
+	a.lineAnchored = false
+	a.lineReliable = false
+	a.aiLineCapture = false
+	if a.sshPTY != nil {
+		_, _ = a.sshPTY.Write(terminalPasteStart)
+		_, _ = a.sshPTY.Write(payload)
+		_, _ = a.sshPTY.Write(terminalPasteEnd)
+	}
+	return false
 }
 
 func (a *App) submitTerminalLine(newline byte) {

@@ -166,6 +166,21 @@ func ClipPad(value string, width int) string {
 	var output strings.Builder
 	used := 0
 	for _, r := range value {
+		switch r {
+		case '\r', '\n':
+			r = ' '
+		case '\t':
+			spaces := 8 - used%8
+			if spaces > width-used {
+				spaces = width - used
+			}
+			output.WriteString(strings.Repeat(" ", spaces))
+			used += spaces
+			continue
+		}
+		if r < 0x20 || r == 0x7f {
+			continue
+		}
 		cellWidth := CellWidth(r)
 		if used+cellWidth > width {
 			break
