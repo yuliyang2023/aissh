@@ -62,7 +62,7 @@ func TestRightClickEntersNativeSelectionUntilNextKeyboardInput(t *testing.T) {
 func TestMouseClicksMonitorTabAddAndAI(t *testing.T) {
 	application := mouseTestApp(t)
 	application.panels.Open(panel.Panel{ID: "process", Kind: panel.KindTable, Title: "进程"})
-	left, width := application.mainCols+2, application.cols-application.mainCols-1
+	_, left, width, _ := application.monitorRegion()
 
 	processX := 0
 	addX := 0

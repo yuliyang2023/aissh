@@ -146,7 +146,7 @@ func (a *App) handleLeftClick(x, y int) {
 		a.handleCompactClick(x, y)
 		return
 	}
-	if x <= a.mainCols && y >= 2 && y < a.rows {
+	if x <= a.terminalScrollbarCol() && y >= 2 && y < a.rows {
 		if a.proposal == nil {
 			a.focus = focusTerminal
 		}
@@ -343,7 +343,7 @@ func (a *App) handleMouseWheel(event mouseEvent) {
 		}
 		return
 	}
-	if event.X >= 1 && event.X <= a.mainCols && event.Y >= 2 && event.Y < a.rows {
+	if event.X >= 1 && event.X <= a.terminalScrollbarCol() && event.Y >= 2 && event.Y < a.rows {
 		a.scrollTerminal(event.Button&1 == 0)
 		return
 	}
@@ -435,7 +435,7 @@ func (a *App) clampedPanelScroll(panelID string, total, viewport int) int {
 
 func (a *App) handleScrollbarClick(x, y int) bool {
 	terminalVisible := !a.compact || a.focus == focusTerminal || a.focus == focusApproval
-	if terminalVisible && len(a.terminalHistory) > 0 && x == a.mainCols && y >= 2 && y < a.rows {
+	if terminalVisible && len(a.terminalHistory) > 0 && x == a.terminalScrollbarCol() && y >= 2 && y < a.rows {
 		a.jumpTerminalScroll(y)
 		return true
 	}

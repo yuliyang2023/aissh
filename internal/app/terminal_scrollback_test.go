@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -55,6 +56,56 @@ func TestTerminalHistoryUsesConfiguredLimit(t *testing.T) {
 	application.appendTerminalHistory(make([]terminalview.Line, 7))
 	if len(application.terminalHistory) != 4 {
 		t.Fatalf("history lines=%d", len(application.terminalHistory))
+	}
+}
+
+func TestScrollbarStaysInGutterOffPaneContent(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application.mainCols = 20
+	application.contentRows = 3
+	application.rows = 5
+	application.virtual = vt10x.New(vt10x.WithSize(application.mainCols, application.contentRows))
+	application.terminalHistory = make([]terminalview.Line, 10)
+
+	// The scrollbar owns the gutter column right of the pane content, so a rune
+	// in the pane's last column (e.g. the second half of a CJK rune) survives.
+	output, _, _ := application.renderTerminalWorkspace()
+	gutterThumb := fmt.Sprintf(";%dH\x1b[38;5;45m█", application.terminalScrollbarCol())
+	if !strings.Contains(output, gutterThumb) {
+		t.Fatalf("scrollbar thumb missing from gutter column %d: %q", application.terminalScrollbarCol(), output)
+	}
+	paneThumb := fmt.Sprintf(";%dH\x1b[38;5;45m█", application.mainCols)
+	if strings.Contains(output, paneThumb) {
+		t.Fatalf("scrollbar thumb painted over pane content column %d: %q", application.mainCols, output)
+	}
+
+	// Without scrollback the gutter is blanked rather than left stale.
+	application.terminalHistory = nil
+	application.terminalRows = nil
+	output, _, _ = application.renderTerminalWorkspace()
+	gutterBlank := fmt.Sprintf(";%dH\x1b[0m ", application.terminalScrollbarCol())
+	if strings.Contains(output, "█") || !strings.Contains(output, gutterBlank) {
+		t.Fatalf("gutter not blanked without scrollback: %q", output)
+	}
+}
+
+func TestScrollbarGutterClickJumpsScroll(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application.cols = 120
+	application.rows = 30
+	application.mainCols = 76
+	application.contentRows = 28
+	application.terminalHistory = make([]terminalview.Line, 40)
+
+	application.handleLeftClick(application.terminalScrollbarCol(), 2)
+	if application.terminalScroll == 0 || application.focus != focusTerminal {
+		t.Fatalf("gutter click did not jump scroll: scroll=%d focus=%v", application.terminalScroll, application.focus)
 	}
 }
 
