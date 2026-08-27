@@ -1,5 +1,7 @@
 /aissh
 /bin/
+/dist/
+/.cache/
 /.gocache/
 /.aissh/
 *.log

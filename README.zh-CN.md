@@ -157,6 +157,38 @@ export AISSH_CODEX_MODEL='gpt-5.2'
 bin/aissh production
 ```
 
+## 多平台打包与 GitLab 分发
+
+仓库内置的 GitLab CI 会执行测试，并生成 Linux/macOS 的 AMD64、ARM64 四种安装包。流水线使用固定版本的
+Go 容器镜像，因此 Docker 或 Kubernetes 类型的 GitLab Runner 无需在宿主机安装 Go。普通分支的制品
+保留 7 天；推送符合 `vX.Y.Z` 格式的 Tag 后，制品还会上传到 Generic Package Registry，并创建对应的
+GitLab Release 下载入口。
+
+正常发布只需推送版本 Tag：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+如果使用的是没有 Go、也不支持容器镜像的 Shell Runner，请先在项目 CI/CD Variables 中设置
+`AISSH_LOCAL_RELEASE=true`，跳过依赖容器的任务，然后改为在开发机上构建和发布：
+
+```bash
+make dist VERSION=v1.0.0
+
+git tag v1.0.0
+git push origin v1.0.0
+
+export GITLAB_API_URL='https://git.example.com/api/v4'
+export GITLAB_PROJECT_ID='123'
+export GITLAB_TOKEN='glpat-...'
+make publish VERSION=v1.0.0
+```
+
+执行 `make publish` 前，对应 Tag 必须已经存在于 GitLab。个人访问令牌需要拥有该项目的 API 权限。
+`dist/` 中会生成四个压缩包和 `SHA256SUMS`，该目录不会提交到 Git。
+
 ## 选择 AI 后端
 
 ### 本机 Codex（默认）

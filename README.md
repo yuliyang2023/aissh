@@ -164,6 +164,38 @@ export AISSH_CODEX_MODEL='gpt-5.2'
 bin/aissh production
 ```
 
+## Release builds and GitLab distribution
+
+The included GitLab pipeline tests the project and builds Linux/macOS packages for AMD64 and ARM64. It uses a pinned
+Go container image, so a Docker or Kubernetes GitLab Runner does not need Go installed on the host. Branch packages
+are retained as job artifacts for seven days. Tags matching `vX.Y.Z` are also uploaded to the Generic Package Registry
+and exposed through a GitLab Release.
+
+Create a release by pushing a version tag:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+For a Shell Runner without Go or container support, set the project CI/CD variable `AISSH_LOCAL_RELEASE=true` to skip
+the container-based jobs, then build and publish from a development machine instead:
+
+```bash
+make dist VERSION=v1.0.0
+
+git tag v1.0.0
+git push origin v1.0.0
+
+export GITLAB_API_URL='https://git.example.com/api/v4'
+export GITLAB_PROJECT_ID='123'
+export GITLAB_TOKEN='glpat-...'
+make publish VERSION=v1.0.0
+```
+
+The tag must already exist in GitLab before `make publish` creates the Release. The personal access token needs API
+access to the project. `dist/` contains the four archives and `SHA256SUMS`; it is intentionally excluded from Git.
+
 ## Choose an AI provider
 
 ### Local Codex (default)
