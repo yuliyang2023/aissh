@@ -4,9 +4,15 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"git.example.com/ai/wrd-ai-cli/internal/agent"
 )
+
+// localWorkspaceAgent is implemented by AI providers that can read a local
+// code workspace (currently CodexProvider and ClaudeProvider).
+type localWorkspaceAgent interface {
+	Name() string
+	SetLocalWorkspace(string)
+	LocalWorkspace() string
+}
 
 func parseLocalWorkspaceCommand(value string) (string, bool) {
 	trimmed := strings.TrimSpace(value)
@@ -43,7 +49,7 @@ func (a *App) handleLocalWorkspaceCommand(line string, inline bool) bool {
 }
 
 func (a *App) applyLocalWorkspaceCommand(argument string) (string, error) {
-	provider, ok := a.agent.(*agent.CodexProvider)
+	provider, ok := a.agent.(localWorkspaceAgent)
 	if !ok {
 		return "", fmt.Errorf("%s", a.t("当前 AI 后端不支持本机代码工作区"))
 	}
@@ -60,7 +66,7 @@ func (a *App) applyLocalWorkspaceCommand(argument string) (string, error) {
 	if workspaceDisabledArgument(argument) {
 		provider.SetLocalWorkspace("")
 		a.config.Workspace = ""
-		return a.t("已关闭本机代码工作区；后续 Codex 请求不会读取本机项目"), nil
+		return a.t("已关闭本机代码工作区；后续 %s 请求不会读取本机项目", provider.Name()), nil
 	}
 	workspace, err := resolveLocalWorkspace(argument)
 	if err != nil {
@@ -68,7 +74,7 @@ func (a *App) applyLocalWorkspaceCommand(argument string) (string, error) {
 	}
 	provider.SetLocalWorkspace(workspace)
 	a.config.Workspace = workspace
-	return a.t("本机代码工作区已切换（只读）：%s；后续 Codex 请求将使用此目录", workspace), nil
+	return a.t("本机代码工作区已切换（只读）：%s；后续 %s 请求将使用此目录", workspace, provider.Name()), nil
 }
 
 func workspaceDisabledArgument(value string) bool {

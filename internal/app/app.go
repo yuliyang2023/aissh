@@ -38,6 +38,8 @@ type Config struct {
 	AgentToken         string
 	CodexPath          string
 	CodexModel         string
+	ClaudePath         string
+	ClaudeModel        string
 	Language           string
 	HistoryDir         string
 	Workspace          string
@@ -182,7 +184,7 @@ func New(config Config) (*App, error) {
 		config.ModelURL = firstText(config.ModelURL, "https://api.deepseek.com")
 		config.ModelName = firstText(config.ModelName, "deepseek-v4-pro")
 	}
-	if mode != "codex" && mode != "local" {
+	if mode != "codex" && mode != "local" && mode != "claude" {
 		config.Workspace = ""
 	}
 	workspace, err := resolveLocalWorkspace(config.Workspace)
@@ -243,6 +245,13 @@ func newAgentProvider(config Config) (agent.Provider, error) {
 		provider.Timeout = config.AITimeout
 		provider.OutputContextChars = config.AIContextChars
 		return provider, nil
+	case "claude":
+		provider := agent.NewClaudeProvider(config.ClaudePath, config.ClaudeModel)
+		provider.Language = config.Language
+		provider.SetLocalWorkspace(config.Workspace)
+		provider.Timeout = config.AITimeout
+		provider.OutputContextChars = config.AIContextChars
+		return provider, nil
 	case "http", "remote":
 		provider := agent.NewClient(config.AgentURL, config.AgentToken)
 		provider.HTTP.Timeout = config.AITimeout
@@ -260,7 +269,7 @@ func newAgentProvider(config Config) (agent.Provider, error) {
 		provider.OutputContextChars = config.AIContextChars
 		return provider, nil
 	default:
-		return nil, fmt.Errorf("unsupported AI provider %q (use codex, deepseek, model, or http)", mode)
+		return nil, fmt.Errorf("unsupported AI provider %q (use codex, claude, deepseek, model, or http)", mode)
 	}
 }
 
