@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -454,24 +453,58 @@ func (a *App) startOutputReader() {
 	}()
 }
 
-func (a *App) writeTerminalOutput(data []byte) []terminalview.Line {
+func (a *App) writeTerminalOutput(tokens []terminalview.OutputToken) []terminalview.Line {
 	var history []terminalview.Line
-	for len(data) > 0 {
-		newline := bytes.IndexByte(data, '\n')
-		if newline < 0 {
-			_, _ = a.virtual.Write(data)
-			break
+	for index := 0; index < len(tokens); {
+		token := tokens[index]
+		switch token.Kind {
+		case terminalview.OutputText:
+			cells := terminalview.CellsUntilAutoWrap(a.virtual, a.mainCols)
+			if cells == 0 {
+				if line, ok := terminalview.CaptureTopLineBeforeToken(a.virtual, a.contentRows-1, a.mainCols, token); ok {
+					history = append(history, line)
+				}
+				// The first token consumes the pending wrap, then the rest can fill
+				// the newly entered row without causing another wrap.
+				cells = a.mainCols
+			}
+			end := index
+			for end < len(tokens) && end-index < cells && tokens[end].Kind == terminalview.OutputText {
+				end++
+			}
+			_, _ = a.virtual.Write(joinOutputTokens(tokens[index:end]))
+			index = end
+		case terminalview.OutputLineFeed:
+			if line, ok := terminalview.CaptureTopLineBeforeToken(a.virtual, a.contentRows-1, a.mainCols, token); ok {
+				history = append(history, line)
+			}
+			_, _ = a.virtual.Write(token.Data)
+			index++
+		default:
+			end := index + 1
+			for end < len(tokens) && tokens[end].Kind == terminalview.OutputControl {
+				end++
+			}
+			_, _ = a.virtual.Write(joinOutputTokens(tokens[index:end]))
+			index = end
 		}
-		if newline > 0 {
-			_, _ = a.virtual.Write(data[:newline])
-		}
-		if line, ok := terminalview.CaptureTopLineIfScrolling(a.virtual, a.contentRows-1, a.mainCols); ok {
-			history = append(history, line)
-		}
-		_, _ = a.virtual.Write(data[newline : newline+1])
-		data = data[newline+1:]
 	}
 	return history
+}
+
+func joinOutputTokens(tokens []terminalview.OutputToken) []byte {
+	if len(tokens) == 1 {
+		return tokens[0].Data
+	}
+	size := 0
+	for _, token := range tokens {
+		size += len(token.Data)
+	}
+	data := make([]byte, 0, size)
+	for _, token := range tokens {
+		data = append(data, token.Data...)
+	}
+	return data
 }
 
 func (a *App) startInputReader() {
@@ -610,21 +643,6 @@ func (a *App) monitorWorkspaceVisible() bool {
 		return true
 	}
 	return a.focus == focusMonitor || a.focus == focusMonitorSlot || a.focus == focusPanelMenu || a.focus == focusCustomPanel
-}
-
-func estimateTerminalScroll(cursorY int, data []byte, rows int) int {
-	if rows <= 0 || len(data) == 0 {
-		return 0
-	}
-	lineFeeds := bytes.Count(data, []byte{'\n'})
-	scrolls := cursorY + lineFeeds - (rows - 1)
-	if scrolls < 0 {
-		return 0
-	}
-	if scrolls > lineFeeds {
-		return lineFeeds
-	}
-	return scrolls
 }
 
 func (a *App) handleOutput(data []byte) {

@@ -75,13 +75,9 @@ func (a *App) processRegularSSHOutput(data []byte) {
 	if len(data) == 0 || a.virtual == nil {
 		return
 	}
-	transformed := a.transformer.Transform(data)
-	cursorY := a.virtual.Cursor().Y
-	scrolls := estimateTerminalScroll(cursorY, transformed, a.contentRows)
-	historyLines := a.writeTerminalOutput(transformed)
-	if len(historyLines) > scrolls {
-		scrolls = len(historyLines)
-	}
+	tokens := a.transformer.TransformTokens(data)
+	historyLines := a.writeTerminalOutput(tokens)
+	scrolls := len(historyLines)
 	a.appendTerminalHistory(historyLines)
 	a.scrollInlineBlocks(scrolls)
 	a.handleOutput(data)

@@ -20,7 +20,8 @@ func TestTerminalOutputCapturesRowsThatLeaveViewport(t *testing.T) {
 	application.rows = 5
 	application.virtual = vt10x.New(vt10x.WithSize(application.mainCols, application.contentRows))
 
-	history := application.writeTerminalOutput([]byte("one\r\ntwo\r\nthree\r\nfour\r\n"))
+	var transformer terminalview.WideTransformer
+	history := application.writeTerminalOutput(transformer.TransformTokens([]byte("one\r\ntwo\r\nthree\r\nfour\r\n")))
 	if len(history) != 2 {
 		t.Fatalf("history lines=%d, expected 2", len(history))
 	}
@@ -28,6 +29,49 @@ func TestTerminalOutputCapturesRowsThatLeaveViewport(t *testing.T) {
 	second := terminalview.RenderLine(history[1], 1, 1, application.mainCols)
 	if !strings.Contains(first, "one") || !strings.Contains(second, "two") {
 		t.Fatalf("captured history=%q / %q", first, second)
+	}
+}
+
+func TestTerminalOutputCapturesRowsThatSoftWrapOutOfViewport(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application.mainCols = 5
+	application.contentRows = 3
+	application.rows = 5
+	application.virtual = vt10x.New(vt10x.WithSize(application.mainCols, application.contentRows))
+
+	var transformer terminalview.WideTransformer
+	history := application.writeTerminalOutput(transformer.TransformTokens([]byte("abcde\x1b[31mfghij\x1b[0mklmnopqrstuvwxyz")))
+	if len(history) != 3 {
+		t.Fatalf("history lines=%d, expected 3 soft-wrapped rows", len(history))
+	}
+	for index, want := range []string{"abcde", "fghij", "klmno"} {
+		rendered := terminalview.RenderLine(history[index], 1, 1, application.mainCols)
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("history[%d]=%q, expected %q", index, rendered, want)
+		}
+	}
+}
+
+func TestSoftWrappedOutputMovesInlineAIAnchorWithViewport(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application.mainCols = 5
+	application.contentRows = 3
+	application.rows = 5
+	application.virtual = vt10x.New(vt10x.WithSize(application.mainCols, application.contentRows))
+	application.inlineAI = &inlineAIState{Prompt: "检查输出", AnchorY: 2}
+
+	application.processRegularSSHOutput([]byte("abcdefghijklmnop"))
+	if application.inlineAI == nil || application.inlineAI.AnchorY != 1 {
+		t.Fatalf("inline anchor=%#v, expected one-row soft-wrap scroll", application.inlineAI)
+	}
+	if len(application.terminalHistory) != 1 {
+		t.Fatalf("terminal history=%d, expected one soft-wrapped row", len(application.terminalHistory))
 	}
 }
 

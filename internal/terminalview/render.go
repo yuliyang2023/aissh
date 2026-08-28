@@ -38,6 +38,65 @@ func CaptureTopLineIfScrolling(view vt10x.View, bottomRow, cols int) (Line, bool
 	return line, true
 }
 
+// vt10x exposes Cursor.State but not its cursorWrapNext flag. The flag is the
+// second cursor-state bit in vt10x and means the next printable cell will first
+// auto-wrap. Keeping this detail here isolates the emulator-specific contract.
+const cursorWrapNext = 1 << 1
+
+// CellsUntilAutoWrap reports how many printable vt10x cells can be written
+// before another printable cell triggers a wrap. A zero result means the very
+// next cell performs the pending wrap.
+func CellsUntilAutoWrap(view vt10x.View, cols int) int {
+	if view == nil || cols <= 0 {
+		return 0
+	}
+	view.Lock()
+	defer view.Unlock()
+	if view.Mode()&vt10x.ModeWrap == 0 {
+		return cols
+	}
+	cursor := view.Cursor()
+	if cursor.State&cursorWrapNext != 0 {
+		return 0
+	}
+	remaining := cols - cursor.X
+	if remaining < 1 {
+		return 1
+	}
+	return remaining
+}
+
+// CaptureTopLineBeforeToken returns the row that a token is about to scroll out
+// of the normal screen. In addition to real line feeds, this catches soft wraps
+// caused by long lines after the cursor has filled the last column.
+func CaptureTopLineBeforeToken(view vt10x.View, bottomRow, cols int, token OutputToken) (Line, bool) {
+	if view == nil || bottomRow < 0 || cols <= 0 {
+		return nil, false
+	}
+	if token.Kind != OutputLineFeed && token.Kind != OutputText {
+		return nil, false
+	}
+	view.Lock()
+	defer view.Unlock()
+	if view.Mode()&vt10x.ModeAltScreen != 0 {
+		return nil, false
+	}
+	cursor := view.Cursor()
+	if cursor.Y != bottomRow {
+		return nil, false
+	}
+	willScroll := token.Kind == OutputLineFeed ||
+		(token.Kind == OutputText && view.Mode()&vt10x.ModeWrap != 0 && cursor.State&cursorWrapNext != 0)
+	if !willScroll {
+		return nil, false
+	}
+	line := make(Line, cols)
+	for x := 0; x < cols; x++ {
+		line[x] = view.Cell(x, 0)
+	}
+	return line, true
+}
+
 func Snapshot(view vt10x.View, rows, cols int) []Line {
 	if view == nil || rows <= 0 || cols <= 0 {
 		return nil

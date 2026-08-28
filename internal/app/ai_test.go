@@ -733,9 +733,6 @@ func TestInlineHistoryMovesWithTerminalScroll(t *testing.T) {
 	if len(application.inlineHistory) != 1 || application.inlineHistory[0].Prompt != "较新问题" || application.inlineHistory[0].AnchorY != 2 {
 		t.Fatalf("history=%#v", application.inlineHistory)
 	}
-	if got := estimateTerminalScroll(21, []byte("one\r\ntwo\r\n"), 22); got != 2 {
-		t.Fatalf("scroll estimate=%d", got)
-	}
 }
 
 func TestInlineCommandShowsLoadingWhileAIAnalyzesExecutionResult(t *testing.T) {

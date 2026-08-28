@@ -25,15 +25,44 @@ type WideTransformer struct {
 	carry []byte
 }
 
+type OutputTokenKind uint8
+
+const (
+	OutputControl OutputTokenKind = iota
+	OutputText
+	OutputLineFeed
+)
+
+type OutputToken struct {
+	Data []byte
+	Kind OutputTokenKind
+}
+
 func (t *WideTransformer) Transform(input []byte) []byte {
+	tokens := t.TransformTokens(input)
+	var output bytes.Buffer
+	for _, token := range tokens {
+		output.Write(token.Data)
+	}
+	return output.Bytes()
+}
+
+// TransformTokens preserves the terminal byte stream while distinguishing
+// printable screen cells from control sequences. Callers that emulate the
+// terminal a token at a time can therefore observe soft-wrap scrolling without
+// mistaking bytes inside CSI/OSC sequences for visible text.
+func (t *WideTransformer) TransformTokens(input []byte) []OutputToken {
 	data := append(append([]byte(nil), t.carry...), input...)
 	t.carry = t.carry[:0]
-	var output bytes.Buffer
+	tokens := make([]OutputToken, 0, len(data))
+	appendToken := func(value []byte, kind OutputTokenKind) {
+		tokens = append(tokens, OutputToken{Data: value, Kind: kind})
+	}
 	for index := 0; index < len(data); {
 		value := data[index]
 		switch t.mode {
 		case modeEscape:
-			output.WriteByte(value)
+			appendToken(data[index:index+1], OutputControl)
 			index++
 			switch value {
 			case '[':
@@ -45,14 +74,14 @@ func (t *WideTransformer) Transform(input []byte) []byte {
 			}
 			continue
 		case modeCSI:
-			output.WriteByte(value)
+			appendToken(data[index:index+1], OutputControl)
 			index++
 			if value >= 0x40 && value <= 0x7e {
 				t.mode = modeText
 			}
 			continue
 		case modeOSC:
-			output.WriteByte(value)
+			appendToken(data[index:index+1], OutputControl)
 			index++
 			if value == 0x07 {
 				t.mode = modeText
@@ -61,7 +90,7 @@ func (t *WideTransformer) Transform(input []byte) []byte {
 			}
 			continue
 		case modeOSCEscape:
-			output.WriteByte(value)
+			appendToken(data[index:index+1], OutputControl)
 			index++
 			if value == '\\' {
 				t.mode = modeText
@@ -72,13 +101,20 @@ func (t *WideTransformer) Transform(input []byte) []byte {
 		}
 
 		if value == 0x1b {
-			output.WriteByte(value)
+			appendToken(data[index:index+1], OutputControl)
 			index++
 			t.mode = modeEscape
 			continue
 		}
 		if value < utf8.RuneSelf {
-			output.WriteByte(value)
+			kind := OutputText
+			if value < 0x20 || value == 0x7f {
+				kind = OutputControl
+				if value == '\n' {
+					kind = OutputLineFeed
+				}
+			}
+			appendToken(data[index:index+1], kind)
 			index++
 			continue
 		}
@@ -88,17 +124,17 @@ func (t *WideTransformer) Transform(input []byte) []byte {
 		}
 		r, size := utf8.DecodeRune(data[index:])
 		if r == utf8.RuneError && size == 1 {
-			output.WriteByte(value)
+			appendToken(data[index:index+1], OutputControl)
 			index++
 			continue
 		}
-		output.Write(data[index : index+size])
+		appendToken(data[index:index+size], OutputText)
 		if CellWidth(r) == 2 {
-			output.WriteRune(WidePlaceholder)
+			appendToken([]byte(string(WidePlaceholder)), OutputText)
 		}
 		index += size
 	}
-	return output.Bytes()
+	return tokens
 }
 
 func CellWidth(r rune) int {

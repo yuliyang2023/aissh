@@ -26,6 +26,20 @@ func TestSplitUTF8(t *testing.T) {
 	}
 }
 
+func TestTransformTokensOnlyMarksVisibleLineFeeds(t *testing.T) {
+	var transformer WideTransformer
+	tokens := transformer.TransformTokens([]byte("text\x1b]0;title\nignored\a\nnext"))
+	lineFeeds := 0
+	for _, token := range tokens {
+		if token.Kind == OutputLineFeed {
+			lineFeeds++
+		}
+	}
+	if lineFeeds != 1 {
+		t.Fatalf("visible line feeds=%d, expected 1", lineFeeds)
+	}
+}
+
 func TestClipPadWide(t *testing.T) {
 	if value := ClipPad("中文A", 5); value != "中文A" {
 		t.Fatalf("value = %q", value)
