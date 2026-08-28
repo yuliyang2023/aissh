@@ -103,10 +103,12 @@ type App struct {
 	approvalCommandExpanded bool
 	aiLineCapture           bool
 	lineInput               []byte
+	lineCursor              int
 	lineAnchorX             int
 	lineAnchorY             int
 	lineAnchored            bool
 	lineReliable            bool
+	terminalKeyCarry        []byte
 	terminalPasteMode       bool
 	terminalPasteBuffer     []byte
 	atPrompt                bool

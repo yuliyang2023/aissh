@@ -226,8 +226,10 @@ func (a *App) leaveZmodemPassthrough() {
 	a.terminalRows = nil
 	a.terminalScroll = 0
 	a.lineInput = nil
+	a.lineCursor = 0
 	a.lineAnchored = false
 	a.lineReliable = false
+	a.terminalKeyCarry = nil
 	_, _ = io.WriteString(a.outputWriter(), "\x1b[?1049h\x1b[2J\x1b[H"+mouseReportingEnable)
 	a.dirty = true
 	// Ask the remote shell for a fresh prompt so the VT model, which intentionally

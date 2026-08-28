@@ -166,9 +166,11 @@ func (a *App) handleTerminalInput(data []byte) {
 // pasted payload may be forwarded to the SSH PTY.
 func (a *App) handleSensitiveTerminalInput(data []byte) {
 	a.lineInput = nil
+	a.lineCursor = 0
 	a.lineAnchored = false
 	a.lineReliable = true
 	a.aiLineCapture = false
+	a.terminalKeyCarry = nil
 
 	for len(data) > 0 {
 		if a.terminalPasteMode {
@@ -204,7 +206,21 @@ func (a *App) handleSensitiveTerminalInput(data []byte) {
 }
 
 func (a *App) handleTerminalBytes(data []byte) {
+	if len(a.terminalKeyCarry) > 0 {
+		data = append(append([]byte(nil), a.terminalKeyCarry...), data...)
+		a.terminalKeyCarry = nil
+	}
 	for len(data) > 0 {
+		if a.aiLineCapture && data[0] == 0x1b {
+			consumed, complete := terminalEscapeSequenceLength(data)
+			if !complete {
+				a.terminalKeyCarry = append([]byte(nil), data...)
+				return
+			}
+			a.handleCapturedLineEscape(data[:consumed])
+			data = data[consumed:]
+			continue
+		}
 		size := 1
 		if data[0] >= utf8.RuneSelf {
 			_, decodedSize := utf8.DecodeRune(data)
@@ -222,7 +238,12 @@ func (a *App) handleTerminalBytes(data []byte) {
 				a.aiLineCapture = true
 			}
 			if a.lineReliable {
-				a.lineInput = append(a.lineInput, unit...)
+				if a.aiLineCapture {
+					a.insertCapturedLineBytes(unit)
+				} else {
+					a.lineInput = append(a.lineInput, unit...)
+					a.lineCursor = len(a.lineInput)
+				}
 			}
 			if !a.aiLineCapture {
 				_, _ = a.sshPTY.Write(unit)
@@ -231,13 +252,33 @@ func (a *App) handleTerminalBytes(data []byte) {
 		}
 		switch value {
 		case 0x03: // Ctrl+C
-			if a.aiLineCapture {
-				a.lineInput = nil
-				a.lineAnchored = false
-				a.lineReliable = true
-				a.aiLineCapture = false
+			captured := a.aiLineCapture
+			a.lineInput = nil
+			a.lineCursor = 0
+			a.lineAnchored = false
+			a.lineReliable = true
+			a.aiLineCapture = false
+			a.terminalKeyCarry = nil
+			if captured {
 				continue
 			}
+		case 0x01: // Ctrl+A
+			if a.aiLineCapture {
+				a.lineCursor = 0
+				continue
+			}
+			a.lineReliable = false
+		case 0x04: // Ctrl+D
+			if a.aiLineCapture {
+				a.deleteCapturedLineRune()
+				continue
+			}
+		case 0x05: // Ctrl+E
+			if a.aiLineCapture {
+				a.lineCursor = len(a.lineInput)
+				continue
+			}
+			a.lineReliable = false
 		case 0x14: // Ctrl+T
 			if a.atPrompt {
 				a.panels.Next()
@@ -262,12 +303,19 @@ func (a *App) handleTerminalBytes(data []byte) {
 			continue
 		case 0x08, 0x7f:
 			if a.lineReliable {
-				a.lineInput = removeLastUTF8Rune(a.lineInput)
+				if a.aiLineCapture {
+					a.backspaceCapturedLineRune()
+				} else {
+					a.lineInput = removeLastUTF8Rune(a.lineInput)
+					a.lineCursor = len(a.lineInput)
+				}
 			}
 		case 0x15: // Ctrl+U
 			a.lineInput = nil
+			a.lineCursor = 0
 			a.lineAnchored = false
 			a.lineReliable = true
+			a.terminalKeyCarry = nil
 			if a.aiLineCapture {
 				a.aiLineCapture = false
 				continue
@@ -275,16 +323,23 @@ func (a *App) handleTerminalBytes(data []byte) {
 		case 0x1b:
 			captured := a.aiLineCapture
 			a.lineInput = nil
+			a.lineCursor = 0
 			a.lineAnchored = false
 			a.lineReliable = false
 			a.aiLineCapture = false
+			a.terminalKeyCarry = nil
 			if captured {
 				continue
 			}
 		}
 		if value >= 0x20 && value != 0x7f && a.lineReliable {
 			a.captureLineAnchor()
-			a.lineInput = append(a.lineInput, value)
+			if a.aiLineCapture {
+				a.insertCapturedLineBytes(unit)
+			} else {
+				a.lineInput = append(a.lineInput, value)
+				a.lineCursor = len(a.lineInput)
+			}
 		}
 		if !a.aiLineCapture {
 			_, _ = a.sshPTY.Write(unit)
@@ -303,17 +358,21 @@ func (a *App) finishTerminalPaste(payload []byte) bool {
 				_, _ = a.sshPTY.Write([]byte{0x15})
 			}
 			a.lineInput = nil
+			a.lineCursor = 0
 			a.aiLineCapture = false
 			a.lineReliable = true
+			a.terminalKeyCarry = nil
 			a.startInlineAI(prompt, line, true)
 			return true
 		}
 	}
 
 	a.lineInput = nil
+	a.lineCursor = 0
 	a.lineAnchored = false
 	a.lineReliable = false
 	a.aiLineCapture = false
+	a.terminalKeyCarry = nil
 	if a.sshPTY != nil {
 		_, _ = a.sshPTY.Write(terminalPasteStart)
 		_, _ = a.sshPTY.Write(payload)
@@ -325,6 +384,8 @@ func (a *App) finishTerminalPaste(payload []byte) bool {
 func (a *App) submitTerminalLine(newline byte) {
 	line := string(a.lineInput)
 	a.lineInput = nil
+	a.lineCursor = 0
+	a.terminalKeyCarry = nil
 	captured := a.aiLineCapture
 	a.aiLineCapture = false
 	reliable := a.lineReliable
@@ -380,6 +441,131 @@ func (a *App) submitTerminalLine(newline byte) {
 	a.atPrompt = false
 	a.pendingError = nil
 	a.lineAnchored = false
+}
+
+func terminalEscapeSequenceLength(data []byte) (int, bool) {
+	if len(data) == 0 || data[0] != 0x1b {
+		return 0, false
+	}
+	if len(data) == 1 {
+		return 0, false
+	}
+	switch data[1] {
+	case '[':
+		for index := 2; index < len(data); index++ {
+			if data[index] >= 0x40 && data[index] <= 0x7e {
+				return index + 1, true
+			}
+		}
+		return 0, false
+	case 'O':
+		if len(data) < 3 {
+			return 0, false
+		}
+		return 3, true
+	default:
+		// A standalone Esc is buffered until another byte arrives. Once it is
+		// followed by a non-sequence byte, consume only Esc and let that byte be
+		// handled normally (notably Ctrl+C and Enter).
+		return 1, true
+	}
+}
+
+func (a *App) handleCapturedLineEscape(sequence []byte) {
+	if len(sequence) < 2 {
+		return
+	}
+	final := sequence[len(sequence)-1]
+	parameters := ""
+	if sequence[1] == '[' && len(sequence) > 3 {
+		parameters = string(sequence[2 : len(sequence)-1])
+	}
+	switch final {
+	case 'C':
+		a.moveCapturedLineCursor(1)
+	case 'D':
+		a.moveCapturedLineCursor(-1)
+	case 'H':
+		a.lineCursor = 0
+	case 'F':
+		a.lineCursor = len(a.lineInput)
+	case '~':
+		switch parameters {
+		case "1", "7":
+			a.lineCursor = 0
+		case "4", "8":
+			a.lineCursor = len(a.lineInput)
+		case "3":
+			a.deleteCapturedLineRune()
+		}
+	}
+}
+
+func (a *App) clampCapturedLineCursor() {
+	if a.lineCursor < 0 {
+		a.lineCursor = 0
+	}
+	if a.lineCursor > len(a.lineInput) {
+		a.lineCursor = len(a.lineInput)
+	}
+	for a.lineCursor > 0 && a.lineCursor < len(a.lineInput) && !utf8.RuneStart(a.lineInput[a.lineCursor]) {
+		a.lineCursor--
+	}
+}
+
+func (a *App) insertCapturedLineBytes(value []byte) {
+	a.clampCapturedLineCursor()
+	start := a.lineCursor
+	a.lineInput = append(a.lineInput, make([]byte, len(value))...)
+	copy(a.lineInput[start+len(value):], a.lineInput[start:len(a.lineInput)-len(value)])
+	copy(a.lineInput[start:start+len(value)], value)
+	a.lineCursor += len(value)
+}
+
+func (a *App) backspaceCapturedLineRune() {
+	a.clampCapturedLineCursor()
+	if a.lineCursor == 0 {
+		return
+	}
+	_, size := utf8.DecodeLastRune(a.lineInput[:a.lineCursor])
+	if size <= 0 {
+		size = 1
+	}
+	start := a.lineCursor - size
+	copy(a.lineInput[start:], a.lineInput[a.lineCursor:])
+	a.lineInput = a.lineInput[:len(a.lineInput)-size]
+	a.lineCursor = start
+}
+
+func (a *App) deleteCapturedLineRune() {
+	a.clampCapturedLineCursor()
+	if a.lineCursor >= len(a.lineInput) {
+		return
+	}
+	_, size := utf8.DecodeRune(a.lineInput[a.lineCursor:])
+	if size <= 0 {
+		size = 1
+	}
+	copy(a.lineInput[a.lineCursor:], a.lineInput[a.lineCursor+size:])
+	a.lineInput = a.lineInput[:len(a.lineInput)-size]
+}
+
+func (a *App) moveCapturedLineCursor(delta int) {
+	a.clampCapturedLineCursor()
+	if delta < 0 && a.lineCursor > 0 {
+		_, size := utf8.DecodeLastRune(a.lineInput[:a.lineCursor])
+		if size <= 0 {
+			size = 1
+		}
+		a.lineCursor -= size
+	}
+	if delta > 0 && a.lineCursor < len(a.lineInput) {
+		_, size := utf8.DecodeRune(a.lineInput[a.lineCursor:])
+		if size <= 0 {
+			size = 1
+		}
+		a.lineCursor += size
+	}
 }
 
 func (a *App) captureLineAnchor() {

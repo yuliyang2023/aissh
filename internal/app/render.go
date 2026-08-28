@@ -77,7 +77,8 @@ func (a *App) render() {
 	case a.focus == focusTerminal && a.terminalScroll == 0 && a.proposal == nil && !workspaceOnly && a.virtual != nil && (a.virtual.CursorVisible() || a.atPrompt):
 		cursorCol := terminalCursorCol
 		if a.aiLineCapture {
-			cursorCol += textWidth(string(a.lineInput))
+			a.clampCapturedLineCursor()
+			cursorCol += textWidth(string(a.lineInput[:a.lineCursor]))
 		}
 		if cursorCol > a.mainCols {
 			cursorCol = a.mainCols
