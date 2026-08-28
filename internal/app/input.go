@@ -892,20 +892,23 @@ func (a *App) inputStatus() string {
 	}
 	switch a.focus {
 	case focusApproval:
-		return a.t("AI 命令确认：输入 yes 执行，输入 no 拒绝，然后按 Enter")
+		return a.t("命令确认  yes 执行 · no 拒绝 · Enter 确认")
 	case focusAI:
-		return a.t("AI 对话  Enter发送  Shift+Enter/Ctrl+J换行  方向键编辑  Ctrl+R历史会话  Esc返回SSH")
+		return a.t("AI  Enter 发送 · Shift+Enter/Ctrl+J 换行 · Ctrl+R 历史 · Esc 返回 SSH")
 	case focusAIHistory:
-		return a.t("AI 历史会话  ↑/↓选择  Enter继续  N新建  Esc返回对话")
+		return a.t("历史会话  ↑/↓ 选择 · Enter 继续 · N 新建 · Esc 返回")
 	case focusMonitor:
-		return a.t("监控面板  Ctrl+T切换Tab  Ctrl+L切换布局  Ctrl+N新增  Esc返回SSH")
+		return a.t("监控  Ctrl+T 切换 · Ctrl+L 布局 · Ctrl+N 新增 · Esc 返回 SSH")
 	case focusMonitorSlot:
-		return a.t("选择该分屏显示的监控：按数字；Esc 取消")
+		return a.t("选择分屏  1–9 选择 · Esc 取消")
 	case focusPanelMenu:
-		return a.t("新增: 1系统 2进程 3磁盘 4网络 5服务 6自定义  Esc取消")
+		return a.t("新增监控  1–6 选择 · Esc 取消")
 	case focusCustomPanel:
-		return a.t("%s  Enter创建  Esc取消", a.menuStatus)
+		return a.t("%s  Enter 创建 · Ctrl+U 清空 · Esc 取消", a.menuStatus)
 	default:
-		return a.t("终端原生选择已启用  Ctrl+T监控Tab  Ctrl+N新增监控  中文或 /ai 自动提问")
+		if a.atPrompt && !a.sensitive {
+			return a.t("SSH  /ai AI 对话 · Ctrl+T 切换监控 · Ctrl+N 新增监控")
+		}
+		return "SSH"
 	}
 }

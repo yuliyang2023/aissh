@@ -41,6 +41,7 @@ func main() {
 
 func parseArgs(args []string) (app.Config, bool, bool, error) {
 	config := app.Config{
+		Version:           version,
 		SSHPath:           firstNonEmpty(os.Getenv("AISSH_SSH_PATH"), "/usr/bin/ssh"),
 		AgentProvider:     firstNonEmpty(os.Getenv("AISSH_AGENT_PROVIDER"), os.Getenv("AISSH_AGENT"), "codex"),
 		AgentURL:          os.Getenv("AISSH_AGENT_URL"),

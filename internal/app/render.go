@@ -67,7 +67,7 @@ func (a *App) render() {
 		output.WriteString(a.renderSidebar(2, borderCol+1, a.cols-borderCol, a.contentRows))
 	}
 
-	output.WriteString(positionedLine(a.rows, 1, a.inputStatus(), a.cols, "\x1b[38;5;245m"))
+	output.WriteString(positionedLine(a.rows, 1, a.statusLine(a.cols), a.cols, "\x1b[38;5;245m"))
 	switch {
 	case a.focus == focusTerminal && a.terminalScroll == 0 && a.proposal == nil && !workspaceOnly && a.virtual != nil && (a.virtual.CursorVisible() || a.atPrompt):
 		cursorCol := terminalCursorCol
@@ -630,6 +630,27 @@ func limitLines(lines []string, limit int) []string {
 
 func positionedLine(row, col int, value string, width int, style string) string {
 	return fmt.Sprintf("\x1b[%d;%dH%s%s\x1b[0m", row, col, style, terminalview.ClipPad(value, width))
+}
+
+func (a *App) statusLine(width int) string {
+	status := a.inputStatus()
+	version := strings.TrimSpace(a.config.Version)
+	if version == "" {
+		return status
+	}
+	if !strings.HasPrefix(strings.ToLower(version), "aissh ") {
+		version = "aissh " + version
+	}
+	versionWidth := textWidth(version)
+	if width <= versionWidth {
+		return version
+	}
+	const gap = 2
+	statusWidth := width - versionWidth - gap
+	if statusWidth <= 0 {
+		return version
+	}
+	return terminalview.ClipPad(status, statusWidth) + strings.Repeat(" ", gap) + version
 }
 
 func fitTailOffset(lines []string, height, offset int) []string {

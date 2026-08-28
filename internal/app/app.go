@@ -30,6 +30,7 @@ import (
 )
 
 type Config struct {
+	Version             string
 	SSHPath             string
 	SSHArgs             []string
 	AgentProvider       string
