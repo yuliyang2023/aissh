@@ -94,6 +94,24 @@ func TestParseArgsSupportsLocalWorkspace(t *testing.T) {
 	}
 }
 
+func TestParseArgsSupportsWritableLocalWorkspace(t *testing.T) {
+	t.Setenv("AISSH_WORKSPACE_WRITE", "")
+	config, help, version, err := parseArgs([]string{"--workspace-write", "server"})
+	if err != nil || help || version || !config.WorkspaceWritable {
+		t.Fatalf("writable=%v help=%v version=%v err=%v", config.WorkspaceWritable, help, version, err)
+	}
+
+	t.Setenv("AISSH_WORKSPACE_WRITE", "1")
+	config, _, _, err = parseArgs([]string{"server"})
+	if err != nil || !config.WorkspaceWritable {
+		t.Fatalf("env writable=%v err=%v", config.WorkspaceWritable, err)
+	}
+	config, _, _, err = parseArgs([]string{"--no-workspace-write", "server"})
+	if err != nil || config.WorkspaceWritable {
+		t.Fatalf("disabled writable=%v err=%v", config.WorkspaceWritable, err)
+	}
+}
+
 func TestParseArgsDefaultsWorkspaceToCurrentDirectory(t *testing.T) {
 	t.Setenv("AISSH_WORKSPACE", "")
 	config, help, version, err := parseArgs([]string{"server"})

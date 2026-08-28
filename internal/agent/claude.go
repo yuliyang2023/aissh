@@ -19,9 +19,16 @@ import (
 // must stay read-only so aissh remains the only writer on either machine.
 const claudeReadOnlyTools = "Read,Grep,Glob"
 
+// claudeWritableTools adds only file-editing tools. Bash and network tools stay
+// disabled because Claude Code does not provide the same workspace-scoped shell
+// sandbox as Codex.
+const claudeWritableTools = claudeReadOnlyTools + ",Edit,Write,NotebookEdit"
+
 // claudeDisallowedTools blocks every tool that could mutate local state or
 // reach the network; Bash is included because it cannot be proven read-only.
 const claudeDisallowedTools = "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Task,TodoWrite"
+
+const claudeWritableDisallowedTools = "Bash,WebFetch,WebSearch,Task,TodoWrite"
 
 type claudeRunner func(context.Context, string, []string, string, string) ([]byte, []byte, error)
 
@@ -35,15 +42,17 @@ type claudeResult struct {
 }
 
 // ClaudeProvider invokes the locally installed Claude Code CLI in print mode.
-// Each provider keeps a persistent, read-only Claude session for its aissh SSH
-// session and only returns structured advice; aissh remains solely responsible
-// for executing approved commands over SSH.
+// Each provider keeps a persistent Claude session for its aissh SSH session and
+// only returns structured advice. Local workspace writes are disabled by
+// default and must be explicitly enabled; aissh remains solely responsible for
+// executing approved commands over SSH.
 type ClaudeProvider struct {
 	Path               string
 	Model              string
 	Timeout            time.Duration
 	Language           string
 	Workspace          string
+	WorkspaceWritable  bool
 	OutputContextChars int
 
 	mu       sync.Mutex
@@ -74,8 +83,8 @@ func (p *ClaudeProvider) Name() string { return "Claude" }
 
 func (p *ClaudeProvider) localizer() i18n.Localizer { return i18n.New(p.Language) }
 
-// SetLocalWorkspace changes the read-only local directory used by subsequent
-// Claude turns. An empty value disables local workspace access.
+// SetLocalWorkspace changes the local directory used by subsequent Claude
+// turns. An empty value disables local workspace access.
 func (p *ClaudeProvider) SetLocalWorkspace(value string) {
 	p.mu.Lock()
 	workspace := strings.TrimSpace(value)
@@ -86,6 +95,17 @@ func (p *ClaudeProvider) SetLocalWorkspace(value string) {
 	p.mu.Unlock()
 }
 
+// SetLocalWorkspaceWritable controls whether subsequent Claude sessions can
+// use file-editing tools. Changing the mode starts a fresh local AI session.
+func (p *ClaudeProvider) SetLocalWorkspaceWritable(value bool) {
+	p.mu.Lock()
+	if p.WorkspaceWritable != value {
+		p.sessions = make(map[string]*codexSession)
+	}
+	p.WorkspaceWritable = value
+	p.mu.Unlock()
+}
+
 func (p *ClaudeProvider) LocalWorkspace() string {
 	if p == nil {
 		return ""
@@ -93,6 +113,15 @@ func (p *ClaudeProvider) LocalWorkspace() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return strings.TrimSpace(p.Workspace)
+}
+
+func (p *ClaudeProvider) localWorkspaceSettings() (string, bool) {
+	if p == nil {
+		return "", false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return strings.TrimSpace(p.Workspace), p.WorkspaceWritable
 }
 
 func (p *ClaudeProvider) Configured() bool {
@@ -122,9 +151,12 @@ func (p *ClaudeProvider) Stream(ctx context.Context, request Request, callbacks 
 	}
 	input := p.requestText(session, request)
 	request.SystemContext = cloneContext(request.SystemContext)
-	workspace := p.LocalWorkspace()
+	workspace, workspaceWritable := p.localWorkspaceSettings()
 	if workspace != "" {
 		request.SystemContext["local_workspace"] = workspace
+		if workspaceWritable {
+			request.SystemContext["local_workspace_mode"] = "read-write"
+		}
 	}
 	p.mu.Lock()
 	history := append([]codexHistory(nil), session.History...)
@@ -153,13 +185,13 @@ func (p *ClaudeProvider) Stream(ctx context.Context, request Request, callbacks 
 	if !created {
 		prompt = buildCodexContinuationPrompt(request, input)
 	}
-	result, returnedSessionID, err := p.invoke(ctx, prompt, workspace, sessionID)
+	result, returnedSessionID, err := p.invoke(ctx, prompt, workspace, workspaceWritable, sessionID)
 	if err != nil && !created && codexSessionMissing(err) {
 		p.mu.Lock()
 		delete(p.sessions, sessionID)
 		p.mu.Unlock()
 		prompt = buildCodexPrompt(request, history, input)
-		result, returnedSessionID, err = p.invoke(ctx, prompt, workspace, "")
+		result, returnedSessionID, err = p.invoke(ctx, prompt, workspace, workspaceWritable, "")
 		created = true
 	}
 	if err != nil {
@@ -314,7 +346,7 @@ func (p *ClaudeProvider) requestText(session *codexSession, request Request) str
 	}
 }
 
-func (p *ClaudeProvider) invoke(parent context.Context, prompt, workspace, sessionID string) (codexResponse, string, error) {
+func (p *ClaudeProvider) invoke(parent context.Context, prompt, workspace string, workspaceWritable bool, sessionID string) (codexResponse, string, error) {
 	timeout := p.Timeout
 	if timeout <= 0 {
 		timeout = 90 * time.Second
@@ -325,8 +357,13 @@ func (p *ClaudeProvider) invoke(parent context.Context, prompt, workspace, sessi
 	// Without a workspace no local file access is allowed at all, so the
 	// read-only tools join the disallowed list instead of the allowlist.
 	disallowedTools := claudeDisallowedTools
+	allowedTools := claudeReadOnlyTools
 	if strings.TrimSpace(workspace) == "" {
 		disallowedTools += "," + claudeReadOnlyTools
+		allowedTools = ""
+	} else if workspaceWritable {
+		disallowedTools = claudeWritableDisallowedTools
+		allowedTools = claudeWritableTools
 	}
 	args := []string{
 		"-p",
@@ -336,8 +373,8 @@ func (p *ClaudeProvider) invoke(parent context.Context, prompt, workspace, sessi
 		"--strict-mcp-config",
 		"--disallowedTools", disallowedTools,
 	}
-	if strings.TrimSpace(workspace) != "" {
-		args = append(args, "--allowedTools", claudeReadOnlyTools)
+	if allowedTools != "" {
+		args = append(args, "--tools", allowedTools, "--allowedTools", allowedTools)
 	}
 	if p.Model != "" {
 		args = append(args, "--model", p.Model)

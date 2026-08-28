@@ -35,6 +35,31 @@ func TestLocalWorkspaceIsResolvedAndShownInConversation(t *testing.T) {
 	}
 }
 
+func TestWritableLocalWorkspaceIsPropagatedAndShown(t *testing.T) {
+	workspace := t.TempDir()
+	application, err := New(Config{
+		SSHArgs: []string{"server"}, Workspace: workspace, WorkspaceWritable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, ok := application.agent.(*agent.CodexProvider)
+	if !ok {
+		t.Fatalf("provider=%T", application.agent)
+	}
+	if !provider.WorkspaceWritable {
+		t.Fatal("provider did not receive writable workspace mode")
+	}
+	conversation := strings.Join(application.aiLines(120), "\n")
+	if !strings.Contains(conversation, "本机代码工作区（可修改）") {
+		t.Fatalf("conversation=%q", conversation)
+	}
+	message, err := application.applyLocalWorkspaceCommand("")
+	if err != nil || !strings.Contains(message, "可修改") {
+		t.Fatalf("message=%q err=%v", message, err)
+	}
+}
+
 func TestLocalWorkspaceMustBeDirectory(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "file.txt")
 	if err := os.WriteFile(path, []byte("content"), 0600); err != nil {

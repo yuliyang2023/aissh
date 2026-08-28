@@ -33,9 +33,13 @@ func (a *App) loadChatHistory() {
 
 func (a *App) appendAIReadyMessages() {
 	if a.config.Workspace != "" {
+		message := a.t("本机代码工作区（只读）：%s", a.config.Workspace)
+		if a.config.WorkspaceWritable {
+			message = a.t("本机代码工作区（可修改）：%s", a.config.Workspace)
+		}
 		a.chat = append(a.chat, chatMessage{
 			Role:    "system",
-			Content: a.t("本机代码工作区（只读）：%s", a.config.Workspace),
+			Content: message,
 			Time:    time.Now(),
 		})
 	}

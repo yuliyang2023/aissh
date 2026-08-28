@@ -84,12 +84,21 @@ AI 生成的命令不会自动执行，而是先在左侧终端中展示用途�
 
 ### 🔗 同时理解本地代码与线上环境
 
-使用本机 Codex 或 Claude Code 时，`aissh` 可以只读查看本地项目，再结合服务器输出进行分析。
+使用本机 Codex 或 Claude Code 时，`aissh` 默认只读查看本地项目，再结合服务器输出进行分析。
 
 ```bash
 cd /path/to/local/project
 aissh production
 ```
+
+需要让 AI 直接修改本机项目时，必须显式开启写入模式：
+
+```bash
+aissh --workspace-write production
+```
+
+也可以设置 `AISSH_WORKSPACE_WRITE=1`。Codex 会使用 `workspace-write` sandbox；Claude 只会额外开放
+文件编辑工具，仍禁止 Bash 和网络工具。
 
 连接后也可以随时切换本机工作区：
 
@@ -99,8 +108,8 @@ aissh production
 /workspace off                # 关闭本机工作区访问
 ```
 
-这些命令只在本机处理，不会发送到目标服务器。工作区切换只影响后续 AI 请求，也不会自动上传、
-修改或部署本地代码。
+这些命令只在本机处理，不会发送到目标服务器。工作区切换只影响后续 AI 请求；本地代码不会自动
+上传或部署。默认模式不会修改本地代码，只有显式传入 `--workspace-write` 后 AI 才能修改工作区文件。
 
 ### 💬 每台服务器都有自己的 AI 记忆
 
@@ -209,7 +218,8 @@ bin/aissh --agent codex production
 
 ### 本机 Claude Code
 
-基于 Claude Code CLI 的同款本机体验，同样支持只读分析本机代码工作区。先确认 `claude` CLI 已安装并登录：
+基于 Claude Code CLI 的同款本机体验，默认只读分析本机代码工作区，也可通过 `--workspace-write`
+开放文件编辑能力。先确认 `claude` CLI 已安装并登录：
 
 ```bash
 claude -p "只回答 ok"
@@ -230,7 +240,8 @@ bin/aissh --agent claude production
 ```
 
 每条正在运行的 SSH 会话对应一个持久的 Claude 会话；后续提问、命令审批和执行结果都会续用该会话。
-Claude 以只读工具白名单运行；使用 `--no-workspace` 时会完全禁止本机文件访问。注意：Claude Code CLI
+Claude 默认以只读工具白名单运行；开启 `--workspace-write` 后只额外开放 Edit、Write 和 NotebookEdit，
+Bash 与网络工具仍被禁止。使用 `--no-workspace` 时会完全禁止本机文件访问。注意：Claude Code CLI
 自身会在本机保留会话记录且没有删除命令，因此与 Codex thread 不同，SSH 会话结束时不会自动清理。
 
 ### DeepSeek
@@ -276,6 +287,9 @@ bin/aissh --agent model production
 # 指定本机项目
 bin/aissh --workspace /path/to/project production
 
+# 允许 AI 修改本机项目（也可设置 AISSH_WORKSPACE_WRITE=1）
+bin/aissh --workspace-write production
+
 # 禁止 AI 查看本机项目
 bin/aissh --no-workspace production
 
@@ -312,10 +326,10 @@ bin/aissh --help
 - 目标服务器无需安装任何组件；
 - AI 命令建议必须由用户明确批准；
 - 高风险命令在左右两侧都会醒目标记；
-- 本机 Codex 与 Claude Code 仅以只读方式查看工作区；
+- 本机 Codex 与 Claude Code 默认只读查看工作区，只有显式传入 `--workspace-write` 才允许修改；
 - AI 创建的监控仅允许使用只读命令；
 - 用户创建的监控默认不会交给 AI 分析；
-- 本地代码不会自动修改、上传或部署；
+- 本地代码不会自动上传或部署；默认也不会修改；
 - 登录信息、API Key 和本机历史不会发送到目标服务器。
 
 使用第三方模型服务时，本次问题、相关 SSH 输出和命令执行结果会发送给所配置的模型 API，

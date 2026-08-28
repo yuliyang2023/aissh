@@ -41,24 +41,25 @@ func main() {
 
 func parseArgs(args []string) (app.Config, bool, bool, error) {
 	config := app.Config{
-		SSHPath:         firstNonEmpty(os.Getenv("AISSH_SSH_PATH"), "/usr/bin/ssh"),
-		AgentProvider:   firstNonEmpty(os.Getenv("AISSH_AGENT_PROVIDER"), os.Getenv("AISSH_AGENT"), "codex"),
-		AgentURL:        os.Getenv("AISSH_AGENT_URL"),
-		AgentToken:      os.Getenv("AISSH_AGENT_TOKEN"),
-		CodexPath:       firstNonEmpty(os.Getenv("AISSH_CODEX_PATH"), "codex"),
-		CodexModel:      os.Getenv("AISSH_CODEX_MODEL"),
-		ClaudePath:      firstNonEmpty(os.Getenv("AISSH_CLAUDE_PATH"), "claude"),
-		ClaudeModel:     os.Getenv("AISSH_CLAUDE_MODEL"),
-		Language:        i18n.Resolve(firstNonEmpty(os.Getenv("AISSH_LANG"), "auto")),
-		HistoryDir:      firstNonEmpty(os.Getenv("AISSH_HISTORY_DIR"), history.DefaultDir()),
-		Workspace:       currentDirectory(),
-		ModelURL:        os.Getenv("AISSH_MODEL_URL"),
-		ModelAPIKey:     firstNonEmpty(os.Getenv("AISSH_MODEL_API_KEY"), os.Getenv("DEEPSEEK_API_KEY")),
-		ModelName:       os.Getenv("AISSH_MODEL_NAME"),
-		ScrollbackLines: app.DefaultScrollbackLines,
-		AIContextChars:  app.DefaultAIContextChars,
-		AITimeout:       app.DefaultAITimeout,
-		AIKeepalive:     app.DefaultAIKeepalive,
+		SSHPath:           firstNonEmpty(os.Getenv("AISSH_SSH_PATH"), "/usr/bin/ssh"),
+		AgentProvider:     firstNonEmpty(os.Getenv("AISSH_AGENT_PROVIDER"), os.Getenv("AISSH_AGENT"), "codex"),
+		AgentURL:          os.Getenv("AISSH_AGENT_URL"),
+		AgentToken:        os.Getenv("AISSH_AGENT_TOKEN"),
+		CodexPath:         firstNonEmpty(os.Getenv("AISSH_CODEX_PATH"), "codex"),
+		CodexModel:        os.Getenv("AISSH_CODEX_MODEL"),
+		ClaudePath:        firstNonEmpty(os.Getenv("AISSH_CLAUDE_PATH"), "claude"),
+		ClaudeModel:       os.Getenv("AISSH_CLAUDE_MODEL"),
+		Language:          i18n.Resolve(firstNonEmpty(os.Getenv("AISSH_LANG"), "auto")),
+		HistoryDir:        firstNonEmpty(os.Getenv("AISSH_HISTORY_DIR"), history.DefaultDir()),
+		Workspace:         currentDirectory(),
+		WorkspaceWritable: enabledValue(os.Getenv("AISSH_WORKSPACE_WRITE")),
+		ModelURL:          os.Getenv("AISSH_MODEL_URL"),
+		ModelAPIKey:       firstNonEmpty(os.Getenv("AISSH_MODEL_API_KEY"), os.Getenv("DEEPSEEK_API_KEY")),
+		ModelName:         os.Getenv("AISSH_MODEL_NAME"),
+		ScrollbackLines:   app.DefaultScrollbackLines,
+		AIContextChars:    app.DefaultAIContextChars,
+		AITimeout:         app.DefaultAITimeout,
+		AIKeepalive:       app.DefaultAIKeepalive,
 	}
 	if value := strings.TrimSpace(os.Getenv("AISSH_SCROLLBACK_LINES")); value != "" {
 		lines, err := positiveLineCount(value)
@@ -111,6 +112,10 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 			config.HistoryDir = ""
 		case value == "--no-workspace":
 			config.Workspace = ""
+		case value == "--workspace-write":
+			config.WorkspaceWritable = true
+		case value == "--no-workspace-write":
+			config.WorkspaceWritable = false
 		case value == "--no-ai-keepalive":
 			config.AIKeepalive = 0
 			config.DisableAIKeepalive = true
@@ -259,7 +264,8 @@ aissh options:
   --lang LANG         UI language: zh-CN or en (auto-detected by default)
   --history-dir DIR   Local per-target AI history directory
   --no-history        Disable loading and saving AI history
-  --workspace DIR     Read-only local code workspace (default: current directory)
+  --workspace DIR     Local code workspace (default: current directory)
+  --workspace-write   Allow Codex/Claude to modify files in the local workspace
   --no-workspace      Disable local workspace access for Codex/Claude
   --model-url URL     OpenAI-compatible model API base URL
   --model-name MODEL  Direct model name
@@ -310,7 +316,8 @@ aissh选项:
   --lang LANG         界面语言：zh-CN 或 en，默认根据系统环境自动选择
   --history-dir DIR   按目标保存 AI 历史的本机目录
   --no-history        禁用 AI 历史的读取和写入
-  --workspace DIR     供 Codex/Claude 只读分析的本机代码工作区，默认当前目录
+  --workspace DIR     供 Codex/Claude 使用的本机代码工作区，默认当前目录
+  --workspace-write   允许 Codex/Claude 修改本机工作区文件（默认只读）
   --no-workspace      禁止 Codex/Claude 访问本机工作区
   --model-url URL     OpenAI-compatible 模型 API 地址
   --model-name MODEL  直连模型名称
@@ -355,6 +362,10 @@ func disabledValue(value string) bool {
 	default:
 		return false
 	}
+}
+
+func enabledValue(value string) bool {
+	return strings.TrimSpace(value) != "" && !disabledValue(value)
 }
 
 func currentDirectory() string {

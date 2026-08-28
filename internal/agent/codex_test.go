@@ -170,6 +170,34 @@ func TestCodexProviderUsesReadOnlyLocalWorkspace(t *testing.T) {
 	}
 }
 
+func TestCodexProviderCanUseWritableLocalWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	provider := NewCodexProvider("codex", "")
+	provider.SetLocalWorkspaceWritable(true)
+	provider.SetLocalWorkspace(workspace)
+	provider.lookPath = func(string) (string, error) { return "/usr/local/bin/codex", nil }
+	provider.run = func(_ context.Context, _ string, args []string, prompt string) ([]byte, []byte, error) {
+		if !containsArgs(args, "-C", workspace) || !containsArgs(args, "--sandbox", "workspace-write") {
+			t.Fatalf("workspace args=%#v", args)
+		}
+		if containsArgs(args, "--sandbox", "read-only") {
+			t.Fatalf("writable workspace remained read-only: %#v", args)
+		}
+		for _, want := range []string{"local_workspace=" + workspace, "local_workspace_mode=read-write", "用户已显式开启本机工作区写入", "修改必须限制在配置的工作区内", "command_proposal 永远表示将在目标服务器"} {
+			if !strings.Contains(prompt, want) {
+				t.Fatalf("writable workspace prompt missing %q: %s", want, prompt)
+			}
+		}
+		response := `{"type":"finished","message":"done","proposal":null,"panelActions":[]}`
+		line := `{"type":"thread.started","thread_id":"thread-writable-workspace"}` + "\n" +
+			`{"type":"item.completed","item":{"type":"agent_message","text":` + string(mustJSON(response)) + `}}` + "\n"
+		return []byte(line), nil, nil
+	}
+	if _, err := provider.Stream(context.Background(), Request{Event: "start", Prompt: "fix the local project"}, Callbacks{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCodexProviderResumesOneThreadForOneSSHSession(t *testing.T) {
 	provider := NewCodexProvider("codex", "")
 	provider.lookPath = func(string) (string, error) { return "/usr/local/bin/codex", nil }

@@ -100,15 +100,17 @@ type codexSession struct {
 type codexRunner func(context.Context, string, []string, string) ([]byte, []byte, error)
 
 // CodexProvider invokes the locally installed Codex CLI. Each provider keeps a
-// persistent, read-only Codex thread for its aissh SSH session and only returns
-// structured advice; aissh remains solely responsible for executing approved
-// commands over SSH.
+// persistent Codex thread for its aissh SSH session and only returns structured
+// advice. Local workspace writes are disabled by default and must be explicitly
+// enabled; aissh remains solely responsible for executing approved commands
+// over SSH.
 type CodexProvider struct {
 	Path               string
 	Model              string
 	Timeout            time.Duration
 	Language           string
 	Workspace          string
+	WorkspaceWritable  bool
 	OutputContextChars int
 
 	mu       sync.Mutex
@@ -141,8 +143,8 @@ func (p *CodexProvider) Name() string { return "Codex" }
 
 func (p *CodexProvider) localizer() i18n.Localizer { return i18n.New(p.Language) }
 
-// SetLocalWorkspace changes the read-only local directory used by subsequent
-// Codex turns. An empty value disables local workspace access.
+// SetLocalWorkspace changes the local directory used by subsequent Codex
+// turns. An empty value disables local workspace access.
 func (p *CodexProvider) SetLocalWorkspace(value string) {
 	p.mu.Lock()
 	workspace := strings.TrimSpace(value)
@@ -153,6 +155,17 @@ func (p *CodexProvider) SetLocalWorkspace(value string) {
 	p.mu.Unlock()
 }
 
+// SetLocalWorkspaceWritable controls whether subsequent Codex sessions use the
+// workspace-write sandbox. Changing the mode starts a fresh local AI session.
+func (p *CodexProvider) SetLocalWorkspaceWritable(value bool) {
+	p.mu.Lock()
+	if p.WorkspaceWritable != value {
+		p.sessions = make(map[string]*codexSession)
+	}
+	p.WorkspaceWritable = value
+	p.mu.Unlock()
+}
+
 func (p *CodexProvider) LocalWorkspace() string {
 	if p == nil {
 		return ""
@@ -160,6 +173,15 @@ func (p *CodexProvider) LocalWorkspace() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return strings.TrimSpace(p.Workspace)
+}
+
+func (p *CodexProvider) localWorkspaceSettings() (string, bool) {
+	if p == nil {
+		return "", false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return strings.TrimSpace(p.Workspace), p.WorkspaceWritable
 }
 
 func (p *CodexProvider) Configured() bool {
@@ -189,9 +211,12 @@ func (p *CodexProvider) Stream(ctx context.Context, request Request, callbacks C
 	}
 	input := p.requestText(session, request)
 	request.SystemContext = cloneContext(request.SystemContext)
-	workspace := p.LocalWorkspace()
+	workspace, workspaceWritable := p.localWorkspaceSettings()
 	if workspace != "" {
 		request.SystemContext["local_workspace"] = workspace
+		if workspaceWritable {
+			request.SystemContext["local_workspace_mode"] = "read-write"
+		}
 	}
 	p.mu.Lock()
 	history := append([]codexHistory(nil), session.History...)
@@ -220,14 +245,14 @@ func (p *CodexProvider) Stream(ctx context.Context, request Request, callbacks C
 	if !created {
 		prompt = buildCodexContinuationPrompt(request, input)
 	}
-	result, resumedThreadID, err := p.invoke(ctx, prompt, workspace, threadID)
+	result, resumedThreadID, err := p.invoke(ctx, prompt, workspace, workspaceWritable, threadID)
 	if err != nil && !created && codexSessionMissing(err) {
 		p.mu.Lock()
 		delete(p.sessions, threadID)
 		delete(p.owned, threadID)
 		p.mu.Unlock()
 		prompt = buildCodexPrompt(request, history, input)
-		result, resumedThreadID, err = p.invoke(ctx, prompt, workspace, "")
+		result, resumedThreadID, err = p.invoke(ctx, prompt, workspace, workspaceWritable, "")
 		created = true
 	}
 	if err != nil {
@@ -415,7 +440,7 @@ func (p *CodexProvider) requestText(session *codexSession, request Request) stri
 	}
 }
 
-func (p *CodexProvider) invoke(parent context.Context, prompt, workspace, threadID string) (codexResponse, string, error) {
+func (p *CodexProvider) invoke(parent context.Context, prompt, workspace string, workspaceWritable bool, threadID string) (codexResponse, string, error) {
 	timeout := p.Timeout
 	if timeout <= 0 {
 		timeout = 90 * time.Second
@@ -449,7 +474,11 @@ func (p *CodexProvider) invoke(parent context.Context, prompt, workspace, thread
 		"--output-schema", schemaPath,
 	)
 	if strings.TrimSpace(threadID) == "" {
-		args = append(args, "--sandbox", "read-only", "-C", codexWorkingDirectory(workspace))
+		sandbox := "read-only"
+		if strings.TrimSpace(workspace) != "" && workspaceWritable {
+			sandbox = "workspace-write"
+		}
+		args = append(args, "--sandbox", sandbox, "-C", codexWorkingDirectory(workspace))
 	}
 	if p.Model != "" {
 		args = append(args, "--model", p.Model)
@@ -549,12 +578,21 @@ func buildCodexPrompt(request Request, history []codexHistory, input string) str
 	value.WriteString(`你是 aissh 的本地运维助手。aissh 正在本机包装一个真实的 OpenSSH 会话。
 `)
 	if workspace := strings.TrimSpace(request.SystemContext["local_workspace"]); workspace != "" {
-		value.WriteString(`
+		if request.SystemContext["local_workspace_mode"] == "read-write" {
+			value.WriteString(`
+本机代码上下文：
+1. 用户已显式开启本机工作区写入；你可以使用提供的本机工具检查、编辑、创建或删除工作区内的文件。
+2. 修改必须限制在配置的工作区内，保留用户已有的无关改动，不访问工作区外文件或网络；完成后在 message 中简要说明改动和验证结果。
+3. 不要把本机工作区命令作为 command_proposal 返回；command_proposal 永远表示将在目标服务器当前 Shell 中执行的远端命令。
+`)
+		} else {
+			value.WriteString(`
 本机代码上下文：
 1. 你可以使用只读本机工具检查工作区中的源码、配置、Git 状态和差异，以便把本地实现与线上现象关联起来。
 2. 本机工作区严格只读：不得编辑、创建或删除文件，不得运行可能写文件的构建、测试或项目程序，不得访问网络。
 3. 不要把本机工作区命令作为 command_proposal 返回；command_proposal 永远表示将在目标服务器当前 Shell 中执行的远端命令。
 `)
+		}
 	} else {
 		value.WriteString(`
 本机代码上下文：不要调用任何本机工具、Shell、网络、文件或外部服务；只分析下面提供的文本。

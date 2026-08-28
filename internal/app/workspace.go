@@ -56,6 +56,9 @@ func (a *App) applyLocalWorkspaceCommand(argument string) (string, error) {
 	argument = trimMatchingQuotes(strings.TrimSpace(argument))
 	if argument == "" {
 		if workspace := provider.LocalWorkspace(); workspace != "" {
+			if a.config.WorkspaceWritable {
+				return a.t("当前本机代码工作区（可修改）：%s", workspace), nil
+			}
 			return a.t("当前本机代码工作区（只读）：%s", workspace), nil
 		}
 		return a.t("当前未启用本机代码工作区；使用 /workspace 本机路径 开启"), nil
@@ -74,6 +77,9 @@ func (a *App) applyLocalWorkspaceCommand(argument string) (string, error) {
 	}
 	provider.SetLocalWorkspace(workspace)
 	a.config.Workspace = workspace
+	if a.config.WorkspaceWritable {
+		return a.t("本机代码工作区已切换（可修改）：%s；后续 %s 请求将使用此目录", workspace, provider.Name()), nil
+	}
 	return a.t("本机代码工作区已切换（只读）：%s；后续 %s 请求将使用此目录", workspace, provider.Name()), nil
 }
 

@@ -43,6 +43,7 @@ type Config struct {
 	Language           string
 	HistoryDir         string
 	Workspace          string
+	WorkspaceWritable  bool
 	ModelURL           string
 	ModelAPIKey        string
 	ModelName          string
@@ -188,6 +189,7 @@ func New(config Config) (*App, error) {
 	}
 	if mode != "codex" && mode != "local" && mode != "claude" {
 		config.Workspace = ""
+		config.WorkspaceWritable = false
 	}
 	workspace, err := resolveLocalWorkspace(config.Workspace)
 	if err != nil {
@@ -243,6 +245,7 @@ func newAgentProvider(config Config) (agent.Provider, error) {
 	case "codex", "local":
 		provider := agent.NewCodexProvider(config.CodexPath, config.CodexModel)
 		provider.Language = config.Language
+		provider.SetLocalWorkspaceWritable(config.WorkspaceWritable)
 		provider.SetLocalWorkspace(config.Workspace)
 		provider.Timeout = config.AITimeout
 		provider.OutputContextChars = config.AIContextChars
@@ -250,6 +253,7 @@ func newAgentProvider(config Config) (agent.Provider, error) {
 	case "claude":
 		provider := agent.NewClaudeProvider(config.ClaudePath, config.ClaudeModel)
 		provider.Language = config.Language
+		provider.SetLocalWorkspaceWritable(config.WorkspaceWritable)
 		provider.SetLocalWorkspace(config.Workspace)
 		provider.Timeout = config.AITimeout
 		provider.OutputContextChars = config.AIContextChars

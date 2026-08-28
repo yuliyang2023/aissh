@@ -90,13 +90,22 @@ Stay focused on a small screen, or turn a large terminal into a lightweight oper
 
 ### 🔗 Connect local code with the remote environment
 
-With the local Codex or Claude Code provider, `aissh` can inspect a local project in read-only mode and analyze it
-together with output from the remote server.
+With the local Codex or Claude Code provider, `aissh` inspects a local project in read-only mode by default and analyzes
+it together with output from the remote server.
 
 ```bash
 cd /path/to/local/project
 aissh production
 ```
+
+To let AI modify the local project, explicitly enable write mode:
+
+```bash
+aissh --workspace-write production
+```
+
+You can also set `AISSH_WORKSPACE_WRITE=1`. Codex uses its `workspace-write` sandbox; Claude only gains file-editing
+tools, while Bash and network tools remain disabled.
 
 The local workspace can also be changed after the SSH connection is established:
 
@@ -107,7 +116,8 @@ The local workspace can also be changed after the SSH connection is established:
 ```
 
 These commands are handled locally and are never sent to the target server. A workspace change affects subsequent AI
-requests only; local code is never uploaded, modified, or deployed automatically.
+requests only; local code is never uploaded or deployed automatically. It remains unmodified unless
+`--workspace-write` was explicitly provided.
 
 ### 💬 A separate AI memory for every server
 
@@ -218,8 +228,8 @@ bin/aissh --agent codex production
 
 ### Local Claude Code
 
-The same local-first experience backed by the Claude Code CLI, including read-only access to the local code workspace.
-Make sure the `claude` CLI is installed and authenticated:
+The same local-first experience backed by the Claude Code CLI, with read-only workspace access by default and optional
+file editing through `--workspace-write`. Make sure the `claude` CLI is installed and authenticated:
 
 ```bash
 claude -p "reply with ok only"
@@ -240,7 +250,8 @@ bin/aissh --agent claude production
 ```
 
 Each running SSH session owns one persistent Claude session that is resumed across follow-up questions, approvals, and
-result reviews. Claude runs with a hard read-only tool allowlist; with `--no-workspace`, local file access is disabled
+result reviews. Claude uses a read-only tool allowlist by default. With `--workspace-write`, only Edit, Write, and
+NotebookEdit are added; Bash and network tools remain disabled. With `--no-workspace`, local file access is disabled
 entirely. Note that the Claude Code CLI keeps its own local session transcripts and provides no delete command, so
 unlike Codex threads they are not removed when the SSH session ends.
 
@@ -289,6 +300,9 @@ restores the full UI afterward.
 # Select a local project
 bin/aissh --workspace /path/to/project production
 
+# Allow AI to modify the local project (or set AISSH_WORKSPACE_WRITE=1)
+bin/aissh --workspace-write production
+
 # Prevent AI from inspecting any local project
 bin/aissh --no-workspace production
 
@@ -325,10 +339,10 @@ bin/aissh --help
 - Nothing needs to be installed on the target server.
 - Every AI command proposal requires explicit user approval.
 - High-risk commands are clearly highlighted in both views.
-- Local Codex and Claude Code can inspect the configured workspace in read-only mode only.
+- Local Codex and Claude Code inspect the workspace read-only by default; writes require explicit `--workspace-write`.
 - AI-created monitors are restricted to read-only commands.
 - User-created monitor data is not shared with AI by default.
-- Local code is never modified, uploaded, or deployed automatically.
+- Local code is never uploaded or deployed automatically, and is not modified by default.
 - Authentication data, API keys, and local history are never sent to the target server.
 
 When a third-party model provider is used, the question, relevant SSH output, and approved command results are sent to
