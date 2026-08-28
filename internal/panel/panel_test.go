@@ -33,7 +33,9 @@ func TestBuiltinOverviewCommandPrintsRealLineBreaks(t *testing.T) {
 	if strings.Contains(BuiltinOverviewCommand, `\\n`) {
 		t.Fatalf("overview command contains a literal escaped newline: %q", BuiltinOverviewCommand)
 	}
-	for _, want := range []string{`(%.1f%%)\n`, `(%s)\n`} {
+	// MEM's line break comes from the shell (printf '\nDISK=') rather than
+	// awk, so hosts without free(1) still terminate the MEM row.
+	for _, want := range []string{`printf '\nDISK='`, `(%s)\n`} {
 		if !strings.Contains(BuiltinOverviewCommand, want) {
 			t.Fatalf("overview command missing %q: %q", want, BuiltinOverviewCommand)
 		}

@@ -9,6 +9,7 @@ import (
 
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
 	"git.example.com/ai/wrd-ai-cli/internal/sshwrap"
+	"git.example.com/ai/wrd-ai-cli/internal/terminalview"
 )
 
 type Runner struct {
@@ -72,7 +73,8 @@ func formatBuiltin(command, output, language string) string {
 			"PROCS":  "Processes",
 		}
 	}
-	var lines []string
+	var rows [][2]string
+	labelWidth := 0
 	for _, line := range strings.Split(strings.ReplaceAll(output, "\r", ""), "\n") {
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
@@ -82,7 +84,25 @@ func formatBuiltin(command, output, language string) string {
 		if label == "" {
 			label = parts[0]
 		}
-		lines = append(lines, fmt.Sprintf("%-8s %s", label, strings.TrimSpace(parts[1])))
+		if width := cellWidth(label); width > labelWidth {
+			labelWidth = width
+		}
+		rows = append(rows, [2]string{label, strings.TrimSpace(parts[1])})
+	}
+	var lines []string
+	for _, row := range rows {
+		padding := strings.Repeat(" ", labelWidth-cellWidth(row[0])+1)
+		lines = append(lines, row[0]+padding+row[1])
 	}
 	return strings.Join(lines, "\n")
+}
+
+// cellWidth measures display width in terminal cells; CJK labels occupy
+// two cells per rune, which fmt's %-8s would miscount.
+func cellWidth(s string) int {
+	cells := 0
+	for _, r := range s {
+		cells += terminalview.CellWidth(r)
+	}
+	return cells
 }

@@ -515,15 +515,17 @@ func (a *App) updateSize() error {
 	a.cols, a.rows = cols, rows
 	a.contentRows = rows - 2
 	a.compact = cols < 92
+	// mainCols is the SSH content width; the column right of it (mainCols+1) is
+	// reserved as the scrollbar gutter so the scrollbar never covers pane text.
 	if a.compact {
-		a.mainCols = cols
+		a.mainCols = cols - 1
 	} else {
-		a.mainCols = cols * 64 / 100
+		a.mainCols = cols*64/100 - 1
 		if a.mainCols < 48 {
 			a.mainCols = 48
 		}
-		if cols-a.mainCols-1 < 32 {
-			a.mainCols = cols - 33
+		if cols-a.mainCols-2 < 32 {
+			a.mainCols = cols - 34
 		}
 	}
 	if a.virtual != nil {

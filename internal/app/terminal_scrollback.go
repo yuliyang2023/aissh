@@ -80,7 +80,7 @@ func (a *App) renderTerminalScrollback() (string, int, int) {
 		row := 2 + index
 		rows[row] = terminalview.RenderLine(line, row, 1, a.mainCols)
 	}
-	a.addScrollbarToRows(rows, 2, a.mainCols, a.contentRows, total, a.contentRows, a.terminalScroll)
+	a.addScrollbarToRows(rows, 2, a.terminalScrollbarCol(), a.contentRows, total, a.contentRows, a.terminalScroll)
 	return a.renderTerminalRowChanges(rows), 2, 1
 }
 
@@ -95,8 +95,24 @@ func (a *App) renderTerminalRowChanges(rows map[int]string) string {
 	return output.String()
 }
 
+// terminalScrollbarCol is the screen column of the SSH-pane scrollbar: the
+// gutter column reserved right of the pane content (see updateSize), so the
+// scrollbar never covers pane text.
+func (a *App) terminalScrollbarCol() int {
+	return a.mainCols + 1
+}
+
 func (a *App) addScrollbarToRows(rows map[int]string, top, col, height, total, viewport, offset int) {
-	if total <= viewport || height <= 0 {
+	if height <= 0 {
+		return
+	}
+	if total <= viewport {
+		// Nothing to scroll: keep the gutter blank so stale glyphs (e.g. after a
+		// resize) never linger next to the pane.
+		for index := 0; index < height; index++ {
+			row := top + index
+			rows[row] += positionedLine(row, col, " ", 1, "\x1b[0m")
+		}
 		return
 	}
 	thumbTop, thumbSize := scrollbarThumb(height, total, viewport, offset)
