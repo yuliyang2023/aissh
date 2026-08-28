@@ -38,7 +38,7 @@ func (a *App) handleInput(data []byte) {
 		}
 		a.leaveNativeSelection()
 	}
-	if bytes.Contains(data, []byte{0x0f}) { // Ctrl+O
+	if !a.sensitive && bytes.Contains(data, []byte{0x0f}) { // Ctrl+O
 		filtered := make([]byte, 0, len(data))
 		for _, value := range data {
 			if value == 0x0f && a.expandCommandShortcut() {
@@ -97,6 +97,10 @@ func (a *App) handleTerminalInput(data []byte) {
 		a.terminalScroll = 0
 		a.terminalRows = nil
 	}
+	if a.sensitive {
+		a.handleSensitiveTerminalInput(data)
+		return
+	}
 	if a.inlineAI != nil {
 		if a.agentBusy {
 			if len(data) > 0 {
@@ -143,6 +147,49 @@ func (a *App) handleTerminalInput(data []byte) {
 			}
 		}
 		a.captureLineAnchor()
+		a.terminalPasteMode = true
+		a.terminalPasteBuffer = nil
+		data = data[start+len(terminalPasteStart):]
+	}
+}
+
+// handleSensitiveTerminalInput keeps password and passphrase entry out of the
+// command/AI input state. The outer terminal has bracketed paste enabled, but
+// OpenSSH's password reader does not expect those wrapper bytes, so only the
+// pasted payload may be forwarded to the SSH PTY.
+func (a *App) handleSensitiveTerminalInput(data []byte) {
+	a.lineInput = nil
+	a.lineAnchored = false
+	a.lineReliable = true
+	a.aiLineCapture = false
+
+	for len(data) > 0 {
+		if a.terminalPasteMode {
+			a.terminalPasteBuffer = append(a.terminalPasteBuffer, data...)
+			end := bytes.Index(a.terminalPasteBuffer, terminalPasteEnd)
+			if end < 0 {
+				return
+			}
+			payload := append([]byte(nil), a.terminalPasteBuffer[:end]...)
+			data = append([]byte(nil), a.terminalPasteBuffer[end+len(terminalPasteEnd):]...)
+			a.terminalPasteBuffer = nil
+			a.terminalPasteMode = false
+			if a.sshPTY != nil {
+				_, _ = a.sshPTY.Write(payload)
+			}
+			continue
+		}
+
+		start := bytes.Index(data, terminalPasteStart)
+		if start < 0 {
+			if a.sshPTY != nil {
+				_, _ = a.sshPTY.Write(data)
+			}
+			return
+		}
+		if start > 0 && a.sshPTY != nil {
+			_, _ = a.sshPTY.Write(data[:start])
+		}
 		a.terminalPasteMode = true
 		a.terminalPasteBuffer = nil
 		data = data[start+len(terminalPasteStart):]
