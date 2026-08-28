@@ -121,7 +121,8 @@ requests only; local code is never uploaded or deployed automatically. It remain
 
 ### 💬 A separate AI memory for every server
 
-Conversation history is stored locally and grouped by SSH target. Use `[Sessions]` in the bottom-right pane to:
+Conversation history is stored locally and grouped by SSH target. Enter the AI conversation with `/ai`, then press
+`Ctrl+R` to:
 
 - Browse previous conversations for the current server
 - Continue an earlier investigation with its context
@@ -129,13 +130,12 @@ Conversation history is stored locally and grouped by SSH target. Use `[Sessions
 
 Recurring problems no longer need to be explained from scratch every time.
 
-### 🖱️ Terminal speed with desktop-style interaction
+### 🖱️ Native terminal selection and copying
 
-Panels, tabs, approval buttons, and sessions can all be operated with the mouse. Drag to select text across SSH,
-monitoring, and AI panes; the selection is copied when the mouse button is released. Each area also has its own
-scrolling behavior. Clipboard integration covers iTerm2, macOS Terminal.app, and WSL sessions hosted by Windows
-Terminal. In iTerm2, hold `Option` while dragging to use iTerm2's native selection, context menu, and copy shortcut
-instead. Windows Terminal requires `compatibility.allowOSC52` to remain enabled (the default).
+aissh does not capture the mouse or write to the system clipboard. Text across the SSH, monitoring, and AI panes is
+selected by the outer terminal, and copying continues to use the native shortcuts and context menus in iTerm2,
+macOS Terminal.app, or Windows Terminal without additional permissions. Use the keyboard controls below to switch
+panels, add monitors, and approve commands.
 
 Keyboard-first users can still access every core feature.
 

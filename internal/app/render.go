@@ -15,9 +15,6 @@ func (a *App) render() {
 	if a.zmodem != nil {
 		return
 	}
-	if a.nativeSelection && !a.selectionNeedsRender {
-		return
-	}
 	var output strings.Builder
 	terminalCursorRow, terminalCursorCol := 0, 0
 	// DEC mode 2026 lets supporting terminals present the assembled frame atomically.
@@ -71,8 +68,6 @@ func (a *App) render() {
 	}
 
 	output.WriteString(positionedLine(a.rows, 1, a.inputStatus(), a.cols, "\x1b[38;5;245m"))
-	a.captureSelectionCanvas(output.String())
-	a.renderTextSelection(&output)
 	switch {
 	case a.focus == focusTerminal && a.terminalScroll == 0 && a.proposal == nil && !workspaceOnly && a.virtual != nil && (a.virtual.CursorVisible() || a.atPrompt):
 		cursorCol := terminalCursorCol
@@ -110,9 +105,6 @@ func (a *App) render() {
 	}
 	output.WriteString("\x1b[?2026l")
 	_, _ = io.WriteString(a.outputWriter(), output.String())
-	if a.nativeSelection {
-		a.selectionNeedsRender = false
-	}
 }
 
 func (a *App) renderSidebar(top, left, width, height int) string {
@@ -425,7 +417,7 @@ func (a *App) inlineConversationLinesFor(state *inlineAIState, width, available 
 	if len(lines) > available {
 		lines = append([]string(nil), lines[:available]...)
 		if available > 1 {
-			lines[available-1] = terminalview.ClipPad(a.t("… 点击查看完整对话"), width)
+			lines[available-1] = terminalview.ClipPad(a.t("… 完整内容见 AI 对话"), width)
 		}
 	}
 	return lines

@@ -36,11 +36,9 @@ func TestMonitorGridClearsUnusedTilesFromPreviousFrame(t *testing.T) {
 	application.panels.Open(panel.Panel{ID: "network", Kind: panel.KindMonitor, Title: "网络"})
 	application.panels.Open(panel.Panel{ID: "service", Kind: panel.KindTable, Title: "服务"})
 
-	canvas := newScreenTextCanvas(50, 300)
-	canvas.apply("\x1b[16;164HSTALE", 50, 300)
-	canvas.apply(application.renderMonitorWorkspace(2, 100, 96, 25), 50, 300)
-	if got := canvas.cellText(16, 164, 168); got != "     " {
-		t.Fatalf("unused grid tile retained previous frame: %q", got)
+	output := application.renderMonitorWorkspace(2, 100, 96, 25)
+	if clear := positionedLine(16, 100, "", 96, "\x1b[0m"); !strings.Contains(output, clear) {
+		t.Fatalf("unused grid row was not cleared: %q", output)
 	}
 }
 

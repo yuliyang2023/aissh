@@ -2,7 +2,6 @@ package app
 
 import (
 	"bytes"
-	"io"
 	"strconv"
 	"strings"
 )
@@ -10,7 +9,6 @@ import (
 var sgrMousePrefix = []byte("\x1b[<")
 
 const (
-	mouseReportingEnable  = "\x1b[?1000h\x1b[?1002h\x1b[?1006h"
 	mouseReportingDisable = "\x1b[?1000l\x1b[?1002l\x1b[?1006l"
 )
 
@@ -92,40 +90,17 @@ func parseSGRMouse(sequence []byte) (mouseEvent, bool) {
 }
 
 func (a *App) handleMouse(event mouseEvent) {
-	if event.Release {
-		if event.Button&3 != 0 {
-			return
-		}
-		if a.finishTextSelection(event.X, event.Y) {
-			a.copyTextSelection()
-			return
-		}
-		a.handleLeftClick(event.X, event.Y)
-		return
-	}
-	if event.Motion {
-		if event.Button&3 == 0 {
-			a.updateTextSelection(event.X, event.Y)
-		}
+	if event.Release || event.Motion {
 		return
 	}
 	if event.Button&64 != 0 {
-		a.clearTextSelection()
 		a.handleMouseWheel(event)
-		return
-	}
-	if event.Button&3 == 2 {
-		if a.copyTextSelection() {
-			return
-		}
-		a.enterNativeSelection()
 		return
 	}
 	if event.Button&3 != 0 {
 		return
 	}
-	a.beginTextSelection(event.X, event.Y)
-	return
+	a.handleLeftClick(event.X, event.Y)
 }
 
 func (a *App) handleLeftClick(x, y int) {
@@ -206,28 +181,6 @@ func (a *App) handleLeftClick(x, y int) {
 		}
 		a.openAIConversation()
 	}
-}
-
-func (a *App) enterNativeSelection() {
-	if a.nativeSelection {
-		return
-	}
-	a.nativeSelection = true
-	a.selectionNeedsRender = true
-	a.mouseCarry = nil
-	_, _ = io.WriteString(a.outputWriter(), mouseReportingDisable)
-	a.dirty = true
-}
-
-func (a *App) leaveNativeSelection() {
-	if !a.nativeSelection {
-		return
-	}
-	a.nativeSelection = false
-	a.selectionNeedsRender = false
-	a.terminalRows = nil
-	_, _ = io.WriteString(a.outputWriter(), mouseReportingEnable)
-	a.dirty = true
 }
 
 func (a *App) handleInlineAIClick(x, y int) bool {

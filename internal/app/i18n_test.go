@@ -25,7 +25,7 @@ func TestEnglishUIUsesLocalizedPanelsConversationAndApproval(t *testing.T) {
 			"monitor header": {"Monitor", "Layout:Auto"},
 			"panel menu":     {"Add panel", "System overview", "Custom read-only command"},
 			"AI header":      {"AI Assistant", "Ready"},
-			"status bar":     {"Click AI conversation", "Use /ai to ask"},
+			"status bar":     {"Native terminal selection enabled", "Use /ai to ask"},
 		}[label] {
 			if !strings.Contains(output, want) {
 				t.Fatalf("%s missing %q: %q", label, want, output)

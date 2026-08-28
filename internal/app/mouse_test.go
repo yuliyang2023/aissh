@@ -1,8 +1,6 @@
 package app
 
 import (
-	"bytes"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -21,41 +19,6 @@ func TestParseSGRMouse(t *testing.T) {
 	release, ok := parseSGRMouse([]byte("\x1b[<0;103;7m"))
 	if !ok || !release.Release {
 		t.Fatalf("release=%#v ok=%v", release, ok)
-	}
-}
-
-func TestRightClickEntersNativeSelectionUntilNextKeyboardInput(t *testing.T) {
-	application := mouseTestApp(t)
-	var screen bytes.Buffer
-	application.screenOut = &screen
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reader.Close()
-	defer writer.Close()
-	application.sshPTY = writer
-
-	application.handleMouse(mouseEvent{Button: 2, X: 10, Y: 5})
-	if !application.nativeSelection || !strings.Contains(screen.String(), mouseReportingDisable) {
-		t.Fatalf("selection=%v output=%q", application.nativeSelection, screen.String())
-	}
-	if status := application.inputStatus(); !strings.Contains(status, "文本选择模式") {
-		t.Fatalf("status=%q", status)
-	}
-	application.handleInput([]byte("\x1b[<2;10;5m"))
-	if !application.nativeSelection {
-		t.Fatal("queued right-button release left selection mode")
-	}
-
-	screen.Reset()
-	application.handleInput([]byte("x"))
-	if application.nativeSelection || !strings.Contains(screen.String(), mouseReportingEnable) {
-		t.Fatalf("selection=%v output=%q", application.nativeSelection, screen.String())
-	}
-	forwarded := make([]byte, 1)
-	if count, err := reader.Read(forwarded); err != nil || count != 1 || forwarded[0] != 'x' {
-		t.Fatalf("forwarded=%q count=%d err=%v", forwarded, count, err)
 	}
 }
 

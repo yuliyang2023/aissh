@@ -143,12 +143,6 @@ type App struct {
 	historyConversationID string
 	historySelection      int
 	mouseCarry            []byte
-	nativeSelection       bool
-	selectionNeedsRender  bool
-	textSelection         screenTextSelection
-	selectionCanvas       *screenTextCanvas
-	selectionStatus       string
-	clipboardWrite        func(string) error
 	clearCarry            []byte
 	terminalRows          map[int]string
 	terminalHistory       []terminalview.Line
@@ -350,7 +344,7 @@ func (a *App) Run() error {
 			_ = os.RemoveAll(a.controlDir)
 		}
 	}()
-	_, _ = io.WriteString(os.Stdout, "\x1b[?1049h\x1b[2J\x1b[H"+bracketedPasteEnable+mouseReportingEnable)
+	_, _ = io.WriteString(os.Stdout, "\x1b[?1049h\x1b[2J\x1b[H"+bracketedPasteEnable+mouseReportingDisable)
 
 	a.startInputReader()
 	a.startSignalReader()

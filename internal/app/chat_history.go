@@ -25,7 +25,7 @@ func (a *App) loadChatHistory() {
 	if len(conversations) > 0 {
 		a.chat = append(a.chat, chatMessage{
 			Role:    "system",
-			Content: a.t("发现 %d 个本机 AI 历史会话 · 点击 [会话] 查看", len(conversations)),
+			Content: a.t("发现 %d 个本机 AI 历史会话 · 在 AI 对话中按 Ctrl+R 查看", len(conversations)),
 			Time:    time.Now(),
 		})
 	}
@@ -53,7 +53,7 @@ func (a *App) appendAIReadyMessages() {
 	}
 	a.chat = append(a.chat, chatMessage{
 		Role:    "system",
-		Content: a.t("AI 已就绪（%s）。点击右下对话；中文开头或 /ai 会自动提问。", a.agent.Name()),
+		Content: a.t("AI 已就绪（%s）。中文开头或 /ai 会自动提问。", a.agent.Name()),
 		Time:    time.Now(),
 	})
 }

@@ -30,21 +30,6 @@ func (a *App) handleInput(data []byte) {
 		a.handleZmodemInput(data)
 		return
 	}
-	if a.textSelection.Active && bytes.Equal(data, []byte{0x03}) {
-		// Some terminal profiles send Ctrl+C when their Copy shortcut has no
-		// native terminal selection. Treat it as Copy while our visual selection
-		// is active instead of forwarding an unexpected interrupt to SSH.
-		a.copyTextSelection()
-		return
-	}
-	if a.nativeSelection {
-		// A right-button release may already be queued when mouse reporting is
-		// disabled. Do not let that stale event immediately leave selection mode.
-		if bytes.HasPrefix(data, sgrMousePrefix) {
-			return
-		}
-		a.leaveNativeSelection()
-	}
 	if !a.sensitive && bytes.Contains(data, []byte{0x0f}) { // Ctrl+O
 		filtered := make([]byte, 0, len(data))
 		for _, value := range data {
@@ -59,7 +44,7 @@ func (a *App) handleInput(data []byte) {
 		}
 	}
 	redraw := a.focus != focusTerminal || a.aiLineCapture || a.inlineAI != nil || a.proposal != nil || a.terminalScroll > 0 || terminalInputHasLocalAction(data)
-	a.handleMixedInput(data)
+	a.handleKeyboardInput(data)
 	if redraw || a.focus != focusTerminal || a.aiLineCapture || a.inlineAI != nil || a.proposal != nil || a.terminalScroll > 0 {
 		a.dirty = true
 	}
@@ -76,9 +61,6 @@ func terminalInputHasLocalAction(data []byte) bool {
 }
 
 func (a *App) handleKeyboardInput(data []byte) {
-	if a.textSelection.Active || a.textSelection.Dragging || a.selectionStatus != "" {
-		a.clearTextSelection()
-	}
 	switch a.focus {
 	case focusApproval:
 		a.handleApprovalInput(data)
@@ -896,25 +878,16 @@ func (a *App) openAIConversation() {
 }
 
 func (a *App) inputStatus() string {
-	if a.selectionStatus != "" {
-		return a.selectionStatus
-	}
-	if a.textSelection.Active {
-		return a.t("已选择文本；单击或键盘输入取消选择")
-	}
-	if a.nativeSelection {
-		return a.t("文本选择模式：拖动选择后右键复制；按任意键恢复 aissh 鼠标操作")
-	}
 	if a.focus == focusTerminal && a.terminalScroll > 0 {
-		return a.t("SSH 历史  ↑ %d / %d 行  滚轮向下回到底部；键盘输入也会返回实时终端", a.terminalScroll, len(a.terminalHistory))
+		return a.t("SSH 历史  ↑ %d / %d 行  键盘输入返回实时终端", a.terminalScroll, len(a.terminalHistory))
 	}
 	if a.inlineAI != nil && a.focus == focusTerminal {
 		if a.agentBusy {
 			frame := inlineSpinnerFrames[a.inlineAI.Spinner%len(inlineSpinnerFrames)]
-			return a.t("AI %s 本机 %s 正在处理；点击左侧 AI 内容可查看完整对话", frame, a.agent.Name())
+			return a.t("AI %s 本机 %s 正在处理", frame, a.agent.Name())
 		}
 		if a.proposal == nil {
-			return a.t("AI 回答已显示在原输入下方；继续输入即可返回 SSH，点击内容查看完整对话")
+			return a.t("AI 回答已显示在原输入下方；继续输入即可返回 SSH")
 		}
 	}
 	switch a.focus {
@@ -925,14 +898,14 @@ func (a *App) inputStatus() string {
 	case focusAIHistory:
 		return a.t("AI 历史会话  ↑/↓选择  Enter继续  N新建  Esc返回对话")
 	case focusMonitor:
-		return a.t("监控面板  Ctrl+T切换Tab  Ctrl+L切换布局  点击右下AI对话  Ctrl+N新增  Esc返回SSH")
+		return a.t("监控面板  Ctrl+T切换Tab  Ctrl+L切换布局  Ctrl+N新增  Esc返回SSH")
 	case focusMonitorSlot:
-		return a.t("选择该分屏显示的监控：按数字或鼠标点击；Esc 取消")
+		return a.t("选择该分屏显示的监控：按数字；Esc 取消")
 	case focusPanelMenu:
 		return a.t("新增: 1系统 2进程 3磁盘 4网络 5服务 6自定义  Esc取消")
 	case focusCustomPanel:
 		return a.t("%s  Enter创建  Esc取消", a.menuStatus)
 	default:
-		return a.t("鼠标可点击AI对话  Ctrl+T监控Tab  Ctrl+N新增监控  中文或 /ai 自动提问")
+		return a.t("终端原生选择已启用  Ctrl+T监控Tab  Ctrl+N新增监控  中文或 /ai 自动提问")
 	}
 }

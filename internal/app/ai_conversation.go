@@ -376,5 +376,5 @@ func (a *App) compactAIHint(expanded bool) string {
 	if expanded {
 		return a.t("› AI 对话已打开")
 	}
-	return a.t("› 点击打开完整对话")
+	return a.t("› AI 完整对话")
 }
