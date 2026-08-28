@@ -21,24 +21,44 @@ func sshServerAliveOptions(interval time.Duration) []string {
 	}
 }
 
-// maintainAIKeepalive protects long AI turns from both SSH transport idle
-// timeouts and shell-level auto logout. Transport keepalive is configured when
-// SSH starts; while the shell is at a known-safe empty prompt, an empty line
-// resets shell timers such as Bash TMOUT without executing a command.
+// shellKeepaliveDelay leaves ten percent of the configured TMOUT as a safety
+// margin for scheduler and SSH latency. The caller only uses this while AI owns
+// an otherwise idle shell prompt.
+func shellKeepaliveDelay(timeout time.Duration) time.Duration {
+	if timeout <= 0 {
+		return 0
+	}
+	delay := timeout * 9 / 10
+	if delay <= 0 {
+		return timeout
+	}
+	return delay
+}
+
+// maintainAIKeepalive protects a known-safe empty remote shell prompt from
+// shell-level auto logout while AI is running. SSH transport keepalive is
+// configured independently when SSH starts. Completing one empty input line is
+// the least invasive reliable way to reset timers such as Bash TMOUT.
 func (a *App) maintainAIKeepalive(now time.Time) bool {
-	interval := a.config.AIKeepalive
-	if interval <= 0 || !a.agentBusy || !a.atPrompt || a.sensitive || a.terminalDone || a.zmodem != nil || a.sshPTY == nil {
+	timeout := a.config.ShellTMOUT
+	if timeout <= 0 || !a.agentBusy || !a.atPrompt || a.sensitive || a.terminalDone || a.zmodem != nil || a.sshPTY == nil {
 		return false
 	}
 	if a.aiLineCapture || len(a.lineInput) != 0 || !a.lineReliable {
 		return false
 	}
-	if !a.lastAIKeepalive.IsZero() && now.Sub(a.lastAIKeepalive) < interval {
+	if a.promptIdleSince.IsZero() {
+		a.promptIdleSince = now
+		return false
+	}
+	if now.Sub(a.promptIdleSince) < shellKeepaliveDelay(timeout) {
 		return false
 	}
 	if _, err := a.sshPTY.Write(shellIdleKeepalive); err != nil {
 		return false
 	}
-	a.lastAIKeepalive = now
+	// Wait for the resulting prompt before starting the next TMOUT window.
+	a.atPrompt = false
+	a.promptIdleSince = time.Time{}
 	return true
 }

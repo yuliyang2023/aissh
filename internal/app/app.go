@@ -30,34 +30,35 @@ import (
 )
 
 type Config struct {
-	SSHPath            string
-	SSHArgs            []string
-	AgentProvider      string
-	AgentURL           string
-	AgentToken         string
-	CodexPath          string
-	CodexModel         string
-	ClaudePath         string
-	ClaudeModel        string
-	Language           string
-	HistoryDir         string
-	Workspace          string
-	WorkspaceWritable  bool
-	ModelURL           string
-	ModelAPIKey        string
-	ModelName          string
-	ScrollbackLines    int
-	AIContextChars     int
-	AITimeout          time.Duration
-	AIKeepalive        time.Duration
-	DisableAIKeepalive bool
+	SSHPath             string
+	SSHArgs             []string
+	AgentProvider       string
+	AgentURL            string
+	AgentToken          string
+	CodexPath           string
+	CodexModel          string
+	ClaudePath          string
+	ClaudeModel         string
+	Language            string
+	HistoryDir          string
+	Workspace           string
+	WorkspaceWritable   bool
+	ModelURL            string
+	ModelAPIKey         string
+	ModelName           string
+	ScrollbackLines     int
+	AIContextChars      int
+	AITimeout           time.Duration
+	SSHKeepalive        time.Duration
+	DisableSSHKeepalive bool
+	ShellTMOUT          time.Duration
 }
 
 const terminalFrameInterval = time.Second / 30
 const DefaultScrollbackLines = 20000
 const DefaultAIContextChars = agent.DefaultOutputContextChars
 const DefaultAITimeout = 5 * time.Minute
-const DefaultAIKeepalive = 30 * time.Second
+const DefaultSSHKeepalive = 30 * time.Second
 
 type App struct {
 	config Config
@@ -127,7 +128,7 @@ type App struct {
 	agentThought          string
 	agentLanguage         string
 	agentSeedContext      string
-	lastAIKeepalive       time.Time
+	promptIdleSince       time.Time
 	chat                  []chatMessage
 	proposal              *agent.Proposal
 	aiExpanded            bool
@@ -164,10 +165,10 @@ func New(config Config) (*App, error) {
 	if config.AITimeout <= 0 {
 		config.AITimeout = DefaultAITimeout
 	}
-	if config.DisableAIKeepalive {
-		config.AIKeepalive = 0
-	} else if config.AIKeepalive <= 0 {
-		config.AIKeepalive = DefaultAIKeepalive
+	if config.DisableSSHKeepalive {
+		config.SSHKeepalive = 0
+	} else if config.SSHKeepalive <= 0 {
+		config.SSHKeepalive = DefaultSSHKeepalive
 	}
 	parsed, err := sshwrap.Parse(config.SSHArgs)
 	if err != nil {
@@ -387,8 +388,8 @@ func (a *App) Run() error {
 
 func (a *App) startSSH() error {
 	args := append([]string(nil), a.config.SSHArgs...)
-	if a.config.AIKeepalive > 0 {
-		args = append(sshServerAliveOptions(a.config.AIKeepalive), args...)
+	if a.config.SSHKeepalive > 0 {
+		args = append(sshServerAliveOptions(a.config.SSHKeepalive), args...)
 	}
 	if !sshwrap.HasControlPath(args) {
 		directory, err := os.MkdirTemp("", "aissh-")
@@ -662,6 +663,9 @@ func (a *App) handleOutput(data []byte) {
 	}
 	a.errorCarry = errorWindow
 	if trigger.LooksLikePrompt(a.outputTail.String()) {
+		if !a.atPrompt {
+			a.promptIdleSince = time.Now()
+		}
 		a.atPrompt = true
 		a.sensitive = false
 		if a.execution != nil {

@@ -315,11 +315,14 @@ bin/aissh --lang zh-CN production
 # Increase the AI request timeout
 bin/aissh --ai-timeout 10m production
 
-# Change the keepalive interval used while AI is running (default: 30s)
-bin/aissh --ai-keepalive 20s production
+# Change the OpenSSH transport keepalive interval (default: 30s; no terminal input)
+bin/aissh --ssh-keepalive 20s production
 
-# Disable AI-time keepalive
-bin/aissh --ai-keepalive off production
+# Tell aissh the remote shell TMOUT; an empty line is sent near expiry only while AI runs
+bin/aissh --shell-tmout 10m production
+
+# Leave unset or explicitly disable to avoid injecting shell keepalive input
+bin/aissh --shell-tmout off production
 
 # Keep more SSH scrollback lines
 bin/aissh --scrollback-lines 50000 production

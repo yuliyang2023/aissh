@@ -300,11 +300,14 @@ bin/aissh --lang en production
 # 调整 AI 请求超时
 bin/aissh --ai-timeout 10m production
 
-# 调整 AI 执行期间的保活间隔（默认 30 秒）
-bin/aissh --ai-keepalive 20s production
+# 调整 OpenSSH 传输层保活间隔（默认 30 秒，不会产生终端输入）
+bin/aissh --ssh-keepalive 20s production
 
-# 关闭 AI 执行期间的保活
-bin/aissh --ai-keepalive off production
+# 告知 aissh 远端 Shell 的 TMOUT；仅在 AI 执行期间临近超时时发送空行
+bin/aissh --shell-tmout 10m production
+
+# 不配置或显式关闭时，aissh 不会向空闲 Shell 注入保活回车
+bin/aissh --shell-tmout off production
 
 # 调整 SSH 历史保留行数
 bin/aissh --scrollback-lines 50000 production

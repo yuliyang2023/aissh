@@ -168,22 +168,47 @@ func TestParseArgsSupportsAITimeout(t *testing.T) {
 	}
 }
 
-func TestParseArgsSupportsAIKeepalive(t *testing.T) {
+func TestParseArgsSupportsSSHKeepalive(t *testing.T) {
 	t.Setenv("AISSH_AI_KEEPALIVE", "")
+	t.Setenv("AISSH_SSH_KEEPALIVE", "")
+	config, help, version, err := parseArgs([]string{"--ssh-keepalive", "45s", "server"})
+	if err != nil || help || version || config.SSHKeepalive != 45*time.Second || config.DisableSSHKeepalive {
+		t.Fatalf("keepalive=%s disabled=%v help=%v version=%v err=%v", config.SSHKeepalive, config.DisableSSHKeepalive, help, version, err)
+	}
+	config, _, _, err = parseArgs([]string{"--ssh-keepalive=off", "server"})
+	if err != nil || config.SSHKeepalive != 0 || !config.DisableSSHKeepalive {
+		t.Fatalf("disabled keepalive=%s disabled=%v err=%v", config.SSHKeepalive, config.DisableSSHKeepalive, err)
+	}
+	config, _, _, err = parseArgs([]string{"--no-ssh-keepalive", "server"})
+	if err != nil || config.SSHKeepalive != 0 || !config.DisableSSHKeepalive {
+		t.Fatalf("flag keepalive=%s disabled=%v err=%v", config.SSHKeepalive, config.DisableSSHKeepalive, err)
+	}
+	if _, _, _, err := parseArgs([]string{"--ssh-keepalive", "later", "server"}); err == nil {
+		t.Fatal("invalid SSH keepalive was accepted")
+	}
+}
+
+func TestParseArgsKeepsAIKeepaliveAsLegacySSHAlias(t *testing.T) {
+	t.Setenv("AISSH_AI_KEEPALIVE", "")
+	t.Setenv("AISSH_SSH_KEEPALIVE", "")
 	config, help, version, err := parseArgs([]string{"--ai-keepalive", "45s", "server"})
-	if err != nil || help || version || config.AIKeepalive != 45*time.Second || config.DisableAIKeepalive {
-		t.Fatalf("keepalive=%s disabled=%v help=%v version=%v err=%v", config.AIKeepalive, config.DisableAIKeepalive, help, version, err)
+	if err != nil || help || version || config.SSHKeepalive != 45*time.Second || config.ShellTMOUT != 0 {
+		t.Fatalf("ssh keepalive=%s shell tmout=%s help=%v version=%v err=%v", config.SSHKeepalive, config.ShellTMOUT, help, version, err)
 	}
-	config, _, _, err = parseArgs([]string{"--ai-keepalive=off", "server"})
-	if err != nil || config.AIKeepalive != 0 || !config.DisableAIKeepalive {
-		t.Fatalf("disabled keepalive=%s disabled=%v err=%v", config.AIKeepalive, config.DisableAIKeepalive, err)
+}
+
+func TestParseArgsSupportsShellTMOUT(t *testing.T) {
+	t.Setenv("AISSH_SHELL_TMOUT", "")
+	config, help, version, err := parseArgs([]string{"--shell-tmout", "10m", "server"})
+	if err != nil || help || version || config.ShellTMOUT != 10*time.Minute {
+		t.Fatalf("shell tmout=%s help=%v version=%v err=%v", config.ShellTMOUT, help, version, err)
 	}
-	config, _, _, err = parseArgs([]string{"--no-ai-keepalive", "server"})
-	if err != nil || config.AIKeepalive != 0 || !config.DisableAIKeepalive {
-		t.Fatalf("flag keepalive=%s disabled=%v err=%v", config.AIKeepalive, config.DisableAIKeepalive, err)
+	config, _, _, err = parseArgs([]string{"--shell-tmout=off", "server"})
+	if err != nil || config.ShellTMOUT != 0 {
+		t.Fatalf("disabled shell tmout=%s err=%v", config.ShellTMOUT, err)
 	}
-	if _, _, _, err := parseArgs([]string{"--ai-keepalive", "later", "server"}); err == nil {
-		t.Fatal("invalid AI keepalive was accepted")
+	if _, _, _, err := parseArgs([]string{"--shell-tmout", "later", "server"}); err == nil {
+		t.Fatal("invalid shell TMOUT was accepted")
 	}
 }
 

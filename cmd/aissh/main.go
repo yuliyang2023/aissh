@@ -59,7 +59,7 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 		ScrollbackLines:   app.DefaultScrollbackLines,
 		AIContextChars:    app.DefaultAIContextChars,
 		AITimeout:         app.DefaultAITimeout,
-		AIKeepalive:       app.DefaultAIKeepalive,
+		SSHKeepalive:      app.DefaultSSHKeepalive,
 	}
 	if value := strings.TrimSpace(os.Getenv("AISSH_SCROLLBACK_LINES")); value != "" {
 		lines, err := positiveLineCount(value)
@@ -87,8 +87,26 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 		if err != nil {
 			return config, false, false, fmt.Errorf("AISSH_AI_KEEPALIVE: %w", err)
 		}
-		config.AIKeepalive = keepalive
-		config.DisableAIKeepalive = disabled
+		config.SSHKeepalive = keepalive
+		config.DisableSSHKeepalive = disabled
+	}
+	if value := strings.TrimSpace(os.Getenv("AISSH_SSH_KEEPALIVE")); value != "" {
+		keepalive, disabled, err := durationOrDisabled(value)
+		if err != nil {
+			return config, false, false, fmt.Errorf("AISSH_SSH_KEEPALIVE: %w", err)
+		}
+		config.SSHKeepalive = keepalive
+		config.DisableSSHKeepalive = disabled
+	}
+	if value := strings.TrimSpace(os.Getenv("AISSH_SHELL_TMOUT")); value != "" {
+		timeout, disabled, err := durationOrDisabled(value)
+		if err != nil {
+			return config, false, false, fmt.Errorf("AISSH_SHELL_TMOUT: %w", err)
+		}
+		if disabled {
+			timeout = 0
+		}
+		config.ShellTMOUT = timeout
 	}
 	if disabledValue(os.Getenv("AISSH_HISTORY")) {
 		config.HistoryDir = ""
@@ -116,10 +134,10 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 			config.WorkspaceWritable = true
 		case value == "--no-workspace-write":
 			config.WorkspaceWritable = false
-		case value == "--no-ai-keepalive":
-			config.AIKeepalive = 0
-			config.DisableAIKeepalive = true
-		case value == "--agent" || value == "--agent-url" || value == "--agent-token" || value == "--codex-path" || value == "--codex-model" || value == "--claude-path" || value == "--claude-model" || value == "--ssh-path" || value == "--lang" || value == "--history-dir" || value == "--workspace" || value == "--model-url" || value == "--model-name" || value == "--scrollback-lines" || value == "--ai-context-chars" || value == "--ai-timeout" || value == "--ai-keepalive":
+		case value == "--no-ai-keepalive" || value == "--no-ssh-keepalive":
+			config.SSHKeepalive = 0
+			config.DisableSSHKeepalive = true
+		case value == "--agent" || value == "--agent-url" || value == "--agent-token" || value == "--codex-path" || value == "--codex-model" || value == "--claude-path" || value == "--claude-model" || value == "--ssh-path" || value == "--lang" || value == "--history-dir" || value == "--workspace" || value == "--model-url" || value == "--model-name" || value == "--scrollback-lines" || value == "--ai-context-chars" || value == "--ai-timeout" || value == "--ai-keepalive" || value == "--ssh-keepalive" || value == "--shell-tmout":
 			if index+1 >= len(args) {
 				return config, false, false, fmt.Errorf("%s requires a value", value)
 			}
@@ -169,13 +187,22 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 					return config, false, false, fmt.Errorf("--ai-timeout: %w", err)
 				}
 				config.AITimeout = timeout
-			case "--ai-keepalive":
+			case "--ai-keepalive", "--ssh-keepalive":
 				keepalive, disabled, err := durationOrDisabled(args[index])
 				if err != nil {
-					return config, false, false, fmt.Errorf("--ai-keepalive: %w", err)
+					return config, false, false, fmt.Errorf("%s: %w", value, err)
 				}
-				config.AIKeepalive = keepalive
-				config.DisableAIKeepalive = disabled
+				config.SSHKeepalive = keepalive
+				config.DisableSSHKeepalive = disabled
+			case "--shell-tmout":
+				timeout, disabled, err := durationOrDisabled(args[index])
+				if err != nil {
+					return config, false, false, fmt.Errorf("--shell-tmout: %w", err)
+				}
+				if disabled {
+					timeout = 0
+				}
+				config.ShellTMOUT = timeout
 			}
 		case strings.HasPrefix(value, "--agent="):
 			config.AgentProvider = strings.TrimPrefix(value, "--agent=")
@@ -226,8 +253,24 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 			if err != nil {
 				return config, false, false, fmt.Errorf("--ai-keepalive: %w", err)
 			}
-			config.AIKeepalive = keepalive
-			config.DisableAIKeepalive = disabled
+			config.SSHKeepalive = keepalive
+			config.DisableSSHKeepalive = disabled
+		case strings.HasPrefix(value, "--ssh-keepalive="):
+			keepalive, disabled, err := durationOrDisabled(strings.TrimPrefix(value, "--ssh-keepalive="))
+			if err != nil {
+				return config, false, false, fmt.Errorf("--ssh-keepalive: %w", err)
+			}
+			config.SSHKeepalive = keepalive
+			config.DisableSSHKeepalive = disabled
+		case strings.HasPrefix(value, "--shell-tmout="):
+			timeout, disabled, err := durationOrDisabled(strings.TrimPrefix(value, "--shell-tmout="))
+			if err != nil {
+				return config, false, false, fmt.Errorf("--shell-tmout: %w", err)
+			}
+			if disabled {
+				timeout = 0
+			}
+			config.ShellTMOUT = timeout
 		default:
 			sshArgs = append(sshArgs, value)
 		}
@@ -272,8 +315,10 @@ aissh options:
   --scrollback-lines N SSH scrollback lines kept locally (default: 20000)
   --ai-context-chars N Maximum SSH output characters sent to AI (default: 120000)
   --ai-timeout DURATION AI request timeout; e.g. 30s, 5m, 1h; bare number = seconds (default: 5m)
-  --ai-keepalive DURATION Keep SSH and an idle shell alive while AI runs (default: 30s; use off to disable)
-  --no-ai-keepalive Disable AI-time SSH and shell keepalive
+  --ssh-keepalive DURATION OpenSSH transport keepalive interval (default: 30s; use off to disable)
+  --shell-tmout DURATION Remote shell TMOUT; send an empty line near expiry only while AI runs (default: off)
+  --ai-keepalive DURATION Legacy alias for --ssh-keepalive
+  --no-ssh-keepalive Disable OpenSSH transport keepalive
   --version           Show version
 
 Shortcuts:
@@ -324,8 +369,10 @@ aissh选项:
   --scrollback-lines N 本机保留的 SSH 回滚行数，默认 20000
   --ai-context-chars N 每次交给 AI 的 SSH 输出字符上限，默认 120000
   --ai-timeout DURATION AI 请求超时；如 30s、5m、1h；纯数字按秒（默认 5m）
-  --ai-keepalive DURATION AI 执行期间的 SSH 与 Shell 保活间隔（默认 30s；off 可关闭）
-  --no-ai-keepalive 关闭 AI 执行期间的 SSH 与 Shell 保活
+  --ssh-keepalive DURATION OpenSSH 传输层保活间隔（默认 30s；off 可关闭）
+  --shell-tmout DURATION 远端 Shell 的 TMOUT；仅在 AI 执行且临近超时时发送空行（默认关闭）
+  --ai-keepalive DURATION --ssh-keepalive 的兼容别名
+  --no-ssh-keepalive 关闭 OpenSSH 传输层保活
   --version           显示版本
 
 快捷键:
