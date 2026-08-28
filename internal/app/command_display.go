@@ -184,7 +184,28 @@ func shellDisplayTokens(command string) []string {
 			flush()
 			continue
 		}
-		if r == '|' || r == '&' {
+		if r == '|' {
+			flush()
+			op := string(r)
+			if index+1 < len(runes) && (runes[index+1] == r || runes[index+1] == '&') {
+				op += string(runes[index+1])
+				index++
+			}
+			tokens = append(tokens, op)
+			continue
+		}
+		if r == '&' {
+			// An ampersand is also part of shell redirections such as 2>&1,
+			// >&2 and &>/dev/null. Keeping it in the surrounding token avoids
+			// presenting a harmless file-descriptor redirect as a background
+			// command operator on its own display line.
+			current := token.String()
+			previousIsRedirect := strings.HasSuffix(current, ">") || strings.HasSuffix(current, "<")
+			nextIsRedirect := index+1 < len(runes) && runes[index+1] == '>'
+			if previousIsRedirect || nextIsRedirect {
+				token.WriteRune(r)
+				continue
+			}
 			flush()
 			op := string(r)
 			if index+1 < len(runes) && runes[index+1] == r {

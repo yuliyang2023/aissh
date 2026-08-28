@@ -41,6 +41,29 @@ func TestMultilineCommandPreservesIndentation(t *testing.T) {
 	}
 }
 
+func TestCommandDisplayKeepsFileDescriptorRedirectsTogether(t *testing.T) {
+	command := `if ! command -v firewall-cmd >/dev/null 2>&1 || ! firewall-cmd --state >/dev/null 2>&1; then echo failed >&2; fi`
+	display := formatCommandForDisplay(command, 46, 0)
+	joined := strings.Join(display.Lines, "\n")
+	for _, want := range []string{"2>&1", ">&2"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("command display split redirect %q: %q", want, joined)
+		}
+	}
+	if strings.Contains(joined, "↳ & 1") || strings.Contains(joined, "↳ & 2") {
+		t.Fatalf("command display rendered redirect ampersand as a chain operator: %q", joined)
+	}
+}
+
+func TestShellDisplayTokensDistinguishesAmpersandRedirectsAndOperators(t *testing.T) {
+	command := `printf x 2>&1 |& tee log &>/dev/null & wait`
+	want := []string{"printf", "x", "2>&1", "|&", "tee", "log", "&>/dev/null", "&", "wait"}
+	got := shellDisplayTokens(command)
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("tokens=%q, want %q", got, want)
+	}
+}
+
 func TestRiskDisplayUsesReadableLabels(t *testing.T) {
 	for input, want := range map[string]string{
 		"read_only": "只读",
