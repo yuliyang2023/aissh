@@ -30,6 +30,13 @@ func (a *App) handleInput(data []byte) {
 		a.handleZmodemInput(data)
 		return
 	}
+	if a.textSelection.Active && bytes.Equal(data, []byte{0x03}) {
+		// Some terminal profiles send Ctrl+C when their Copy shortcut has no
+		// native terminal selection. Treat it as Copy while our visual selection
+		// is active instead of forwarding an unexpected interrupt to SSH.
+		a.copyTextSelection()
+		return
+	}
 	if a.nativeSelection {
 		// A right-button release may already be queued when mouse reporting is
 		// disabled. Do not let that stale event immediately leave selection mode.
@@ -703,11 +710,11 @@ func (a *App) openAIConversation() {
 }
 
 func (a *App) inputStatus() string {
-	if a.textSelection.Active {
-		return a.t("已选择文本：普通右键复制；单击或键盘输入取消选择")
-	}
 	if a.selectionStatus != "" {
 		return a.selectionStatus
+	}
+	if a.textSelection.Active {
+		return a.t("已选择文本；单击或键盘输入取消选择")
 	}
 	if a.nativeSelection {
 		return a.t("文本选择模式：拖动选择后右键复制；按任意键恢复 aissh 鼠标操作")

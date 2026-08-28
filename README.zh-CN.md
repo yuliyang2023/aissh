@@ -124,7 +124,10 @@ AI 对话按 SSH 目标保存在本机。点击右下角 `[会话]`，可以：
 ### 🖱️ 像桌面应用一样操作终端
 
 面板、标签、审批按钮和历史会话都支持鼠标点击。SSH、监控和 AI 内容可以直接拖动选择，
-普通右键复制；各区域也拥有独立滚动能力。
+松开鼠标后自动复制；各区域也拥有独立滚动能力。剪贴板已适配 iTerm2、macOS Terminal.app
+和 Windows Terminal 中的 WSL 会话。在 iTerm2 中按住 `Option` 拖动，仍可使用 iTerm2 原生
+选区、右键菜单和复制快捷键。Windows Terminal 需要保持 `compatibility.allowOSC52` 开启
+（默认开启）。
 
 键盘用户仍然可以完成所有核心操作。
 

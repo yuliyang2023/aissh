@@ -147,6 +147,7 @@ type App struct {
 	textSelection         screenTextSelection
 	selectionCanvas       *screenTextCanvas
 	selectionStatus       string
+	clipboardWrite        func(string) error
 	clearCarry            []byte
 	terminalRows          map[int]string
 	terminalHistory       []terminalview.Line

@@ -132,7 +132,10 @@ Recurring problems no longer need to be explained from scratch every time.
 ### 🖱️ Terminal speed with desktop-style interaction
 
 Panels, tabs, approval buttons, and sessions can all be operated with the mouse. Drag to select text across SSH,
-monitoring, and AI panes, then right-click to copy. Each area also has its own scrolling behavior.
+monitoring, and AI panes; the selection is copied when the mouse button is released. Each area also has its own
+scrolling behavior. Clipboard integration covers iTerm2, macOS Terminal.app, and WSL sessions hosted by Windows
+Terminal. In iTerm2, hold `Option` while dragging to use iTerm2's native selection, context menu, and copy shortcut
+instead. Windows Terminal requires `compatibility.allowOSC52` to remain enabled (the default).
 
 Keyboard-first users can still access every core feature.
 

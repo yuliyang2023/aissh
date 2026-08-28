@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -259,13 +261,46 @@ func (a *App) copyTextSelection() bool {
 	if value == "" {
 		return false
 	}
-	encoded := base64.StdEncoding.EncodeToString([]byte(value))
-	_, _ = io.WriteString(a.outputWriter(), "\x1b]52;c;"+encoded+"\x07")
-	a.selectionStatus = a.t("已复制 %d 个字符", len([]rune(value)))
-	a.textSelection = screenTextSelection{}
+	a.writeClipboard(value)
+	a.selectionStatus = a.t("已选择并复制 %d 个字符；单击或键盘输入取消选择", len([]rune(value)))
 	a.terminalRows = nil
 	a.dirty = true
 	return true
+}
+
+func (a *App) writeClipboard(value string) {
+	if os.Getenv("TERM_PROGRAM") == "Apple_Terminal" {
+		write := a.clipboardWrite
+		if write == nil {
+			write = writeMacPasteboard
+		}
+		if write(value) == nil {
+			return
+		}
+	}
+	_, _ = io.WriteString(a.outputWriter(), terminalClipboardEscape(value))
+}
+
+func writeMacPasteboard(value string) error {
+	command := exec.Command("/usr/bin/pbcopy")
+	command.Stdin = strings.NewReader(value)
+	return command.Run()
+}
+
+func terminalClipboardEscape(value string) string {
+	encoded := base64.StdEncoding.EncodeToString([]byte(value))
+	// iTerm2 documents a direct base64 pasteboard escape. Prefer it over OSC 52
+	// when talking to iTerm2 directly: it matches iTerm2's default select-to-copy
+	// behavior and avoids depending on its OSC 52 clipboard-access setting.
+	if os.Getenv("TMUX") == "" && (os.Getenv("TERM_PROGRAM") == "iTerm.app" || os.Getenv("LC_TERMINAL") == "iTerm2") {
+		return "\x1b]1337;Copy=:" + encoded + "\x07"
+	}
+	// Windows Terminal supports OSC 52 and prefers ESC \\ as the OSC string
+	// terminator. WT_SESSION is inherited by PowerShell, cmd, and WSL shells.
+	if os.Getenv("WT_SESSION") != "" {
+		return "\x1b]52;c;" + encoded + "\x1b\\"
+	}
+	return "\x1b]52;c;" + encoded + "\x07"
 }
 
 func (a *App) captureSelectionCanvas(frame string) {

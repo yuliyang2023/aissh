@@ -96,9 +96,11 @@ func (a *App) handleMouse(event mouseEvent) {
 		if event.Button&3 != 0 {
 			return
 		}
-		if !a.finishTextSelection(event.X, event.Y) {
-			a.handleLeftClick(event.X, event.Y)
+		if a.finishTextSelection(event.X, event.Y) {
+			a.copyTextSelection()
+			return
 		}
+		a.handleLeftClick(event.X, event.Y)
 		return
 	}
 	if event.Motion {
