@@ -42,7 +42,7 @@ func main() {
 func parseArgs(args []string) (app.Config, bool, bool, error) {
 	config := app.Config{
 		Version:           version,
-		SSHPath:           firstNonEmpty(os.Getenv("AISSH_SSH_PATH"), "/usr/bin/ssh"),
+		SSHPath:           firstNonEmpty(os.Getenv("AISSH_SSH_PATH"), "ssh"),
 		AgentProvider:     firstNonEmpty(os.Getenv("AISSH_AGENT_PROVIDER"), os.Getenv("AISSH_AGENT"), "codex"),
 		AgentURL:          os.Getenv("AISSH_AGENT_URL"),
 		AgentToken:        os.Getenv("AISSH_AGENT_TOKEN"),
@@ -304,7 +304,7 @@ aissh options:
   --claude-model MODEL Claude model; defaults to the local configuration
   --agent-url URL     HTTP Agent SSE endpoint
   --agent-token TOKEN HTTP Agent Bearer token
-  --ssh-path PATH     OpenSSH binary; defaults to /usr/bin/ssh
+  --ssh-path PATH     OpenSSH binary; defaults to ssh from PATH
   --lang LANG         UI language: zh-CN or en (auto-detected by default)
   --history-dir DIR   Local per-target AI history directory
   --no-history        Disable loading and saving AI history
@@ -358,7 +358,7 @@ aissh选项:
   --claude-model MODEL 指定 Claude 模型；默认沿用本机配置
   --agent-url URL     HTTP Agent SSE 地址；设置后兼容旧模式
   --agent-token TOKEN HTTP Agent Bearer Token
-  --ssh-path PATH     系统 ssh 路径，默认 /usr/bin/ssh
+  --ssh-path PATH     系统 ssh 路径，默认使用 PATH 中的 ssh
   --lang LANG         界面语言：zh-CN 或 en，默认根据系统环境自动选择
   --history-dir DIR   按目标保存 AI 历史的本机目录
   --no-history        禁用 AI 历史的读取和写入

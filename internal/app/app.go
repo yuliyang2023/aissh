@@ -7,14 +7,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 	"unicode/utf8"
 
-	"github.com/creack/pty"
 	"github.com/hinshun/vt10x"
 	"golang.org/x/term"
 
@@ -70,7 +67,7 @@ type App struct {
 	events chan interface{}
 
 	sshCommand   *exec.Cmd
-	sshPTY       *os.File
+	sshPTY       io.ReadWriteCloser
 	controlDir   string
 	controlPath  string
 	monitor      monitor.Runner
@@ -158,7 +155,7 @@ type App struct {
 
 func New(config Config) (*App, error) {
 	if strings.TrimSpace(config.SSHPath) == "" {
-		config.SSHPath = "/usr/bin/ssh"
+		config.SSHPath = "ssh"
 	}
 	if config.ScrollbackLines <= 0 {
 		config.ScrollbackLines = DefaultScrollbackLines
@@ -395,7 +392,7 @@ func (a *App) startSSH() error {
 	if a.config.SSHKeepalive > 0 {
 		args = append(sshServerAliveOptions(a.config.SSHKeepalive), args...)
 	}
-	if !sshwrap.HasControlPath(args) {
+	if supportsSSHControlPath() && !sshwrap.HasControlPath(args) {
 		directory, err := os.MkdirTemp("", "aissh-")
 		if err != nil {
 			return err
@@ -407,9 +404,10 @@ func (a *App) startSSH() error {
 		a.controlPath = filepath.Join(directory, "master")
 		args = append(sshwrap.ControlOptions(a.controlPath), args...)
 	}
+	args = interactiveSSHArgs(args)
 	cmd := exec.CommandContext(a.ctx, a.config.SSHPath, args...)
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
-	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: uint16(a.contentRows), Cols: uint16(a.mainCols)})
+	ptmx, err := startSSHSession(cmd, a.contentRows, a.mainCols)
 	if err != nil {
 		return err
 	}
@@ -423,16 +421,16 @@ func (a *App) startSSH() error {
 		Timeout:     8 * time.Second,
 		Language:    a.localizer.Language(),
 	}
-	go func() { a.events <- sshExitEvent{err: cmd.Wait()} }()
+	go func() { a.events <- sshExitEvent{err: waitSSHProcess(a.ctx, cmd)} }()
 	return nil
 }
 
 func (a *App) stopSSH() {
+	if a.sshCommand != nil && a.sshCommand.Process != nil {
+		stopSSHProcess(a.sshCommand.Process)
+	}
 	if a.sshPTY != nil {
 		_ = a.sshPTY.Close()
-	}
-	if a.sshCommand != nil && a.sshCommand.Process != nil {
-		_ = a.sshCommand.Process.Signal(syscall.SIGHUP)
 	}
 }
 
@@ -523,22 +521,6 @@ func (a *App) startInputReader() {
 	}()
 }
 
-func (a *App) startSignalReader() {
-	resize := make(chan os.Signal, 2)
-	signal.Notify(resize, syscall.SIGWINCH)
-	go func() {
-		defer signal.Stop(resize)
-		for {
-			select {
-			case <-a.ctx.Done():
-				return
-			case <-resize:
-				a.events <- resizeEvent{}
-			}
-		}
-	}()
-}
-
 func (a *App) updateSize() error {
 	cols, rows, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
@@ -567,7 +549,7 @@ func (a *App) updateSize() error {
 		a.virtual.Resize(a.mainCols, a.contentRows)
 	}
 	if a.sshPTY != nil {
-		_ = pty.Setsize(a.sshPTY, &pty.Winsize{Rows: uint16(a.contentRows), Cols: uint16(a.mainCols)})
+		resizeSSHSession(a.sshPTY, a.contentRows, a.mainCols)
 	}
 	return nil
 }
