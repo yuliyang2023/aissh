@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
@@ -190,6 +191,51 @@ func TestMouseWheelScrollsSSHHistory(t *testing.T) {
 	application.handleMouse(mouseEvent{Button: 65, X: 10, Y: 5})
 	if application.terminalScroll != 0 {
 		t.Fatalf("scroll down=%d", application.terminalScroll)
+	}
+}
+
+func TestHandleInputRoutesReportedMouseWheel(t *testing.T) {
+	application := mouseTestApp(t)
+	application.terminalHistory = make([]terminalview.Line, 20)
+	application.mouseMode = true
+	application.mouseReporting = true
+	application.handleInput([]byte("\x1b[<64;10;5M"))
+	if application.terminalScroll != 3 {
+		t.Fatalf("scroll=%d", application.terminalScroll)
+	}
+}
+
+func TestCtrlRightBracketTogglesMouseReporting(t *testing.T) {
+	application := mouseTestApp(t)
+	var output bytes.Buffer
+	application.screenOut = &output
+
+	application.handleInput([]byte{0x1d})
+	if !application.mouseMode || !application.mouseReporting || output.String() != mouseReportingEnable {
+		t.Fatalf("enabled mode=%v reporting=%v output=%q", application.mouseMode, application.mouseReporting, output.String())
+	}
+
+	output.Reset()
+	application.handleInput([]byte{0x1d})
+	if application.mouseMode || application.mouseReporting || output.String() != mouseReportingDisable {
+		t.Fatalf("disabled mode=%v reporting=%v output=%q", application.mouseMode, application.mouseReporting, output.String())
+	}
+}
+
+func TestMouseDragsTerminalScrollbar(t *testing.T) {
+	application := mouseTestApp(t)
+	application.terminalHistory = make([]terminalview.Line, 100)
+	x := application.terminalScrollbarCol()
+	bottom := application.rows - 1
+
+	application.handleMouse(mouseEvent{Button: 0, X: x, Y: bottom})
+	application.handleMouse(mouseEvent{Button: 32, X: x, Y: 2, Motion: true})
+	if application.terminalScroll != len(application.terminalHistory) {
+		t.Fatalf("scroll=%d", application.terminalScroll)
+	}
+	application.handleMouse(mouseEvent{Button: 0, X: x, Y: 2, Release: true})
+	if application.mouseScrollbarDrag.Target != dragNoScrollbar {
+		t.Fatalf("drag=%#v", application.mouseScrollbarDrag)
 	}
 }
 

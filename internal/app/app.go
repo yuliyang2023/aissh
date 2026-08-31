@@ -145,6 +145,9 @@ type App struct {
 	historyConversationID string
 	historySelection      int
 	mouseCarry            []byte
+	mouseMode             bool
+	mouseReporting        bool
+	mouseScrollbarDrag    scrollbarDragState
 	clearCarry            []byte
 	terminalRows          map[int]string
 	terminalHistory       []terminalview.Line

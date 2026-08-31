@@ -17,6 +17,7 @@ func (a *App) render() {
 	}
 	var output strings.Builder
 	terminalCursorRow, terminalCursorCol := 0, 0
+	output.WriteString(a.updateMouseReporting())
 	// DEC mode 2026 lets supporting terminals present the assembled frame atomically.
 	// Unsupported terminals safely ignore it.
 	output.WriteString("\x1b[?2026h\x1b[?25l")

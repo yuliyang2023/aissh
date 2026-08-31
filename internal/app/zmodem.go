@@ -98,6 +98,8 @@ func (a *App) rememberZmodemTail(data []byte) {
 func (a *App) enterZmodemPassthrough(data []byte) {
 	a.zmodem = &zmodemPassthrough{}
 	a.mouseCarry = nil
+	a.mouseReporting = false
+	a.mouseScrollbarDrag = scrollbarDragState{}
 	a.dirty = false
 	_, _ = io.WriteString(a.outputWriter(), "\x1b[?2026l"+mouseReportingDisable+"\x1b[0m\x1b[?25h\x1b[?1049l")
 	a.handleZmodemOutput(data)

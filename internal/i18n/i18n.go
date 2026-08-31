@@ -138,6 +138,8 @@ var englishCatalog = map[string]string{
 	"│ 预期  ":            "│ Expected  ",
 	"╭─ 输入":             "╭─ Input",
 	" · AI 正在处理":        " · AI is working",
+	"滚动模式 · Ctrl+] 恢复选择": "Mouse mode · Ctrl+] Restore selection",
+	"选择模式 · Ctrl+] 开启滚动": "Selection mode · Ctrl+] Enable scrolling",
 	"› AI 对话已打开":        "› AI conversation is open",
 	"› AI 完整对话":         "› Full AI conversation",
 	"AI 已就绪（%s）。中文开头或 /ai 会自动提问。": "AI is ready (%s). Use Chinese input or /ai to ask from the SSH prompt.",

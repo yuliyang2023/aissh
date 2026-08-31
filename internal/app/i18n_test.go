@@ -26,7 +26,7 @@ func TestEnglishUIUsesLocalizedPanelsConversationAndApproval(t *testing.T) {
 			"monitor header": {"Monitor", "Layout:Auto"},
 			"panel menu":     {"Add panel", "System overview", "Custom read-only command"},
 			"AI header":      {"AI Assistant", "Ready"},
-			"status bar":     {"/ai AI chat", "Ctrl+T Switch monitor", "aissh v1.2.3"},
+			"status bar":     {"Selection mode", "Ctrl+] Enable scrolling", "/ai AI chat", "aissh v1.2.3"},
 		}[label] {
 			if !strings.Contains(output, want) {
 				t.Fatalf("%s missing %q: %q", label, want, output)
@@ -68,7 +68,7 @@ func TestStatusLineShowsUsefulShortcutsAndRightAlignedVersion(t *testing.T) {
 	}
 	application.atPrompt = true
 	line := application.statusLine(80)
-	for _, want := range []string{"/ai AI 对话", "Ctrl+T 切换监控", "Ctrl+N 新增监控"} {
+	for _, want := range []string{"选择模式", "Ctrl+] 开启滚动", "/ai AI 对话"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("status line missing %q: %q", want, line)
 		}

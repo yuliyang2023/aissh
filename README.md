@@ -130,12 +130,12 @@ Conversation history is stored locally and grouped by SSH target. Enter the AI c
 
 Recurring problems no longer need to be explained from scratch every time.
 
-### 🖱️ Native terminal selection and copying
+### 🖱️ Mouse scrolling and terminal selection
 
-aissh does not capture the mouse or write to the system clipboard. Text across the SSH, monitoring, and AI panes is
-selected by the outer terminal, and copying continues to use the native shortcuts and context menus in iTerm2,
-macOS Terminal.app, or Windows Terminal without additional permissions. Use the keyboard controls below to switch
-panels, add monitors, and approve commands.
+aissh starts in native terminal selection mode, so text can be selected and copied by dragging normally. Press `Ctrl+]`
+to switch to mouse mode for wheel scrolling, scrollbar dragging, panel switching, and approval buttons. Press `Ctrl+]`
+again to return to native selection. Copying still uses the native shortcuts and context menus in iTerm2, macOS
+Terminal.app, or Windows Terminal, and aissh does not write to the system clipboard.
 
 Keyboard-first users can still access every core feature.
 
@@ -287,6 +287,7 @@ receive access to the local code workspace.
 | `/workspace PATH` | Change the local AI code workspace |
 | `yes` / `no` | Run or reject an AI command proposal |
 | `Ctrl+O` | Expand the currently folded command |
+| `Ctrl+]` | Toggle mouse scrolling and native terminal selection |
 | `Ctrl+R` | Browse sessions while the AI conversation is focused |
 | `Shift+Enter` / `Ctrl+J` | Insert a new line in the AI editor |
 | `Ctrl+T` | Switch monitoring tabs |

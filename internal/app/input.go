@@ -30,6 +30,10 @@ func (a *App) handleInput(data []byte) {
 		a.handleZmodemInput(data)
 		return
 	}
+	if len(data) == 1 && data[0] == 0x1d { // Ctrl+]
+		a.toggleMouseMode()
+		return
+	}
 	if !a.sensitive && bytes.Contains(data, []byte{0x0f}) { // Ctrl+O
 		filtered := make([]byte, 0, len(data))
 		for _, value := range data {
@@ -44,7 +48,7 @@ func (a *App) handleInput(data []byte) {
 		}
 	}
 	redraw := a.focus != focusTerminal || a.aiLineCapture || a.inlineAI != nil || a.proposal != nil || a.terminalScroll > 0 || terminalInputHasLocalAction(data)
-	a.handleKeyboardInput(data)
+	a.handleMixedInput(data)
 	if redraw || a.focus != focusTerminal || a.aiLineCapture || a.inlineAI != nil || a.proposal != nil || a.terminalScroll > 0 {
 		a.dirty = true
 	}
@@ -907,7 +911,7 @@ func (a *App) inputStatus() string {
 		return a.t("%s  Enter 创建 · Ctrl+U 清空 · Esc 取消", a.menuStatus)
 	default:
 		if a.atPrompt && !a.sensitive {
-			return a.t("SSH  /ai AI 对话 · Ctrl+T 切换监控 · Ctrl+N 新增监控")
+			return a.mouseModeHint() + " · " + a.t("SSH  /ai AI 对话 · Ctrl+T 切换监控 · Ctrl+N 新增监控")
 		}
 		return "SSH"
 	}

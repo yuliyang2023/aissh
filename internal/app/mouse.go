@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"io"
 	"strconv"
 	"strings"
 )
@@ -9,8 +10,22 @@ import (
 var sgrMousePrefix = []byte("\x1b[<")
 
 const (
+	mouseReportingEnable  = "\x1b[?1000h\x1b[?1002h\x1b[?1006h"
 	mouseReportingDisable = "\x1b[?1000l\x1b[?1002l\x1b[?1006l"
 )
+
+type scrollbarDragTarget uint8
+
+const (
+	dragNoScrollbar scrollbarDragTarget = iota
+	dragTerminalScrollbar
+	dragAIScrollbar
+)
+
+type scrollbarDragState struct {
+	Target scrollbarDragTarget
+	Grab   int
+}
 
 type mouseEvent struct {
 	Button  int
@@ -90,17 +105,148 @@ func parseSGRMouse(sequence []byte) (mouseEvent, bool) {
 }
 
 func (a *App) handleMouse(event mouseEvent) {
-	if event.Release || event.Motion {
+	if event.Release {
+		a.mouseScrollbarDrag = scrollbarDragState{}
+		return
+	}
+	if event.Motion {
+		if event.Button&3 == 0 && a.mouseScrollbarDrag.Target != dragNoScrollbar {
+			a.dragScrollbarTo(event.Y)
+			a.dirty = true
+		}
 		return
 	}
 	if event.Button&64 != 0 {
 		a.handleMouseWheel(event)
+		a.dirty = true
 		return
 	}
 	if event.Button&3 != 0 {
 		return
 	}
+	if a.beginScrollbarDrag(event.X, event.Y) {
+		a.dirty = true
+		return
+	}
 	a.handleLeftClick(event.X, event.Y)
+	a.dirty = true
+}
+
+func (a *App) updateMouseReporting() string {
+	if a.mouseMode == a.mouseReporting {
+		return ""
+	}
+	a.mouseReporting = a.mouseMode
+	if a.mouseReporting {
+		return mouseReportingEnable
+	}
+	a.mouseCarry = nil
+	a.mouseScrollbarDrag = scrollbarDragState{}
+	return mouseReportingDisable
+}
+
+func (a *App) toggleMouseMode() {
+	a.mouseMode = !a.mouseMode
+	if sequence := a.updateMouseReporting(); sequence != "" {
+		_, _ = io.WriteString(a.outputWriter(), sequence)
+	}
+	a.dirty = true
+}
+
+func (a *App) mouseModeHint() string {
+	if a.mouseMode {
+		return a.t("滚动模式 · Ctrl+] 恢复选择")
+	}
+	return a.t("选择模式 · Ctrl+] 开启滚动")
+}
+
+func (a *App) beginScrollbarDrag(x, y int) bool {
+	terminalVisible := !a.compact || a.focus == focusTerminal || a.focus == focusApproval
+	if terminalVisible && len(a.terminalHistory) > 0 && x == a.terminalScrollbarCol() && y >= 2 && y < a.rows {
+		total := len(a.terminalHistory) + a.contentRows
+		a.mouseScrollbarDrag = scrollbarDragState{
+			Target: dragTerminalScrollbar,
+			Grab:   scrollbarGrabOffset(y-2, a.contentRows, total, a.contentRows, a.terminalScroll),
+		}
+		a.dragScrollbarTo(y)
+		return true
+	}
+
+	if a.focus == focusAIHistory {
+		return false
+	}
+	aiTop, aiLeft, aiWidth, aiHeight := a.aiRegion()
+	contentHeight := aiConversationViewport(aiHeight, true)
+	if contentHeight <= 1 || x != aiLeft+aiWidth-1 || y < aiTop+1 || y >= aiTop+1+contentHeight {
+		return false
+	}
+	total := len(a.aiLines(aiWidth - 2))
+	if total <= contentHeight {
+		return false
+	}
+	a.mouseScrollbarDrag = scrollbarDragState{
+		Target: dragAIScrollbar,
+		Grab:   scrollbarGrabOffset(y-(aiTop+1), contentHeight, total, contentHeight, a.aiScroll),
+	}
+	a.dragScrollbarTo(y)
+	return true
+}
+
+func (a *App) dragScrollbarTo(y int) {
+	switch a.mouseScrollbarDrag.Target {
+	case dragTerminalScrollbar:
+		total := len(a.terminalHistory) + a.contentRows
+		a.terminalScroll = scrollbarOffsetAt(
+			y-2,
+			a.mouseScrollbarDrag.Grab,
+			a.contentRows,
+			total,
+			a.contentRows,
+		)
+		a.focus = focusTerminal
+	case dragAIScrollbar:
+		top, _, width, height := a.aiRegion()
+		viewport := aiConversationViewport(height, true)
+		total := len(a.aiLines(width - 2))
+		a.aiScroll = scrollbarOffsetAt(
+			y-(top+1),
+			a.mouseScrollbarDrag.Grab,
+			viewport,
+			total,
+			viewport,
+		)
+		a.focus = focusAI
+		a.aiExpanded = true
+	}
+}
+
+func scrollbarGrabOffset(position, height, total, viewport, offset int) int {
+	thumbTop, thumbSize := scrollbarThumb(height, total, viewport, offset)
+	if position >= thumbTop && position < thumbTop+thumbSize {
+		return position - thumbTop
+	}
+	return thumbSize / 2
+}
+
+func scrollbarOffsetAt(position, grab, height, total, viewport int) int {
+	maximum := total - viewport
+	if maximum <= 0 || height <= 0 {
+		return 0
+	}
+	_, thumbSize := scrollbarThumb(height, total, viewport, 0)
+	track := height - thumbSize
+	if track <= 0 {
+		return 0
+	}
+	thumbTop := position - grab
+	if thumbTop < 0 {
+		thumbTop = 0
+	}
+	if thumbTop > track {
+		thumbTop = track
+	}
+	start := (thumbTop*maximum + track/2) / track
+	return maximum - start
 }
 
 func (a *App) handleLeftClick(x, y int) {
