@@ -112,9 +112,9 @@ func (a *App) sidebarToggleButton() string {
 		return ""
 	}
 	if a.sidebarCollapsed {
-		return a.t("[Shift+F2 展开右栏]")
+		return a.t("[Ctrl+Shift+- 展开右栏]")
 	}
-	return a.t("[Shift+F2 收起右栏]")
+	return a.t("[Ctrl+Shift+- 收起右栏]")
 }
 
 func (a *App) sidebarToggleHeaderStart() int {

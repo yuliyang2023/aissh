@@ -32,7 +32,7 @@ func TestSidebarToggleExpandsTerminalAndRestoresLayout(t *testing.T) {
 	}
 }
 
-func TestShiftF2TogglesSidebarOnlyAtShellPrompt(t *testing.T) {
+func TestCtrlShiftMinusTogglesSidebarOnlyAtShellPrompt(t *testing.T) {
 	application, err := New(Config{SSHArgs: []string{"server"}})
 	if err != nil {
 		t.Fatal(err)
@@ -47,10 +47,10 @@ func TestShiftF2TogglesSidebarOnlyAtShellPrompt(t *testing.T) {
 	}
 	application.sshPTY = writer
 
-	shortcut := []byte("\x1b[1;2Q")
+	shortcut := []byte{0x1f}
 	application.handleKeyboardInput(shortcut)
 	if application.sidebarCollapsed {
-		t.Fatal("Shift+F2 was intercepted away from a shell prompt")
+		t.Fatal("Ctrl+Shift+- was intercepted away from a shell prompt")
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
@@ -63,7 +63,7 @@ func TestShiftF2TogglesSidebarOnlyAtShellPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(written) != string(shortcut) {
-		t.Fatalf("non-prompt Shift+F2 was not forwarded to SSH: %q", written)
+		t.Fatalf("non-prompt Ctrl+Shift+- was not forwarded to SSH: %q", written)
 	}
 	application.sshPTY = nil
 
@@ -75,7 +75,7 @@ func TestShiftF2TogglesSidebarOnlyAtShellPrompt(t *testing.T) {
 
 	application.handleKeyboardInput(shortcut)
 	if application.sidebarCollapsed {
-		t.Fatal("Shift+F2 did not restore the sidebar")
+		t.Fatal("Ctrl+Shift+- did not restore the sidebar")
 	}
 }
 

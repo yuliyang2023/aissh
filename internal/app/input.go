@@ -59,12 +59,9 @@ func (a *App) handleInput(data []byte) {
 }
 
 func terminalInputHasLocalAction(data []byte) bool {
-	if isSidebarToggleShortcut(data) {
-		return true
-	}
 	for _, value := range data {
 		switch value {
-		case 0x0c, 0x0e, 0x14: // Ctrl+L, Ctrl+N, Ctrl+T
+		case 0x0c, 0x0e, 0x14, 0x1f: // Ctrl+L, Ctrl+N, Ctrl+T, Ctrl+Shift+-
 			return true
 		}
 	}
@@ -72,7 +69,7 @@ func terminalInputHasLocalAction(data []byte) bool {
 }
 
 func isSidebarToggleShortcut(data []byte) bool {
-	return bytes.Equal(data, []byte("\x1b[1;2Q")) || bytes.Equal(data, []byte("\x1bO1;2Q")) // Shift+F2
+	return len(data) == 1 && data[0] == 0x1f // Ctrl+Shift+- (Ctrl+_)
 }
 
 func (a *App) handleKeyboardInput(data []byte) {
@@ -294,6 +291,11 @@ func (a *App) handleTerminalBytes(data []byte) {
 				a.ensureSidebarVisible()
 				a.focus = focusPanelMenu
 				a.menuStatus = ""
+				continue
+			}
+		case 0x1f: // Ctrl+Shift+- (Ctrl+_)
+			if a.atPrompt && !a.compact {
+				a.toggleSidebar()
 				continue
 			}
 		case 0x0c: // Ctrl+L

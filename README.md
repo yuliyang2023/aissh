@@ -287,7 +287,7 @@ receive access to the local code workspace.
 | `/workspace PATH` | Change the local AI code workspace |
 | `yes` / `no` | Run or reject an AI command proposal |
 | `Ctrl+O` | Expand the currently folded command |
-| `Shift+F2` | Hide or show the monitoring and AI sidebar |
+| `Ctrl+Shift+-` | Hide or show the monitoring and AI sidebar |
 | `Ctrl+]` | Toggle mouse scrolling and native terminal selection |
 | `Ctrl+R` | Browse sessions while the AI conversation is focused |
 | `Shift+Enter` / `Ctrl+J` | Insert a new line in the AI editor |
