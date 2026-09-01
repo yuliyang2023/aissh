@@ -26,6 +26,10 @@ func (a *App) handleInput(data []byte) {
 	if len(data) == 0 {
 		return
 	}
+	if a.inBandMonitor != nil {
+		a.inBandMonitor.pendingInput = append(a.inBandMonitor.pendingInput, data...)
+		return
+	}
 	if a.zmodem != nil {
 		a.handleZmodemInput(data)
 		return
@@ -55,6 +59,9 @@ func (a *App) handleInput(data []byte) {
 }
 
 func terminalInputHasLocalAction(data []byte) bool {
+	if isSidebarToggleShortcut(data) {
+		return true
+	}
 	for _, value := range data {
 		switch value {
 		case 0x0c, 0x0e, 0x14: // Ctrl+L, Ctrl+N, Ctrl+T
@@ -64,7 +71,15 @@ func terminalInputHasLocalAction(data []byte) bool {
 	return false
 }
 
+func isSidebarToggleShortcut(data []byte) bool {
+	return bytes.Equal(data, []byte("\x1b[1;2Q")) || bytes.Equal(data, []byte("\x1bO1;2Q")) // Shift+F2
+}
+
 func (a *App) handleKeyboardInput(data []byte) {
+	if isSidebarToggleShortcut(data) && !a.compact && (a.focus != focusTerminal || a.atPrompt) {
+		a.toggleSidebar()
+		return
+	}
 	switch a.focus {
 	case focusApproval:
 		a.handleApprovalInput(data)
@@ -267,6 +282,7 @@ func (a *App) handleTerminalBytes(data []byte) {
 			a.lineReliable = false
 		case 0x14: // Ctrl+T
 			if a.atPrompt {
+				a.ensureSidebarVisible()
 				a.panels.Next()
 				if a.compact {
 					a.focus = focusMonitor
@@ -275,6 +291,7 @@ func (a *App) handleTerminalBytes(data []byte) {
 			}
 		case 0x0e: // Ctrl+N
 			if a.atPrompt {
+				a.ensureSidebarVisible()
 				a.focus = focusPanelMenu
 				a.menuStatus = ""
 				continue
@@ -859,6 +876,7 @@ func (a *App) openUserPanel(title string, kind panel.Kind, command string, inter
 	if a.compact {
 		a.focus = focusMonitor
 	} else {
+		a.ensureSidebarVisible()
 		a.focus = focusTerminal
 	}
 	a.monitorLast[item.ID] = time.Time{}
@@ -876,6 +894,7 @@ func removeLastUTF8Rune(value []byte) []byte {
 }
 
 func (a *App) openAIConversation() {
+	a.ensureSidebarVisible()
 	a.focus = focusAI
 	a.aiExpanded = true
 	a.clampAIEditorCursor()

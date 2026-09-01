@@ -185,6 +185,13 @@ func TestIsolateApprovedCommandProtectsOuterLoginShell(t *testing.T) {
 	}
 }
 
+func TestIsolateApprovedCommandUsesWindowsEnterForEveryLine(t *testing.T) {
+	command := "printf 'one\\n'\r\nprintf 'two\\n'\nexit 1"
+	if got, want := isolateApprovedCommandWithLineEnding(command, "\r"), "(\rprintf 'one\\n'\rprintf 'two\\n'\rexit 1\r)\r"; got != want {
+		t.Fatalf("Windows isolated command = %q, want %q", got, want)
+	}
+}
+
 func TestProposalMovesToLeftApprovalCard(t *testing.T) {
 	application, err := New(Config{SSHArgs: []string{"server"}})
 	if err != nil {
@@ -316,7 +323,7 @@ func TestAIConversationIsExpandedByDefault(t *testing.T) {
 		t.Fatalf("default focus=%v, want terminal", application.focus)
 	}
 	monitorHeight, aiHeight := application.sidebarHeights(28)
-	if aiHeight < 7 || monitorHeight <= aiHeight {
+	if aiHeight < 7 || aiHeight <= monitorHeight {
 		t.Fatalf("expanded monitor=%d ai=%d", monitorHeight, aiHeight)
 	}
 	application.inlineAI = &inlineAIState{Prompt: "检查服务", Started: time.Now()}
@@ -324,6 +331,25 @@ func TestAIConversationIsExpandedByDefault(t *testing.T) {
 	_, inlineHeight := application.sidebarHeights(28)
 	if inlineHeight != aiHeight {
 		t.Fatalf("inline command-line AI changed expanded pane height: before=%d after=%d", aiHeight, inlineHeight)
+	}
+}
+
+func TestSidebarShrinksSingleShortMonitorAboveExpandedAI(t *testing.T) {
+	application := layoutTestApp(t)
+	application.panels.UpdateContent("system", "主机  web-9\n负载  0.8\n内存  2.4G/8G\n磁盘  26%\n进程  207", "实时", true)
+
+	monitorHeight, aiHeight := application.sidebarHeights(application.contentRows)
+	if monitorHeight != 8 {
+		t.Fatalf("monitor height=%d, want content-sized height 8", monitorHeight)
+	}
+	if aiHeight != application.contentRows-monitorHeight-1 || aiHeight <= monitorHeight {
+		t.Fatalf("monitor=%d ai=%d contentRows=%d", monitorHeight, aiHeight, application.contentRows)
+	}
+
+	application.focus = focusMonitor
+	focusedMonitorHeight, focusedAIHeight := application.sidebarHeights(application.contentRows)
+	if focusedMonitorHeight <= focusedAIHeight {
+		t.Fatalf("focused monitor=%d ai=%d", focusedMonitorHeight, focusedAIHeight)
 	}
 }
 

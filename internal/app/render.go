@@ -27,19 +27,13 @@ func (a *App) render() {
 	} else {
 		header += "  AI:" + a.agent.Name() + a.t("不可用")
 	}
-	output.WriteString(positionedLine(1, 1, header, a.cols, "\x1b[1;38;5;45m"))
+	output.WriteString(positionedLine(1, 1, a.headerLine(header), a.cols, "\x1b[1;38;5;45m"))
 
-	workspaceOnly := a.compact && (a.focus == focusAI || a.focus == focusAIHistory || a.focus == focusMonitor || a.focus == focusMonitorSlot || a.focus == focusPanelMenu || a.focus == focusCustomPanel)
+	workspaceOnly := a.compact && a.sidebarWorkspaceFocused()
 	if !workspaceOnly {
 		terminalOutput, cursorRow, cursorCol := a.renderTerminalWorkspace()
 		terminalCursorRow, terminalCursorCol = cursorRow, cursorCol
 		output.WriteString(terminalOutput)
-		if a.aiLineCapture && a.focus == focusTerminal && a.virtual != nil {
-			cursor := a.virtual.Cursor()
-			available := a.mainCols - cursor.X
-			output.WriteString(positionedLine(terminalCursorRow, 1+cursor.X, string(a.lineInput), available, "\x1b[38;5;213m"))
-			delete(a.terminalRows, terminalCursorRow)
-		}
 		if a.proposal != nil && !a.inlineApprovalAvailable() {
 			output.WriteString(a.renderApprovalCard())
 			top, _, _, height := a.approvalGeometry()
@@ -60,7 +54,7 @@ func (a *App) render() {
 				output.WriteString(a.renderMonitorWorkspace(2, 1, a.cols, a.contentRows))
 			}
 		}
-	} else {
+	} else if a.sidebarVisible() {
 		borderCol := a.mainCols + 2
 		for row := 2; row < a.rows; row++ {
 			output.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b[38;5;238m│", row, borderCol))
@@ -71,15 +65,7 @@ func (a *App) render() {
 	output.WriteString(positionedLine(a.rows, 1, a.statusLine(a.cols), a.cols, "\x1b[38;5;245m"))
 	switch {
 	case a.focus == focusTerminal && a.terminalScroll == 0 && a.proposal == nil && !workspaceOnly && a.virtual != nil && (a.virtual.CursorVisible() || a.atPrompt):
-		cursorCol := terminalCursorCol
-		if a.aiLineCapture {
-			a.clampCapturedLineCursor()
-			cursorCol += textWidth(string(a.lineInput[:a.lineCursor]))
-		}
-		if cursorCol > a.mainCols {
-			cursorCol = a.mainCols
-		}
-		output.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b[?25h", terminalCursorRow, cursorCol))
+		output.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b[?25h", terminalCursorRow, terminalCursorCol))
 	case a.focus == focusApproval && a.proposal != nil:
 		if row, col, ok := a.inlineApprovalCursor(); ok {
 			output.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b[?25h", row, col))
@@ -108,6 +94,37 @@ func (a *App) render() {
 	_, _ = io.WriteString(a.outputWriter(), output.String())
 }
 
+func (a *App) headerLine(title string) string {
+	button := a.sidebarToggleButton()
+	if button == "" {
+		return title
+	}
+	buttonWidth := textWidth(button)
+	if a.cols <= buttonWidth {
+		return button
+	}
+	titleWidth := a.cols - buttonWidth - 1
+	return terminalview.ClipPad(title, titleWidth) + " " + button
+}
+
+func (a *App) sidebarToggleButton() string {
+	if a.compact {
+		return ""
+	}
+	if a.sidebarCollapsed {
+		return a.t("[Shift+F2 展开右栏]")
+	}
+	return a.t("[Shift+F2 收起右栏]")
+}
+
+func (a *App) sidebarToggleHeaderStart() int {
+	button := a.sidebarToggleButton()
+	if button == "" {
+		return 0
+	}
+	return a.cols - textWidth(button) + 1
+}
+
 func (a *App) renderSidebar(top, left, width, height int) string {
 	monitorHeight, aiHeight := a.sidebarHeights(height)
 	var output strings.Builder
@@ -120,8 +137,18 @@ func (a *App) renderSidebar(top, left, width, height int) string {
 
 func (a *App) sidebarHeights(height int) (int, int) {
 	aiHeight := 2
-	if a.aiExpanded || a.focus == focusAI || a.focus == focusAIHistory || (a.agentBusy && a.inlineAI == nil) {
-		aiHeight = height * 2 / 5
+	aiOpen := a.aiExpanded || a.focus == focusAI || a.focus == focusAIHistory || (a.agentBusy && a.inlineAI == nil)
+	if aiOpen {
+		monitorHeight := height * 2 / 5
+		if a.monitorWorkspaceFocused() {
+			monitorHeight = height * 3 / 5
+		} else if preferred := a.preferredMonitorHeight(height); preferred < monitorHeight {
+			monitorHeight = preferred
+		}
+		if monitorHeight < 4 {
+			monitorHeight = 4
+		}
+		aiHeight = height - monitorHeight - 1
 		if aiHeight < 7 {
 			aiHeight = 7
 		}
@@ -140,9 +167,38 @@ func (a *App) sidebarHeights(height int) (int, int) {
 	return monitorHeight, aiHeight
 }
 
+func (a *App) monitorWorkspaceFocused() bool {
+	switch a.focus {
+	case focusMonitor, focusMonitorSlot, focusPanelMenu, focusCustomPanel:
+		return true
+	default:
+		return false
+	}
+}
+
+func (a *App) preferredMonitorHeight(height int) int {
+	if a.panels == nil || len(a.panels.Panels()) != 1 {
+		return height
+	}
+	width := a.cols - a.mainCols - 2
+	if width <= 4 {
+		return height
+	}
+	// A single overview panel is usually only a handful of rows. Size it to its
+	// rendered content instead of leaving a large empty canvas above the AI pane.
+	preferred := len(a.activePanelLines(width-2)) + 1 // content plus monitor header
+	if preferred < 6 {
+		preferred = 6
+	}
+	return preferred
+}
+
 func (a *App) monitorRegion() (top, left, width, height int) {
 	if a.compact {
 		return 2, 1, a.cols, a.contentRows
+	}
+	if !a.sidebarVisible() {
+		return 0, 0, 0, 0
 	}
 	monitorHeight, _ := a.sidebarHeights(a.contentRows)
 	return 2, a.mainCols + 3, a.cols - a.mainCols - 2, monitorHeight
@@ -151,6 +207,9 @@ func (a *App) monitorRegion() (top, left, width, height int) {
 func (a *App) aiRegion() (top, left, width, height int) {
 	if a.compact {
 		return 2, 1, a.cols, a.contentRows
+	}
+	if !a.sidebarVisible() {
+		return 0, 0, 0, 0
 	}
 	monitorHeight, aiHeight := a.sidebarHeights(a.contentRows)
 	return 3 + monitorHeight, a.mainCols + 3, a.cols - a.mainCols - 2, aiHeight

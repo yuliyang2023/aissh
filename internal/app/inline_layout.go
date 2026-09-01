@@ -2,6 +2,7 @@ package app
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"git.example.com/ai/wrd-ai-cli/internal/terminalview"
 )
@@ -28,6 +29,12 @@ type terminalLayoutModel struct {
 	Viewport      int
 }
 
+type capturedLineLayout struct {
+	Lines     []string
+	CursorRow int
+	CursorCol int
+}
+
 func (a *App) renderTerminalWorkspace() (string, int, int) {
 	if a.virtual == nil || a.contentRows <= 0 || a.mainCols <= 0 {
 		return "", 2, 1
@@ -36,6 +43,19 @@ func (a *App) renderTerminalWorkspace() (string, int, int) {
 		return a.renderTerminalScrollback()
 	}
 	model := a.buildTerminalLayout()
+	captured := capturedLineLayout{}
+	captureVisible := a.aiLineCapture && a.focus == focusTerminal
+	if captureVisible {
+		cursor := a.virtual.Cursor()
+		captured = buildCapturedLineLayout(a.lineInput, a.lineCursor, cursor.X, a.mainCols)
+		visualCursorLogical := model.CursorLogical + captured.CursorRow
+		if visualCursorLogical >= a.contentRows {
+			model.Viewport = visualCursorLogical - (a.contentRows - 1)
+		}
+		for index := range model.Blocks {
+			model.Blocks[index].Top = 2 + model.Blocks[index].LogicalTop - model.Viewport
+		}
+	}
 	rows := make(map[int]string, a.contentRows)
 	for row := 2; row < a.screenRows(); row++ {
 		rows[row] = positionedLine(row, 1, "", a.mainCols, "\x1b[0m")
@@ -68,13 +88,108 @@ func (a *App) renderTerminalWorkspace() (string, int, int) {
 	output := a.renderTerminalRowChanges(rows)
 	cursor := a.virtual.Cursor()
 	cursorRow := 2 + model.CursorLogical - model.Viewport
+	cursorCol := 1 + cursor.X
+	if captureVisible {
+		for index, line := range captured.Lines {
+			row := cursorRow + index
+			if row < 2 || row >= a.screenRows() {
+				continue
+			}
+			col, width := 1, a.mainCols
+			if index == 0 {
+				col = 1 + cursor.X
+				width = a.mainCols - cursor.X
+			}
+			output += positionedLine(row, col, line, width, "\x1b[38;5;213m")
+			// The captured line is an overlay rather than remote VT state. Make
+			// the underlying rows render again on the next frame so shrinking or
+			// moving the input cannot leave stale characters behind.
+			delete(a.terminalRows, row)
+		}
+		cursorRow += captured.CursorRow
+		cursorCol = captured.CursorCol
+	}
 	if cursorRow < 2 {
 		cursorRow = 2
 	}
 	if cursorRow >= a.screenRows() {
 		cursorRow = a.screenRows() - 1
 	}
-	return output, cursorRow, 1 + cursor.X
+	if cursorCol < 1 {
+		cursorCol = 1
+	}
+	if cursorCol > a.mainCols {
+		cursorCol = a.mainCols
+	}
+	return output, cursorRow, cursorCol
+}
+
+func buildCapturedLineLayout(value []byte, cursor, startX, width int) capturedLineLayout {
+	if width <= 0 {
+		return capturedLineLayout{}
+	}
+	startX = normalizedAnchorX(startX, width)
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(value) {
+		cursor = len(value)
+	}
+	for cursor > 0 && cursor < len(value) && !utf8.RuneStart(value[cursor]) {
+		cursor--
+	}
+
+	layout := capturedLineLayout{}
+	var line strings.Builder
+	lineStartX := startX
+	lineWidth := width - lineStartX
+	used := 0
+	cursorSet := false
+	setCursor := func() {
+		layout.CursorRow = len(layout.Lines)
+		layout.CursorCol = lineStartX + used + 1
+		if layout.CursorCol > width {
+			layout.CursorCol = width
+		}
+		cursorSet = true
+	}
+	flush := func() {
+		layout.Lines = append(layout.Lines, line.String())
+		line.Reset()
+		lineStartX = 0
+		lineWidth = width
+		used = 0
+	}
+
+	for index, r := range string(value) {
+		if r == '\r' {
+			if index == cursor {
+				setCursor()
+			}
+			continue
+		}
+		if r == '\n' {
+			if index == cursor {
+				setCursor()
+			}
+			flush()
+			continue
+		}
+		cellWidth := terminalview.CellWidth(r)
+		if used+cellWidth > lineWidth && (used > 0 || lineStartX > 0) {
+			flush()
+		}
+		if index == cursor {
+			setCursor()
+		}
+		line.WriteRune(r)
+		used += cellWidth
+	}
+	if !cursorSet {
+		setCursor()
+	}
+	flush()
+	return layout
 }
 
 func (a *App) buildTerminalLayout() terminalLayoutModel {

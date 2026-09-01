@@ -25,6 +25,10 @@ func interactiveSSHArgs(args []string) []string {
 	return args
 }
 
+func approvedCommandLineEnding() string {
+	return "\r"
+}
+
 func startSSHSession(cmd *exec.Cmd, rows, cols int) (io.ReadWriteCloser, error) {
 	terminal, err := conpty.New(cols, rows, 0)
 	if err != nil {

@@ -4,7 +4,10 @@ import (
 	"context"
 	"io"
 	"os"
+	"strings"
 	"testing"
+
+	"github.com/hinshun/vt10x"
 
 	"git.example.com/ai/wrd-ai-cli/internal/agent"
 )
@@ -92,5 +95,55 @@ func TestCapturedChineseArrowEditingDoesNotLeakIntoSSH(t *testing.T) {
 	}
 	if len(written) != 0 {
 		t.Fatalf("captured edit leaked into SSH: %q", written)
+	}
+}
+
+func TestCapturedLineWrapsAcrossTerminalRows(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application.mainCols = 12
+	application.contentRows = 4
+	application.rows = 6
+	application.virtual = vt10x.New(vt10x.WithSize(application.mainCols, application.contentRows))
+	_, _ = application.virtual.Write([]byte("prompt> "))
+	application.aiLineCapture = true
+	application.lineInput = []byte("中文测试")
+	application.lineCursor = len(application.lineInput)
+
+	output, cursorRow, cursorCol := application.renderTerminalWorkspace()
+	if !strings.Contains(output, positionedLine(2, 9, "中文", 4, "\x1b[38;5;213m")) {
+		t.Fatalf("first captured row was not rendered: %q", output)
+	}
+	if !strings.Contains(output, positionedLine(3, 1, "测试", 12, "\x1b[38;5;213m")) {
+		t.Fatalf("wrapped captured row was not rendered: %q", output)
+	}
+	if cursorRow != 3 || cursorCol != 5 {
+		t.Fatalf("captured cursor=(%d,%d), want (3,5)", cursorRow, cursorCol)
+	}
+}
+
+func TestCapturedLineWrapKeepsCursorVisibleAtTerminalBottom(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application.mainCols = 10
+	application.contentRows = 3
+	application.rows = 5
+	application.virtual = vt10x.New(vt10x.WithSize(application.mainCols, application.contentRows))
+	_, _ = application.virtual.Write([]byte("old\r\nolder\r\n> "))
+	application.aiLineCapture = true
+	application.lineInput = []byte("一二三四五六七八九十")
+	application.lineCursor = len(application.lineInput)
+
+	output, cursorRow, cursorCol := application.renderTerminalWorkspace()
+	if cursorRow != 4 || cursorCol != 3 {
+		t.Fatalf("captured cursor=(%d,%d), want bottom row (4,3)", cursorRow, cursorCol)
+	}
+	if !strings.Contains(output, positionedLine(2, 3, "一二三四", 8, "\x1b[38;5;213m")) ||
+		!strings.Contains(output, positionedLine(4, 1, "十", 10, "\x1b[38;5;213m")) {
+		t.Fatalf("wrapped input did not stay visible after viewport shift: %q", output)
 	}
 }

@@ -250,6 +250,10 @@ func scrollbarOffsetAt(position, grab, height, total, viewport int) int {
 }
 
 func (a *App) handleLeftClick(x, y int) {
+	if y == 1 && a.sidebarToggleHeaderStart() > 0 && x >= a.sidebarToggleHeaderStart() && x <= a.cols {
+		a.toggleSidebar()
+		return
+	}
 	if a.handleScrollbarClick(x, y) {
 		return
 	}
@@ -267,6 +271,12 @@ func (a *App) handleLeftClick(x, y int) {
 			return
 		}
 		a.handleCompactClick(x, y)
+		return
+	}
+	if !a.sidebarVisible() {
+		if x <= a.terminalScrollbarCol() && y >= 2 && y < a.rows && a.proposal == nil {
+			a.focus = focusTerminal
+		}
 		return
 	}
 	if x <= a.terminalScrollbarCol() && y >= 2 && y < a.rows {

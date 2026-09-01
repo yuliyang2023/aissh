@@ -43,6 +43,9 @@ func (a *App) processSSHOutput(data []byte) {
 	if len(data) == 0 {
 		return
 	}
+	if a.processInBandMonitorOutput(data) {
+		return
+	}
 	if a.zmodem != nil {
 		a.handleZmodemOutput(data)
 		return
@@ -81,6 +84,7 @@ func (a *App) processRegularSSHOutput(data []byte) {
 	a.appendTerminalHistory(historyLines)
 	a.scrollInlineBlocks(scrolls)
 	a.handleOutput(data)
+	a.flushDeferredMonitorInput()
 }
 
 func (a *App) rememberZmodemTail(data []byte) {

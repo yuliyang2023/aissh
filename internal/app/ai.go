@@ -303,7 +303,14 @@ func (a *App) finishApproval(event approvalEvent) {
 // inside a child shell. Remote side effects still apply, but exit, exec, cd,
 // traps, and shell options cannot terminate or mutate the outer login shell.
 func isolateApprovedCommand(command string) string {
-	return "(\n" + command + "\n)\r"
+	return isolateApprovedCommandWithLineEnding(command, approvedCommandLineEnding())
+}
+
+func isolateApprovedCommandWithLineEnding(command, lineEnding string) string {
+	command = strings.ReplaceAll(command, "\r\n", "\n")
+	command = strings.ReplaceAll(command, "\r", "\n")
+	command = strings.ReplaceAll(command, "\n", lineEnding)
+	return "(" + lineEnding + command + lineEnding + ")\r"
 }
 
 func (a *App) rejectProposal() {

@@ -48,7 +48,13 @@ func (r Runner) Run(ctx context.Context, command string) (string, error) {
 		}
 		return "", fmt.Errorf("%s", message)
 	}
-	return formatBuiltin(command, strings.TrimSpace(string(data)), r.Language), nil
+	return r.Format(command, strings.TrimSpace(string(data))), nil
+}
+
+// Format applies the same presentation rules to output collected through an
+// already authenticated interactive SSH session.
+func (r Runner) Format(command, output string) string {
+	return formatBuiltin(command, strings.TrimSpace(output), r.Language)
 }
 
 func formatBuiltin(command, output, language string) string {

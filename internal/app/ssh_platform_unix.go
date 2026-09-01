@@ -21,6 +21,10 @@ func interactiveSSHArgs(args []string) []string {
 	return args
 }
 
+func approvedCommandLineEnding() string {
+	return "\n"
+}
+
 func startSSHSession(cmd *exec.Cmd, rows, cols int) (io.ReadWriteCloser, error) {
 	return pty.StartWithSize(cmd, &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
 }

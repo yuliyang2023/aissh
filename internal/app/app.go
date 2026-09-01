@@ -78,13 +78,18 @@ type App struct {
 	zmodem       *zmodemPassthrough
 	zmodemTail   []byte
 
-	cols        int
-	rows        int
-	mainCols    int
-	contentRows int
-	compact     bool
+	cols             int
+	rows             int
+	mainCols         int
+	contentRows      int
+	compact          bool
+	sidebarCollapsed bool
 
 	panels                  *panel.Manager
+	monitorViaPrimary       bool
+	inBandMonitor           *inBandMonitorState
+	monitorDeferredInput    []byte
+	monitorSequence         uint64
 	monitorLayout           monitorLayoutMode
 	monitorLast             map[string]time.Time
 	monitorActive           map[string]bool
@@ -366,6 +371,7 @@ func (a *App) Run() error {
 			now := time.Now()
 			a.checkZmodemCompletion(now)
 			a.maintainAIKeepalive(now)
+			a.checkInBandMonitorTimeout(now)
 			a.scheduleMonitors()
 			if a.inlineAI != nil && a.agentBusy {
 				a.inlineAI.Spinner++
@@ -421,6 +427,11 @@ func (a *App) startSSH() error {
 		Timeout:     8 * time.Second,
 		Language:    a.localizer.Language(),
 	}
+	// Win32-OpenSSH does not implement ControlMaster/ControlPath. Running
+	// monitor queries as separate SSH processes would therefore require a
+	// second non-interactive authentication and fails for password-based
+	// sessions. Reuse the already authenticated interactive shell instead.
+	a.monitorViaPrimary = !supportsSSHControlPath()
 	go func() { a.events <- sshExitEvent{err: waitSSHProcess(a.ctx, cmd)} }()
 	return nil
 }
@@ -529,21 +540,40 @@ func (a *App) updateSize() error {
 	if cols < 40 || rows < 10 {
 		return fmt.Errorf("terminal is too small; need at least 40x10")
 	}
+	a.setViewportSize(cols, rows)
+	return nil
+}
+
+func (a *App) setViewportSize(cols, rows int) {
 	a.cols, a.rows = cols, rows
 	a.contentRows = rows - 2
 	a.compact = cols < 92
+	if !a.compact && a.sidebarCollapsed && a.sidebarWorkspaceFocused() {
+		a.sidebarCollapsed = false
+	}
+	a.applyPaneLayout()
+}
+
+func (a *App) applyPaneLayout() {
+	if a.cols <= 0 || a.contentRows <= 0 {
+		return
+	}
+	previousMainCols := a.mainCols
 	// mainCols is the SSH content width; the column right of it (mainCols+1) is
 	// reserved as the scrollbar gutter so the scrollbar never covers pane text.
-	if a.compact {
-		a.mainCols = cols - 1
+	if a.compact || a.sidebarCollapsed {
+		a.mainCols = a.cols - 1
 	} else {
-		a.mainCols = cols*64/100 - 1
+		a.mainCols = a.cols*64/100 - 1
 		if a.mainCols < 48 {
 			a.mainCols = 48
 		}
-		if cols-a.mainCols-2 < 32 {
-			a.mainCols = cols - 34
+		if a.cols-a.mainCols-2 < 32 {
+			a.mainCols = a.cols - 34
 		}
+	}
+	if previousMainCols != a.mainCols {
+		a.terminalRows = nil
 	}
 	if a.virtual != nil {
 		a.virtual.Resize(a.mainCols, a.contentRows)
@@ -551,7 +581,40 @@ func (a *App) updateSize() error {
 	if a.sshPTY != nil {
 		resizeSSHSession(a.sshPTY, a.contentRows, a.mainCols)
 	}
-	return nil
+}
+
+func (a *App) sidebarVisible() bool {
+	return !a.compact && !a.sidebarCollapsed
+}
+
+func (a *App) sidebarWorkspaceFocused() bool {
+	switch a.focus {
+	case focusAI, focusAIHistory, focusMonitor, focusMonitorSlot, focusPanelMenu, focusCustomPanel:
+		return true
+	default:
+		return false
+	}
+}
+
+func (a *App) toggleSidebar() {
+	if a.compact {
+		return
+	}
+	a.sidebarCollapsed = !a.sidebarCollapsed
+	if a.sidebarCollapsed {
+		a.focus = focusTerminal
+	}
+	a.applyPaneLayout()
+	a.dirty = true
+}
+
+func (a *App) ensureSidebarVisible() {
+	if a.compact || !a.sidebarCollapsed {
+		return
+	}
+	a.sidebarCollapsed = false
+	a.applyPaneLayout()
+	a.dirty = true
 }
 
 func (a *App) handleEvent(event interface{}) {
@@ -570,16 +633,7 @@ func (a *App) handleEvent(event interface{}) {
 		a.terminalDone = true
 		a.dirty = true
 	case monitorResultEvent:
-		a.monitorActive[value.panelID] = false
-		a.monitorLast[value.panelID] = time.Now()
-		if value.err != nil {
-			a.panels.SetError(value.panelID, value.err)
-		} else {
-			a.panels.UpdateContent(value.panelID, value.content, a.t("实时"), false)
-		}
-		if a.monitorWorkspaceVisible() {
-			a.dirty = true
-		}
+		a.applyMonitorResult(value)
 	case agentStatusEvent:
 		a.agentStatus = a.t(value.status)
 		if a.agentInline != nil {
@@ -622,8 +676,11 @@ func (a *App) handleEvent(event interface{}) {
 }
 
 func (a *App) monitorWorkspaceVisible() bool {
-	if !a.compact {
+	if a.sidebarVisible() {
 		return true
+	}
+	if !a.compact {
+		return false
 	}
 	return a.focus == focusMonitor || a.focus == focusMonitorSlot || a.focus == focusPanelMenu || a.focus == focusCustomPanel
 }
@@ -670,6 +727,10 @@ func (a *App) handleOutput(data []byte) {
 
 func (a *App) scheduleMonitors() {
 	now := time.Now()
+	if a.monitorViaPrimary {
+		a.scheduleInBandMonitor(now)
+		return
+	}
 	for _, item := range a.panels.Panels() {
 		if item.Kind != panel.KindMonitor && item.Kind != panel.KindTable && item.Kind != panel.KindLog {
 			continue
@@ -695,6 +756,19 @@ func (a *App) scheduleMonitors() {
 			content, err := a.monitor.Run(a.ctx, command)
 			a.events <- monitorResultEvent{panelID: panelID, content: content, err: err}
 		}()
+	}
+}
+
+func (a *App) applyMonitorResult(value monitorResultEvent) {
+	a.monitorActive[value.panelID] = false
+	a.monitorLast[value.panelID] = time.Now()
+	if value.err != nil {
+		a.panels.SetError(value.panelID, value.err)
+	} else {
+		a.panels.UpdateContent(value.panelID, value.content, a.t("实时"), false)
+	}
+	if a.monitorWorkspaceVisible() {
+		a.dirty = true
 	}
 }
 

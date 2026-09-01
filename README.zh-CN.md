@@ -273,6 +273,7 @@ bin/aissh --agent model production
 | `/workspace 路径` | 切换本机 AI 代码工作区 |
 | `yes` / `no` | 执行或拒绝 AI 命令建议 |
 | `Ctrl+O` | 展开当前折叠的完整命令 |
+| `Shift+F2` | 收起或展开右侧监控与 AI 栏目 |
 | `Ctrl+]` | 切换鼠标滚动与终端原生选择模式 |
 | `Ctrl+R` | 在 AI 对话中浏览历史会话 |
 | `Shift+Enter` / `Ctrl+J` | 在 AI 输入框中换行 |
