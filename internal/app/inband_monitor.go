@@ -53,7 +53,7 @@ func (a *App) scheduleInBandMonitor(now time.Time) {
 
 func (a *App) canStartInBandMonitor() bool {
 	return a.inBandMonitor == nil && len(a.monitorDeferredInput) == 0 && a.atPrompt && !a.sensitive &&
-		!a.terminalDone && a.zmodem == nil && a.sshPTY != nil && len(a.lineInput) == 0 &&
+		!a.agentBusy && !a.terminalDone && a.zmodem == nil && a.sshPTY != nil && len(a.lineInput) == 0 &&
 		a.lineReliable && !a.aiLineCapture && !a.terminalPasteMode
 }
 

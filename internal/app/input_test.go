@@ -98,6 +98,105 @@ func TestCapturedChineseArrowEditingDoesNotLeakIntoSSH(t *testing.T) {
 	}
 }
 
+func TestUTF8ChineseQuestionInSingleInputChunkStartsInlineAI(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	application.sshPTY = writer
+	application.agent = terminalInputTestProvider{}
+	application.atPrompt = true
+
+	application.handleTerminalInput([]byte("帮我检查 nginx\r"))
+	if application.inlineAI == nil || application.inlineAI.Prompt != "帮我检查 nginx" {
+		t.Fatalf("inline AI prompt=%#v", application.inlineAI)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	written, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != 0 {
+		t.Fatalf("Chinese AI question leaked into SSH: %q", written)
+	}
+}
+
+func TestVisiblePromptStartsInlineAIWhenOutputPromptWasMissed(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	application.sshPTY = writer
+	application.agent = terminalInputTestProvider{}
+	application.mainCols = 80
+	application.contentRows = 24
+	application.virtual = vt10x.New(vt10x.WithSize(application.mainCols, application.contentRows))
+	_, _ = application.virtual.Write([]byte("PS C:\\Users\\ops> "))
+
+	application.handleTerminalInput([]byte("帮我检查 nginx\r"))
+	if !application.atPrompt {
+		t.Fatal("visible shell prompt was not detected")
+	}
+	if application.inlineAI == nil || application.inlineAI.Prompt != "帮我检查 nginx" {
+		t.Fatalf("inline AI prompt=%#v", application.inlineAI)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	written, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != 0 {
+		t.Fatalf("Chinese AI question leaked into SSH: %q", written)
+	}
+}
+
+func TestVisiblePromptFallbackIsDisabledOnAlternateScreen(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	application.sshPTY = writer
+	application.agent = terminalInputTestProvider{}
+	application.mainCols = 80
+	application.contentRows = 24
+	application.virtual = vt10x.New(vt10x.WithSize(application.mainCols, application.contentRows))
+	_, _ = application.virtual.Write([]byte("\x1b[?1049h编辑器> "))
+
+	application.handleTerminalInput([]byte("中文\r"))
+	if application.atPrompt || application.inlineAI != nil {
+		t.Fatalf("alternate-screen input was treated as AI: atPrompt=%v inlineAI=%#v", application.atPrompt, application.inlineAI)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	written, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(written), "中文\r"; got != want {
+		t.Fatalf("SSH input=%q, want %q", got, want)
+	}
+}
+
 func TestCapturedLineWrapsAcrossTerminalRows(t *testing.T) {
 	application, err := New(Config{SSHArgs: []string{"server"}})
 	if err != nil {

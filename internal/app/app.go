@@ -41,6 +41,7 @@ type Config struct {
 	HistoryDir          string
 	Workspace           string
 	WorkspaceWritable   bool
+	InputDebug          bool
 	ModelURL            string
 	ModelAPIKey         string
 	ModelName           string
@@ -156,6 +157,8 @@ type App struct {
 	terminalScroll        int
 
 	dirty bool
+
+	inputDebug *inputDebugLogger
 }
 
 func New(config Config) (*App, error) {
@@ -328,20 +331,28 @@ func (a *App) Run() error {
 	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
 		return fmt.Errorf("aissh must run in an interactive terminal")
 	}
+	if a.config.InputDebug {
+		debug, err := newInputDebugLogger(a.config.Version)
+		if err != nil {
+			return fmt.Errorf("start input diagnostics: %w", err)
+		}
+		a.inputDebug = debug
+		defer a.closeInputDebug()
+	}
 	if err := a.updateSize(); err != nil {
 		return err
 	}
 	if err := a.startSSH(); err != nil {
 		return err
 	}
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	oldState, err := makeTerminalRaw(int(os.Stdin.Fd()))
 	if err != nil {
 		a.stopSSH()
 		return err
 	}
 	defer func() {
 		a.cancel()
-		_ = term.Restore(int(os.Stdin.Fd()), oldState)
+		_ = restoreTerminal(int(os.Stdin.Fd()), oldState)
 		_, _ = io.WriteString(os.Stdout, "\x1b[?2026l"+bracketedPasteDisable+mouseReportingDisable+"\x1b[0m\x1b[?25h\x1b[?1049l")
 		a.stopSSH()
 		if closer, ok := a.agent.(interface{ Close() error }); ok {
@@ -427,11 +438,13 @@ func (a *App) startSSH() error {
 		Timeout:     8 * time.Second,
 		Language:    a.localizer.Language(),
 	}
-	// Win32-OpenSSH does not implement ControlMaster/ControlPath. Running
-	// monitor queries as separate SSH processes would therefore require a
-	// second non-interactive authentication and fails for password-based
-	// sessions. Reuse the already authenticated interactive shell instead.
-	a.monitorViaPrimary = !supportsSSHControlPath()
+	// Keep background monitoring isolated from the interactive PTY on every
+	// platform. Win32-OpenSSH cannot reuse ControlMaster, so its monitor query
+	// may fail under password-only authentication, but that failure must remain
+	// confined to the monitor pane. Sharing the primary PTY queues keyboard
+	// input while a query runs and a timeout has to send Ctrl+C into the user's
+	// shell, which is much more disruptive than an unavailable monitor.
+	a.monitorViaPrimary = false
 	go func() { a.events <- sshExitEvent{err: waitSSHProcess(a.ctx, cmd)} }()
 	return nil
 }
@@ -515,21 +528,6 @@ func joinOutputTokens(tokens []terminalview.OutputToken) []byte {
 		data = append(data, token.Data...)
 	}
 	return data
-}
-
-func (a *App) startInputReader() {
-	go func() {
-		buffer := make([]byte, 4096)
-		for {
-			count, err := os.Stdin.Read(buffer)
-			if count > 0 {
-				a.events <- inputEvent{data: append([]byte(nil), buffer[:count]...)}
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
 }
 
 func (a *App) updateSize() error {

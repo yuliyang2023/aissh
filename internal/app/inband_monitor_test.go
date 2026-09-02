@@ -94,6 +94,38 @@ func TestScheduleInBandMonitorUsesPrimaryPTY(t *testing.T) {
 	}
 }
 
+func TestInBandMonitorDoesNotStartWhileAIRuns(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	application.sshPTY = writer
+	application.monitorViaPrimary = true
+	application.atPrompt = true
+	application.lineReliable = true
+	application.agentBusy = true
+
+	application.scheduleMonitors()
+	if application.inBandMonitor != nil || application.monitorActive["system"] {
+		t.Fatalf("monitor started while AI was running: state=%#v active=%v", application.inBandMonitor, application.monitorActive["system"])
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	written, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != 0 {
+		t.Fatalf("monitor wrote to primary SSH while AI was running: %q", written)
+	}
+}
+
 func TestInputWaitsForActiveInBandMonitor(t *testing.T) {
 	application, err := New(Config{SSHArgs: []string{"server"}})
 	if err != nil {

@@ -12,7 +12,10 @@ import (
 	"git.example.com/ai/wrd-ai-cli/internal/i18n"
 )
 
-var version = "dev"
+var (
+	version    = "dev"
+	inputDebug = ""
+)
 
 func main() {
 	config, showHelp, showVersion, err := parseArgs(os.Args[1:])
@@ -54,6 +57,7 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 		HistoryDir:        firstNonEmpty(os.Getenv("AISSH_HISTORY_DIR"), history.DefaultDir()),
 		Workspace:         currentDirectory(),
 		WorkspaceWritable: enabledValue(os.Getenv("AISSH_WORKSPACE_WRITE")),
+		InputDebug:        enabledValue(firstNonEmpty(os.Getenv("AISSH_INPUT_DEBUG"), inputDebug)),
 		ModelURL:          os.Getenv("AISSH_MODEL_URL"),
 		ModelAPIKey:       firstNonEmpty(os.Getenv("AISSH_MODEL_API_KEY"), os.Getenv("DEEPSEEK_API_KEY")),
 		ModelName:         os.Getenv("AISSH_MODEL_NAME"),

@@ -12,6 +12,14 @@ import (
 )
 
 func (a *App) render() {
+	if a.inputDebug != nil {
+		started := time.Now()
+		defer func() {
+			if elapsed := time.Since(started); elapsed >= 50*time.Millisecond {
+				a.debugInput("slow_render duration=%s focus=%d cols=%d rows=%d", elapsed.Round(time.Millisecond), a.focus, a.cols, a.rows)
+			}
+		}()
+	}
 	if a.zmodem != nil {
 		return
 	}

@@ -7,8 +7,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/hinshun/vt10x"
+
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
 	"git.example.com/ai/wrd-ai-cli/internal/policy"
+	"git.example.com/ai/wrd-ai-cli/internal/terminalview"
 	"git.example.com/ai/wrd-ai-cli/internal/trigger"
 )
 
@@ -73,6 +76,20 @@ func isSidebarToggleShortcut(data []byte) bool {
 }
 
 func (a *App) handleKeyboardInput(data []byte) {
+	diagnosticInput, diagnosticHan := false, false
+	if a.inputDebug != nil {
+		diagnosticHan = containsHanInput(data)
+		diagnosticInput = diagnosticHan || bytes.IndexByte(data, '\r') >= 0 || bytes.IndexByte(data, '\n') >= 0
+		if diagnosticInput {
+			a.debugInput("keyboard bytes=%d focus=%d prompt_before=%t reliable=%t capture=%t han=%t", len(data), a.focus, a.atPrompt, a.lineReliable, a.aiLineCapture, diagnosticHan)
+		}
+	}
+	if a.focus == focusTerminal {
+		a.refreshPromptFromScreen()
+	}
+	if diagnosticInput {
+		a.debugInput("keyboard prompt_after=%t sensitive=%t", a.atPrompt, a.sensitive)
+	}
 	if isSidebarToggleShortcut(data) && !a.compact && (a.focus != focusTerminal || a.atPrompt) {
 		a.toggleSidebar()
 		return
@@ -98,6 +115,7 @@ func (a *App) handleKeyboardInput(data []byte) {
 }
 
 func (a *App) handleTerminalInput(data []byte) {
+	a.refreshPromptFromScreen()
 	if a.terminalScroll > 0 {
 		a.terminalScroll = 0
 		a.terminalRows = nil
@@ -395,6 +413,10 @@ func (a *App) submitTerminalLine(newline byte) {
 	a.aiLineCapture = false
 	reliable := a.lineReliable
 	a.lineReliable = true
+	if a.inputDebug != nil {
+		_, aiSyntax := trigger.IsAIInput(line)
+		a.debugInput("submit bytes=%d han=%t ai_syntax=%t prompt=%t reliable=%t captured=%t sensitive=%t", len(line), containsHanInput([]byte(line)), aiSyntax, a.atPrompt, reliable, captured, a.sensitive)
+	}
 	if a.atPrompt && reliable && !a.sensitive {
 		if _, ok := parseLocalWorkspaceCommand(line); ok {
 			if !captured && a.sshPTY != nil {
@@ -581,6 +603,69 @@ func (a *App) captureLineAnchor() {
 	a.lineAnchorX = cursor.X
 	a.lineAnchorY = cursor.Y
 	a.lineAnchored = true
+}
+
+// refreshPromptFromScreen is a fallback for terminals that render a shell
+// prompt in chunks which do not independently match the output-tail prompt
+// detector. This is particularly common with Win32-OpenSSH. By the time the
+// user types, the virtual terminal has the complete prompt on its cursor row,
+// so use that visible state before deciding whether Chinese input belongs to
+// the inline AI.
+func (a *App) refreshPromptFromScreen() {
+	if a.atPrompt || a.virtual == nil {
+		return
+	}
+
+	a.virtual.Lock()
+	if a.virtual.Mode()&vt10x.ModeAltScreen != 0 || !a.virtual.CursorVisible() {
+		a.debugInput("screen_prompt unavailable alt_screen=%t cursor_visible=%t", a.virtual.Mode()&vt10x.ModeAltScreen != 0, a.virtual.CursorVisible())
+		a.virtual.Unlock()
+		return
+	}
+	cursor := a.virtual.Cursor()
+	cols, rows := a.virtual.Size()
+	if cursor.Y < 0 || cursor.Y >= rows || cursor.X < 0 || cols <= 0 {
+		a.virtual.Unlock()
+		return
+	}
+	end := cursor.X
+	if end > cols {
+		end = cols
+	}
+	var line strings.Builder
+	for x := 0; x < end; x++ {
+		char := a.virtual.Cell(x, cursor.Y).Char
+		switch char {
+		case terminalview.WidePlaceholder:
+			continue
+		case 0:
+			line.WriteByte(' ')
+		default:
+			line.WriteRune(char)
+		}
+	}
+	a.virtual.Unlock()
+
+	visibleLine := line.String()
+	trimmedLine := strings.TrimRightFunc(visibleLine, unicode.IsSpace)
+	lastRune, _ := utf8.DecodeLastRuneInString(trimmedLine)
+	matched := trigger.LooksLikePrompt(visibleLine)
+	a.debugInput("screen_prompt match=%t cursor_x=%d cursor_y=%d chars=%d last=%U", matched, cursor.X, cursor.Y, len([]rune(trimmedLine)), lastRune)
+	if !matched {
+		return
+	}
+	a.atPrompt = true
+	a.sensitive = false
+	a.promptIdleSince = time.Now()
+}
+
+func containsHanInput(data []byte) bool {
+	for _, value := range string(data) {
+		if unicode.Is(unicode.Han, value) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) handleAIInput(data []byte) {
