@@ -90,6 +90,7 @@ type App struct {
 
 	panels                  *panel.Manager
 	monitorViaPrimary       bool
+	monitorPrimaryFallback  bool
 	inBandMonitor           *inBandMonitorState
 	monitorDeferredInput    []byte
 	monitorSequence         uint64
@@ -440,13 +441,12 @@ func (a *App) startSSH() error {
 		Timeout:     8 * time.Second,
 		Language:    a.localizer.Language(),
 	}
-	// Keep background monitoring isolated from the interactive PTY on every
-	// platform. Win32-OpenSSH cannot reuse ControlMaster, so its monitor query
-	// may fail under password-only authentication, but that failure must remain
-	// confined to the monitor pane. Sharing the primary PTY queues keyboard
-	// input while a query runs and a timeout has to send Ctrl+C into the user's
-	// shell, which is much more disruptive than an unavailable monitor.
+	// Keep background monitoring isolated from the interactive PTY initially.
+	// Win32-OpenSSH cannot reuse ControlMaster, so password-only sessions may
+	// reject the separate BatchMode query. In that case applyMonitorResult
+	// switches monitoring to the already authenticated primary shell.
 	a.monitorViaPrimary = false
+	a.monitorPrimaryFallback = !supportsSSHControlPath()
 	go func() { a.events <- sshExitEvent{err: waitSSHProcess(a.ctx, cmd)} }()
 	return nil
 }
@@ -768,6 +768,16 @@ func (a *App) scheduleMonitors() {
 
 func (a *App) applyMonitorResult(value monitorResultEvent) {
 	a.monitorActive[value.panelID] = false
+	if value.err != nil && a.monitorPrimaryFallback && monitor.IsAuthenticationError(value.err) {
+		a.monitorViaPrimary = true
+		// Retry through the authenticated shell on the next maintenance tick,
+		// instead of displaying and repeating an error that cannot succeed.
+		a.monitorLast[value.panelID] = time.Time{}
+		if a.monitorWorkspaceVisible() {
+			a.dirty = true
+		}
+		return
+	}
 	a.monitorLast[value.panelID] = time.Now()
 	if value.err != nil {
 		a.panels.SetError(value.panelID, value.err)

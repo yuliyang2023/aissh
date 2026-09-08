@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -18,6 +19,40 @@ type Runner struct {
 	ControlPath string
 	Timeout     time.Duration
 	Language    string
+}
+
+// RunError preserves the SSH process exit status while keeping the monitor
+// pane's error text concise. OpenSSH uses status 255 for connection and
+// authentication failures; remote commands keep their own exit status.
+type RunError struct {
+	Message  string
+	ExitCode int
+}
+
+func (e *RunError) Error() string {
+	return e.Message
+}
+
+// IsAuthenticationError reports whether an SSH monitor process failed before
+// it could run the remote command because authentication was unavailable.
+func IsAuthenticationError(err error) bool {
+	var runErr *RunError
+	if !errors.As(err, &runErr) || runErr.ExitCode != 255 {
+		return false
+	}
+	message := strings.ToLower(runErr.Message)
+	for _, marker := range []string{
+		"permission denied",
+		"authentication failed",
+		"unable to authenticate",
+		"no supported authentication methods available",
+		"too many authentication failures",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r Runner) Run(ctx context.Context, command string) (string, error) {
@@ -46,7 +81,12 @@ func (r Runner) Run(ctx context.Context, command string) (string, error) {
 		if message == "" {
 			message = err.Error()
 		}
-		return "", fmt.Errorf("%s", message)
+		exitCode := -1
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		}
+		return "", &RunError{Message: message, ExitCode: exitCode}
 	}
 	return r.Format(command, strings.TrimSpace(string(data))), nil
 }

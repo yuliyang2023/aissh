@@ -1,12 +1,46 @@
 package monitor
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
 	"git.example.com/ai/wrd-ai-cli/internal/terminalview"
 )
+
+func TestIsAuthenticationErrorRequiresSSHConnectionFailure(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "openssh password authentication",
+			err:  &RunError{Message: "Permission denied", ExitCode: 255},
+			want: true,
+		},
+		{
+			name: "remote command permission denied",
+			err:  &RunError{Message: "cat: /root/file: Permission denied", ExitCode: 1},
+		},
+		{
+			name: "unrelated connection failure",
+			err:  &RunError{Message: "Connection timed out", ExitCode: 255},
+		},
+		{
+			name: "plain monitor error",
+			err:  errors.New("permission denied"),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := IsAuthenticationError(test.err); got != test.want {
+				t.Fatalf("IsAuthenticationError(%v)=%v want=%v", test.err, got, test.want)
+			}
+		})
+	}
+}
 
 func TestBuiltinOverviewLabelsUseSelectedLanguage(t *testing.T) {
 	output := "HOST=server\nUPTIME=1 day\nLOAD=0.1\nMEM=1/2 GB\nDISK=1/10 GB\nPROCS=20\n"

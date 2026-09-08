@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"git.example.com/ai/wrd-ai-cli/internal/monitor"
 )
 
 func TestInBandMonitorCommandKeepsMarkersOutOfShellEcho(t *testing.T) {
@@ -173,5 +175,36 @@ func TestInBandMonitorTimeoutInterruptsQueryAndPreservesInput(t *testing.T) {
 	}
 	if got, want := string(application.monitorDeferredInput), "date\r"; got != want {
 		t.Fatalf("deferred input=%q want=%q", got, want)
+	}
+}
+
+func TestMonitorAuthenticationFailureFallsBackToPrimarySession(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application.monitorPrimaryFallback = true
+	application.monitorActive["system"] = true
+	application.monitorLast["system"] = time.Now()
+
+	application.applyMonitorResult(monitorResultEvent{
+		panelID: "system",
+		err: &monitor.RunError{
+			Message:  "user@server: Permission denied (publickey,password).",
+			ExitCode: 255,
+		},
+	})
+
+	if !application.monitorViaPrimary {
+		t.Fatal("monitor did not switch to the authenticated primary session")
+	}
+	if application.monitorActive["system"] {
+		t.Fatal("failed background monitor remained active")
+	}
+	if !application.monitorLast["system"].IsZero() {
+		t.Fatalf("monitor retry was delayed: last=%v", application.monitorLast["system"])
+	}
+	if got := application.panels.ByID("system").LastError; got != "" {
+		t.Fatalf("transient authentication error was shown: %q", got)
 	}
 }
