@@ -158,6 +158,22 @@ func (p *DirectModelProvider) Stream(ctx context.Context, request Request, callb
 	}, nil
 }
 
+// AssessRisk makes a stateless model request and leaves the main conversation
+// session unchanged.
+func (p *DirectModelProvider) AssessRisk(ctx context.Context, request RiskAssessmentRequest) (RiskAssessment, error) {
+	if strings.TrimSpace(p.BaseURL) == "" || strings.TrimSpace(p.Model) == "" {
+		return RiskAssessment{}, fmt.Errorf("%s", p.localizer().T("直连模型未配置；请设置模型地址和模型名称"))
+	}
+	if p.RequireToken && strings.TrimSpace(p.APIKey) == "" {
+		return RiskAssessment{}, fmt.Errorf("%s", p.localizer().T("直连模型缺少 API Key"))
+	}
+	result, err := p.invoke(ctx, buildRiskAssessmentPrompt(request))
+	if err != nil {
+		return RiskAssessment{}, err
+	}
+	return riskAssessmentFromResponse(result, request.Proposal.Command)
+}
+
 func (p *DirectModelProvider) Action(_ context.Context, request Request) (Turn, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

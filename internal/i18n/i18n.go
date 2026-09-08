@@ -289,3 +289,15 @@ var englishCatalog = map[string]string{
 	"直连模型没有返回内容":                                                                "The direct model returned no content",
 	"无法解析直连模型的结构化结果：%s":                                                         "Could not parse the direct model structured result: %s",
 }
+
+func init() {
+	englishCatalog["always-yes 已开启：非高风险命令经 %d 次独立复核后自动执行；高风险、未知或复核失败仍需手动确认。"] = "always-yes is enabled: non-high-risk commands run automatically after %d independent reviews; high-risk, unknown, or failed reviews still require manual confirmation."
+	englishCatalog["风险等级未知，always-yes 未自动批准；请手动确认"] = "The risk level is unknown; always-yes did not approve it. Confirm manually"
+	englishCatalog["高风险命令不会由 always-yes 自动批准；请手动确认"] = "High-risk commands are never approved by always-yes. Confirm manually"
+	englishCatalog["当前 AI 后端不支持独立风险复核，always-yes 未自动批准；请手动确认"] = "This AI backend does not support independent risk reviews; always-yes did not approve it. Confirm manually"
+	englishCatalog["always-yes 正在进行风险复核（%d/%d）"] = "always-yes risk review (%d/%d)"
+	englishCatalog["always-yes 风险复核失败，未自动批准；请手动确认：%s"] = "always-yes risk review failed; the command was not approved. Confirm manually: %s"
+	englishCatalog["always-yes 风险复核结果不完整，未自动批准；请手动确认"] = "always-yes risk reviews were incomplete; the command was not approved. Confirm manually"
+	englishCatalog["多次风险复核判定为高风险，always-yes 未自动批准；请手动确认"] = "Repeated risk reviews classified this command as high risk; always-yes did not approve it. Confirm manually"
+	englishCatalog["always-yes 已通过 %d 次独立风险复核，正在自动批准命令。"] = "always-yes passed %d independent risk reviews and is automatically approving the command."
+}

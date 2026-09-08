@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +25,45 @@ func (approvalTestProvider) Stream(context.Context, agent.Request, agent.Callbac
 }
 func (approvalTestProvider) Action(_ context.Context, request agent.Request) (agent.Turn, error) {
 	return agent.Turn{Type: "approved", Session: agent.Session{ID: request.SessionID}}, nil
+}
+
+type alwaysYesTestProvider struct {
+	mu          sync.Mutex
+	risks       []string
+	assessments int
+	actions     []agent.Request
+	errAt       int
+}
+
+func (provider *alwaysYesTestProvider) Name() string     { return "test" }
+func (provider *alwaysYesTestProvider) Configured() bool { return true }
+func (provider *alwaysYesTestProvider) Stream(context.Context, agent.Request, agent.Callbacks) (agent.Turn, error) {
+	return agent.Turn{}, nil
+}
+func (provider *alwaysYesTestProvider) Action(_ context.Context, request agent.Request) (agent.Turn, error) {
+	provider.mu.Lock()
+	provider.actions = append(provider.actions, request)
+	provider.mu.Unlock()
+	return agent.Turn{Type: "approved", Session: agent.Session{ID: request.SessionID}}, nil
+}
+func (provider *alwaysYesTestProvider) AssessRisk(_ context.Context, _ agent.RiskAssessmentRequest) (agent.RiskAssessment, error) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	provider.assessments++
+	if provider.errAt > 0 && provider.assessments == provider.errAt {
+		return agent.RiskAssessment{}, fmt.Errorf("review unavailable")
+	}
+	risk := "read_only"
+	if provider.assessments <= len(provider.risks) {
+		risk = provider.risks[provider.assessments-1]
+	}
+	return agent.RiskAssessment{Risk: risk, Reason: "independent review"}, nil
+}
+
+func (provider *alwaysYesTestProvider) counts() (int, int) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	return provider.assessments, len(provider.actions)
 }
 
 type executionAnalysisProvider struct {
@@ -175,6 +215,149 @@ func TestYesExecutesProposalThroughIsolatedShellOnExistingSSHPTY(t *testing.T) {
 	conversation := strings.Join(application.aiLines(60), "\n")
 	if !strings.Contains(conversation, "已批准执行命令：") || !strings.Contains(conversation, "exit 2") || !strings.Contains(conversation, "strace -V") {
 		t.Fatalf("approval was not synchronized: %q", conversation)
+	}
+}
+
+func TestAlwaysYesRunsNonHighRiskCommandAfterThreeReviews(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}, AlwaysYes: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	provider := &alwaysYesTestProvider{risks: []string{"read_only", "low", "medium"}}
+	application.agent = provider
+	application.sshPTY = writer
+	application.atPrompt = true
+	application.finishAgentTurn(agent.Turn{
+		Type:    "command_proposal",
+		Session: agent.Session{ID: "s1"},
+		Proposal: &agent.Proposal{
+			ID: "p1", Command: "uptime", Explanation: "查看负载", Risk: "read_only",
+		},
+	}, nil)
+
+	deadline := time.After(time.Second)
+	for application.execution == nil {
+		select {
+		case event := <-application.events:
+			application.handleEvent(event)
+		case <-deadline:
+			t.Fatal("always-yes approval timed out")
+		}
+	}
+	assessments, actions := provider.counts()
+	if assessments != AlwaysYesRiskAssessmentPasses || actions != 1 {
+		t.Fatalf("assessments=%d actions=%d", assessments, actions)
+	}
+	if application.execution.Command != "uptime" {
+		t.Fatalf("execution=%#v", application.execution)
+	}
+	buffer := make([]byte, 64)
+	count, err := reader.Read(buffer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(buffer[:count]), "(\nuptime\n)\r"; got != want {
+		t.Fatalf("ssh input=%q want=%q", got, want)
+	}
+	conversation := strings.Join(application.aiLines(120), "\n")
+	if !strings.Contains(conversation, "通过 3 次独立风险复核") {
+		t.Fatalf("conversation=%q", conversation)
+	}
+}
+
+func TestAlwaysYesNeverReviewsOrApprovesInitiallyHighRiskCommand(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}, AlwaysYes: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &alwaysYesTestProvider{}
+	application.agent = provider
+	application.atPrompt = true
+	application.finishAgentTurn(agent.Turn{
+		Type:    "command_proposal",
+		Session: agent.Session{ID: "s1"},
+		Proposal: &agent.Proposal{
+			ID: "danger", Command: "systemctl restart nginx", Risk: "high",
+		},
+	}, nil)
+
+	assessments, actions := provider.counts()
+	if assessments != 0 || actions != 0 || application.agentBusy || application.proposal == nil {
+		t.Fatalf("assessments=%d actions=%d busy=%v proposal=%#v", assessments, actions, application.agentBusy, application.proposal)
+	}
+	if !strings.Contains(application.approvalStatus, "手动确认") {
+		t.Fatalf("approval status=%q", application.approvalStatus)
+	}
+}
+
+func TestAlwaysYesFallsBackToManualWhenAnyReviewIsHighRisk(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}, AlwaysYes: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &alwaysYesTestProvider{risks: []string{"low", "high", "read_only"}}
+	application.agent = provider
+	application.atPrompt = true
+	application.finishAgentTurn(agent.Turn{
+		Type:    "command_proposal",
+		Session: agent.Session{ID: "s1"},
+		Proposal: &agent.Proposal{
+			ID: "p1", Command: "deploy-app", Risk: "low",
+		},
+	}, nil)
+
+	deadline := time.After(time.Second)
+	for application.agentBusy {
+		select {
+		case event := <-application.events:
+			application.handleEvent(event)
+		case <-deadline:
+			t.Fatal("always-yes risk reviews timed out")
+		}
+	}
+	assessments, actions := provider.counts()
+	if assessments != AlwaysYesRiskAssessmentPasses || actions != 0 {
+		t.Fatalf("assessments=%d actions=%d", assessments, actions)
+	}
+	if application.proposal == nil || application.proposal.Risk != "high" || !strings.Contains(application.approvalStatus, "高风险") {
+		t.Fatalf("proposal=%#v approval status=%q", application.proposal, application.approvalStatus)
+	}
+}
+
+func TestAlwaysYesFallsBackToManualWhenRiskReviewFails(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}, AlwaysYes: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &alwaysYesTestProvider{errAt: 2}
+	application.agent = provider
+	application.atPrompt = true
+	application.finishAgentTurn(agent.Turn{
+		Type:    "command_proposal",
+		Session: agent.Session{ID: "s1"},
+		Proposal: &agent.Proposal{
+			ID: "p1", Command: "uptime", Risk: "read_only",
+		},
+	}, nil)
+
+	deadline := time.After(time.Second)
+	for application.agentBusy {
+		select {
+		case event := <-application.events:
+			application.handleEvent(event)
+		case <-deadline:
+			t.Fatal("always-yes risk failure timed out")
+		}
+	}
+	assessments, actions := provider.counts()
+	if assessments != 2 || actions != 0 || !strings.Contains(application.approvalStatus, "复核失败") {
+		t.Fatalf("assessments=%d actions=%d approval status=%q", assessments, actions, application.approvalStatus)
 	}
 }
 

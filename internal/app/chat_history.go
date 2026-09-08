@@ -51,6 +51,13 @@ func (a *App) appendAIReadyMessages() {
 			Time:    time.Now(),
 		})
 	}
+	if a.config.AlwaysYes {
+		a.chat = append(a.chat, chatMessage{
+			Role:    "system",
+			Content: a.t("always-yes 已开启：非高风险命令经 %d 次独立复核后自动执行；高风险、未知或复核失败仍需手动确认。", AlwaysYesRiskAssessmentPasses),
+			Time:    time.Now(),
+		})
+	}
 	a.chat = append(a.chat, chatMessage{
 		Role:    "system",
 		Content: a.t("AI 已就绪（%s）。中文开头或 /ai 会自动提问。", a.agent.Name()),

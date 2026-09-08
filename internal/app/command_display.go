@@ -243,7 +243,7 @@ func riskDisplay(value string) string {
 		return "低风险"
 	case "medium":
 		return "中风险"
-	case "high", "destructive", "dangerous":
+	case "high", "critical", "destructive", "dangerous":
 		return "高风险"
 	case "":
 		return "风险未知"

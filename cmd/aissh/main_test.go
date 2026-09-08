@@ -112,6 +112,24 @@ func TestParseArgsSupportsWritableLocalWorkspace(t *testing.T) {
 	}
 }
 
+func TestParseArgsSupportsAlwaysYes(t *testing.T) {
+	t.Setenv("AISSH_ALWAYS_YES", "")
+	config, help, version, err := parseArgs([]string{"--always-yes", "server"})
+	if err != nil || help || version || !config.AlwaysYes {
+		t.Fatalf("alwaysYes=%v help=%v version=%v err=%v", config.AlwaysYes, help, version, err)
+	}
+
+	t.Setenv("AISSH_ALWAYS_YES", "1")
+	config, _, _, err = parseArgs([]string{"server"})
+	if err != nil || !config.AlwaysYes {
+		t.Fatalf("env alwaysYes=%v err=%v", config.AlwaysYes, err)
+	}
+	config, _, _, err = parseArgs([]string{"--no-always-yes", "server"})
+	if err != nil || config.AlwaysYes {
+		t.Fatalf("disabled alwaysYes=%v err=%v", config.AlwaysYes, err)
+	}
+}
+
 func TestParseArgsDefaultsWorkspaceToCurrentDirectory(t *testing.T) {
 	t.Setenv("AISSH_WORKSPACE", "")
 	config, help, version, err := parseArgs([]string{"server"})

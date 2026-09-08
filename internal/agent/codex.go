@@ -329,6 +329,28 @@ func (p *CodexProvider) Stream(ctx context.Context, request Request, callbacks C
 	}, nil
 }
 
+// AssessRisk runs in an ephemeral Codex thread so repeated reviews are
+// independent and cannot alter the main aissh conversation.
+func (p *CodexProvider) AssessRisk(ctx context.Context, request RiskAssessmentRequest) (RiskAssessment, error) {
+	if !p.Configured() {
+		return RiskAssessment{}, fmt.Errorf("%s", p.localizer().T("找不到本机 Codex CLI；请先安装 Codex 或设置 AISSH_CODEX_PATH"))
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return RiskAssessment{}, fmt.Errorf("%s", p.localizer().T("本机 Codex 会话已关闭"))
+	}
+	p.active.Add(1)
+	p.mu.Unlock()
+	defer p.active.Done()
+
+	result, _, err := p.invokeWithMode(ctx, buildRiskAssessmentPrompt(request), "", false, "", true)
+	if err != nil {
+		return RiskAssessment{}, err
+	}
+	return riskAssessmentFromResponse(result, request.Proposal.Command)
+}
+
 // Close removes the persisted Codex threads created for this provider. One
 // provider belongs to one aissh SSH process, so its Codex session lifetime
 // follows the SSH session lifetime while aissh keeps its own text history.
@@ -441,6 +463,10 @@ func (p *CodexProvider) requestText(session *codexSession, request Request) stri
 }
 
 func (p *CodexProvider) invoke(parent context.Context, prompt, workspace string, workspaceWritable bool, threadID string) (codexResponse, string, error) {
+	return p.invokeWithMode(parent, prompt, workspace, workspaceWritable, threadID, false)
+}
+
+func (p *CodexProvider) invokeWithMode(parent context.Context, prompt, workspace string, workspaceWritable bool, threadID string, ephemeral bool) (codexResponse, string, error) {
 	timeout := p.Timeout
 	if timeout <= 0 {
 		timeout = 90 * time.Second
@@ -465,6 +491,8 @@ func (p *CodexProvider) invoke(parent context.Context, prompt, workspace string,
 	args := []string{"exec"}
 	if strings.TrimSpace(threadID) != "" {
 		args = append(args, "resume")
+	} else if ephemeral {
+		args = append(args, "--ephemeral")
 	}
 	args = append(args,
 		"--json", "--skip-git-repo-check", "--ignore-rules",

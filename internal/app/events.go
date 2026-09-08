@@ -24,6 +24,15 @@ type agentTurnEvent struct {
 	err  error
 }
 type agentPanelEvent struct{ action agent.PanelAction }
+type alwaysYesRiskProgressEvent struct {
+	pass  int
+	total int
+}
+type alwaysYesRiskEvent struct {
+	proposalID  string
+	assessments []agent.RiskAssessment
+	err         error
+}
 type approvalEvent struct {
 	turn    agent.Turn
 	command string

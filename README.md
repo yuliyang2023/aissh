@@ -64,8 +64,8 @@ automatic logout.
 
 ### 🛡️ AI proposes, you decide
 
-AI-generated commands are never executed automatically. Each proposal is shown in the SSH pane with its purpose,
-expected effect, and risk level.
+By default, AI-generated commands are never executed automatically. Each proposal is shown in the SSH pane with its
+purpose, expected effect, and risk level.
 
 - Enter `yes` to run it.
 - Enter `no` to reject it.
@@ -74,7 +74,10 @@ expected effect, and risk level.
 - Approved commands run in an isolated child shell on the same SSH connection, so shell-local control flow such as
   `exit`, `exec`, `set -e`, or `cd` cannot terminate or mutate the outer login shell.
 
-You always know what is about to run, and you always make the final decision.
+For trusted environments, `--always-yes` (or `AISSH_ALWAYS_YES=1`) can automatically approve commands below high risk.
+Before doing so, aissh asks the configured AI provider for three fresh, independent risk reviews. If any review returns
+`high` or `critical`, changes the reviewed command, reports an unknown result, or fails, the command stays on screen for
+manual confirmation. Initially high-risk commands are never sent through automatic approval.
 
 ### 📊 A monitoring workspace inside SSH
 
@@ -308,6 +311,10 @@ bin/aissh --workspace /path/to/project production
 # Allow AI to modify the local project (or set AISSH_WORKSPACE_WRITE=1)
 bin/aissh --workspace-write production
 
+# Auto-approve commands below high risk after three independent reviews
+# (or set AISSH_ALWAYS_YES=1)
+bin/aissh --always-yes production
+
 # Prevent AI from inspecting any local project
 bin/aissh --no-workspace production
 
@@ -345,7 +352,9 @@ bin/aissh --help
 ## Safety by design
 
 - Nothing needs to be installed on the target server.
-- Every AI command proposal requires explicit user approval.
+- AI command proposals require explicit approval by default; `--always-yes` is an opt-in mode for commands that pass
+  three independent reviews below high risk.
+- High-risk, unknown, changed, incomplete, or failed risk reviews always fall back to manual confirmation.
 - High-risk commands are clearly highlighted in both views.
 - Local Codex and Claude Code inspect the workspace read-only by default; writes require explicit `--workspace-write`.
 - AI-created monitors are restricted to read-only commands.

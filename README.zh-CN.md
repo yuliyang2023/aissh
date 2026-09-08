@@ -60,7 +60,7 @@ AI 长时间运行期间，`aissh` 还会同时保持 SSH 连接和空闲 Shell 
 
 ### 🛡️ AI 建议，用户决策
 
-AI 生成的命令不会自动执行，而是先在左侧终端中展示用途、预期效果和风险等级。
+默认情况下，AI 生成的命令不会自动执行，而是先在左侧终端中展示用途、预期效果和风险等级。
 
 - 输入 `yes` 执行；
 - 输入 `no` 拒绝；
@@ -69,7 +69,10 @@ AI 生成的命令不会自动执行，而是先在左侧终端中展示用途�
 - 获批命令会在同一 SSH 连接的隔离子 Shell 中执行，因此 `exit`、`exec`、`set -e`、`cd` 等
   Shell 局部控制不会结束或污染外层登录 Shell。
 
-你始终知道即将执行什么，也始终拥有最后决定权。
+在可信环境中，可以使用 `--always-yes`（或 `AISSH_ALWAYS_YES=1`）自动批准低于高风险的命令。
+自动批准前，aissh 会让当前 AI 后端进行 3 次全新且相互独立的风险复核。只要任一次结果为 `high` 或
+`critical`、回显的命令发生变化、结果未知或复核失败，该命令就会保留在界面上等待手动确认。初始即为
+高风险的命令不会进入自动批准流程。
 
 ### 📊 把监控台放进 SSH
 
@@ -293,6 +296,9 @@ bin/aissh --workspace /path/to/project production
 # 允许 AI 修改本机项目（也可设置 AISSH_WORKSPACE_WRITE=1）
 bin/aissh --workspace-write production
 
+# 经 3 次独立复核后自动批准低于高风险的命令（也可设置 AISSH_ALWAYS_YES=1）
+bin/aissh --always-yes production
+
 # 禁止 AI 查看本机项目
 bin/aissh --no-workspace production
 
@@ -330,7 +336,9 @@ bin/aissh --help
 ## 安全设计
 
 - 目标服务器无需安装任何组件；
-- AI 命令建议必须由用户明确批准；
+- AI 命令建议默认必须由用户明确批准；`--always-yes` 是仅对通过 3 次独立非高风险复核的命令生效的
+  显式可选模式；
+- 高风险、未知、命令变化、复核不完整或失败时一律回退到手动确认；
 - 高风险命令在左右两侧都会醒目标记；
 - 本机 Codex 与 Claude Code 默认只读查看工作区，只有显式传入 `--workspace-write` 才允许修改；
 - AI 创建的监控仅允许使用只读命令；

@@ -258,6 +258,28 @@ func (p *ClaudeProvider) Stream(ctx context.Context, request Request, callbacks 
 	}, nil
 }
 
+// AssessRisk uses a fresh, non-resumed Claude invocation and does not touch the
+// provider's main conversation bookkeeping.
+func (p *ClaudeProvider) AssessRisk(ctx context.Context, request RiskAssessmentRequest) (RiskAssessment, error) {
+	if !p.Configured() {
+		return RiskAssessment{}, fmt.Errorf("%s", p.localizer().T("找不到本机 Claude CLI；请先安装 Claude Code 或设置 AISSH_CLAUDE_PATH"))
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return RiskAssessment{}, fmt.Errorf("%s", p.localizer().T("本机 Claude 会话已关闭"))
+	}
+	p.active.Add(1)
+	p.mu.Unlock()
+	defer p.active.Done()
+
+	result, _, err := p.invoke(ctx, buildRiskAssessmentPrompt(request), "", false, "")
+	if err != nil {
+		return RiskAssessment{}, err
+	}
+	return riskAssessmentFromResponse(result, request.Proposal.Command)
+}
+
 // Close drops the in-memory session state. Claude Code has no CLI command to
 // delete a stored session, so its local transcript is simply left behind.
 func (p *ClaudeProvider) Close() error {

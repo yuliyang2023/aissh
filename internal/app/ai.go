@@ -209,6 +209,15 @@ func (a *App) finishAgentTurn(turn agent.Turn, err error) {
 			inline.Done = true
 			inline.Status = ""
 		}
+		if a.config.AlwaysYes && a.atPrompt && !a.sensitive {
+			if risk, known := agent.NormalizeRisk(turn.Proposal.Risk); !known {
+				a.approvalStatus = a.t("风险等级未知，always-yes 未自动批准；请手动确认")
+			} else if isReviewRisk(risk) {
+				a.approvalStatus = a.t("高风险命令不会由 always-yes 自动批准；请手动确认")
+			} else {
+				a.startAlwaysYesRiskAssessment(*turn.Proposal)
+			}
+		}
 	} else if turn.Type == "ask_user" || turn.Type == "failed" || turn.Error != "" {
 		if inline == nil {
 			a.aiExpanded = true
@@ -220,6 +229,115 @@ func (a *App) finishAgentTurn(turn agent.Turn, err error) {
 		a.focus = focusTerminal
 	}
 	a.dirty = true
+}
+
+func (a *App) startAlwaysYesRiskAssessment(proposal agent.Proposal) {
+	assessor, ok := a.agent.(agent.RiskAssessor)
+	if !ok {
+		a.approvalStatus = a.t("当前 AI 后端不支持独立风险复核，always-yes 未自动批准；请手动确认")
+		return
+	}
+	a.agentBusy = true
+	a.agentStatus = a.t("always-yes 正在进行风险复核（%d/%d）", 1, AlwaysYesRiskAssessmentPasses)
+	a.approvalStatus = a.agentStatus
+	request := agent.RiskAssessmentRequest{
+		Proposal:     proposal,
+		RecentOutput: agent.LimitOutputContext(a.recentOutput.ContextString(), a.config.AIContextChars),
+		Target: &agent.Target{
+			Type:      "linux",
+			HostLabel: a.parsed.Target,
+			Protocol:  "ssh",
+		},
+	}
+	go func() {
+		assessments := make([]agent.RiskAssessment, 0, AlwaysYesRiskAssessmentPasses)
+		for pass := 1; pass <= AlwaysYesRiskAssessmentPasses; pass++ {
+			if pass > 1 {
+				a.events <- alwaysYesRiskProgressEvent{pass: pass, total: AlwaysYesRiskAssessmentPasses}
+			}
+			assessment, err := assessor.AssessRisk(a.ctx, request)
+			if err != nil {
+				a.events <- alwaysYesRiskEvent{proposalID: proposal.ID, assessments: assessments, err: err}
+				return
+			}
+			assessments = append(assessments, assessment)
+		}
+		a.events <- alwaysYesRiskEvent{proposalID: proposal.ID, assessments: assessments}
+	}()
+}
+
+func (a *App) finishAlwaysYesRiskAssessment(event alwaysYesRiskEvent) {
+	a.agentBusy = false
+	a.agentStatus = ""
+	if a.proposal == nil || a.proposal.ID != event.proposalID {
+		return
+	}
+	if event.err != nil {
+		a.approvalStatus = a.t("always-yes 风险复核失败，未自动批准；请手动确认：%s", event.err.Error())
+		a.focus = focusApproval
+		a.aiExpanded = true
+		a.dirty = true
+		return
+	}
+
+	highest, known := agent.NormalizeRisk(a.proposal.Risk)
+	for _, assessment := range event.assessments {
+		risk, valid := agent.NormalizeRisk(assessment.Risk)
+		if !valid {
+			known = false
+			break
+		}
+		if riskRank(risk) > riskRank(highest) {
+			highest = risk
+		}
+	}
+	if !known || len(event.assessments) != AlwaysYesRiskAssessmentPasses {
+		a.approvalStatus = a.t("always-yes 风险复核结果不完整，未自动批准；请手动确认")
+		a.focus = focusApproval
+		a.aiExpanded = true
+		a.dirty = true
+		return
+	}
+	a.proposal.Risk = highest
+	if a.inlineAI != nil && a.inlineAI.Proposal != nil && a.inlineAI.Proposal.ID == event.proposalID {
+		a.inlineAI.Proposal.Risk = highest
+	}
+	if isReviewRisk(highest) {
+		a.approvalStatus = a.t("多次风险复核判定为高风险，always-yes 未自动批准；请手动确认")
+		a.focus = focusApproval
+		a.aiExpanded = true
+		a.dirty = true
+		return
+	}
+
+	a.approvalStatus = ""
+	a.appendPersistentChat(chatMessage{
+		Role:    "system",
+		Content: a.t("always-yes 已通过 %d 次独立风险复核，正在自动批准命令。", len(event.assessments)),
+		Time:    time.Now(),
+	})
+	a.approveProposal()
+}
+
+func riskRank(value string) int {
+	risk, ok := agent.NormalizeRisk(value)
+	if !ok {
+		return -1
+	}
+	switch risk {
+	case "read_only":
+		return 0
+	case "low":
+		return 1
+	case "medium":
+		return 2
+	case "high":
+		return 3
+	case "critical":
+		return 4
+	default:
+		return -1
+	}
 }
 
 func (a *App) reanchorInlineForReview(state *inlineAIState) {

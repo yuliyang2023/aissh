@@ -125,6 +125,24 @@ func (c *Client) Stream(ctx context.Context, request Request, callbacks Callback
 	return readSSE(response.Body, callbacks)
 }
 
+// AssessRisk asks an HTTP Agent for a fresh risk-only session. It uses the
+// existing start event so compatible agents need no protocol extension.
+func (c *Client) AssessRisk(ctx context.Context, request RiskAssessmentRequest) (RiskAssessment, error) {
+	turn, err := c.Stream(ctx, Request{
+		Event:  "start",
+		Prompt: buildRiskAssessmentPrompt(request),
+		Target: request.Target,
+	}, Callbacks{})
+	if err != nil {
+		return RiskAssessment{}, err
+	}
+	return riskAssessmentFromResponse(codexResponse{
+		Type:     turn.Type,
+		Message:  turn.Message,
+		Proposal: turn.Proposal,
+	}, request.Proposal.Command)
+}
+
 func (c *Client) Action(ctx context.Context, request Request) (Turn, error) {
 	if !c.Configured() {
 		return Turn{}, fmt.Errorf("AI endpoint is not configured; set AISSH_AGENT_URL")

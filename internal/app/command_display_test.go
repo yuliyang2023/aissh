@@ -69,6 +69,7 @@ func TestRiskDisplayUsesReadableLabels(t *testing.T) {
 		"read_only": "只读",
 		"medium":    "中风险",
 		"high":      "高风险",
+		"critical":  "高风险",
 	} {
 		if got := riskDisplay(input); got != want {
 			t.Fatalf("risk %q=%q", input, got)

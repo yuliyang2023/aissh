@@ -57,6 +57,7 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 		HistoryDir:        firstNonEmpty(os.Getenv("AISSH_HISTORY_DIR"), history.DefaultDir()),
 		Workspace:         currentDirectory(),
 		WorkspaceWritable: enabledValue(os.Getenv("AISSH_WORKSPACE_WRITE")),
+		AlwaysYes:         enabledValue(os.Getenv("AISSH_ALWAYS_YES")),
 		InputDebug:        enabledValue(firstNonEmpty(os.Getenv("AISSH_INPUT_DEBUG"), inputDebug)),
 		ModelURL:          os.Getenv("AISSH_MODEL_URL"),
 		ModelAPIKey:       firstNonEmpty(os.Getenv("AISSH_MODEL_API_KEY"), os.Getenv("DEEPSEEK_API_KEY")),
@@ -139,6 +140,10 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 			config.WorkspaceWritable = true
 		case value == "--no-workspace-write":
 			config.WorkspaceWritable = false
+		case value == "--always-yes":
+			config.AlwaysYes = true
+		case value == "--no-always-yes":
+			config.AlwaysYes = false
 		case value == "--no-ai-keepalive" || value == "--no-ssh-keepalive":
 			config.SSHKeepalive = 0
 			config.DisableSSHKeepalive = true
@@ -314,6 +319,7 @@ aissh options:
   --no-history        Disable loading and saving AI history
   --workspace DIR     Local code workspace (default: current directory)
   --workspace-write   Allow Codex/Claude to modify files in the local workspace
+  --always-yes        Auto-approve non-high-risk commands after 3 independent risk reviews
   --no-workspace      Disable local workspace access for Codex/Claude
   --model-url URL     OpenAI-compatible model API base URL
   --model-name MODEL  Direct model name
@@ -368,6 +374,7 @@ aissh选项:
   --no-history        禁用 AI 历史的读取和写入
   --workspace DIR     供 Codex/Claude 使用的本机代码工作区，默认当前目录
   --workspace-write   允许 Codex/Claude 修改本机工作区文件（默认只读）
+  --always-yes        经 3 次独立风险复核后自动批准非高风险命令
   --no-workspace      禁止 Codex/Claude 访问本机工作区
   --model-url URL     OpenAI-compatible 模型 API 地址
   --model-name MODEL  直连模型名称

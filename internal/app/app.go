@@ -41,6 +41,7 @@ type Config struct {
 	HistoryDir          string
 	Workspace           string
 	WorkspaceWritable   bool
+	AlwaysYes           bool
 	InputDebug          bool
 	ModelURL            string
 	ModelAPIKey         string
@@ -58,6 +59,7 @@ const DefaultScrollbackLines = 20000
 const DefaultAIContextChars = agent.DefaultOutputContextChars
 const DefaultAITimeout = 5 * time.Minute
 const DefaultSSHKeepalive = 30 * time.Second
+const AlwaysYesRiskAssessmentPasses = 3
 
 type App struct {
 	config Config
@@ -659,6 +661,13 @@ func (a *App) handleEvent(event interface{}) {
 		a.finishAgentTurn(value.turn, value.err)
 	case agentPanelEvent:
 		a.applyPanelAction(value.action)
+	case alwaysYesRiskProgressEvent:
+		status := a.t("always-yes 正在进行风险复核（%d/%d）", value.pass, value.total)
+		a.agentStatus = status
+		a.approvalStatus = status
+		a.dirty = true
+	case alwaysYesRiskEvent:
+		a.finishAlwaysYesRiskAssessment(value)
 	case approvalEvent:
 		a.finishApproval(value)
 	case rejectionEvent:
