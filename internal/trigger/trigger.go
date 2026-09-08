@@ -33,6 +33,17 @@ func StripANSI(value string) string {
 
 func LooksLikePrompt(value string) bool {
 	plain := StripANSI(value)
+	// Only the current line can be a prompt. In particular, a line feed after
+	// an echoed command must not revive an earlier prompt-looking line.
+	if index := strings.LastIndexAny(plain, "\r\n"); index >= 0 {
+		plain = plain[index+1:]
+	}
+	trimmed := strings.TrimSpace(plain)
+	// POSIX shells use PS2 while accepting multiline commands. This includes
+	// partial command echo (e.g. "> printf ... >"), not just the bare prompt.
+	if trimmed == ">" || strings.HasPrefix(trimmed, "> ") || strings.HasPrefix(trimmed, ">\t") {
+		return false
+	}
 	return promptPattern.MatchString(plain) && !sensitivePattern.MatchString(plain)
 }
 

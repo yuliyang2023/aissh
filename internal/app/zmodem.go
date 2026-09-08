@@ -47,7 +47,7 @@ func (a *App) processSSHOutput(data []byte) {
 		return
 	}
 	if a.zmodem != nil {
-		a.handleZmodemOutput(data)
+		a.processZmodemOutput(data)
 		return
 	}
 
@@ -75,6 +75,22 @@ func (a *App) processSSHOutput(data []byte) {
 }
 
 func (a *App) processRegularSSHOutput(data []byte) {
+	if state := a.execution; state != nil && state.ExitCode == nil {
+		output, after, exitCode := state.consume(data)
+		a.processVisibleSSHOutput(output)
+		if exitCode != nil {
+			state.ExitCode = exitCode
+			// Prompt detection must only see fresh output after completion.
+			a.outputTail.value = ""
+			a.processVisibleSSHOutput(after)
+			a.submitExecutionResult()
+		}
+		return
+	}
+	a.processVisibleSSHOutput(data)
+}
+
+func (a *App) processVisibleSSHOutput(data []byte) {
 	if len(data) == 0 || a.virtual == nil {
 		return
 	}
@@ -106,6 +122,25 @@ func (a *App) enterZmodemPassthrough(data []byte) {
 	a.mouseScrollbarDrag = scrollbarDragState{}
 	a.dirty = false
 	_, _ = io.WriteString(a.outputWriter(), "\x1b[?2026l"+mouseReportingDisable+"\x1b[0m\x1b[?25h\x1b[?1049l")
+	a.processZmodemOutput(data)
+}
+
+// A transfer command can finish before passthrough's idle timer fires. Keep
+// its completion marker out of the binary channel and restore the TUI before
+// analyzing the result; otherwise the marker would be lost in raw output.
+func (a *App) processZmodemOutput(data []byte) {
+	if state := a.execution; state != nil && state.ExitCode == nil {
+		output, after, exitCode := state.consume(data)
+		a.handleZmodemOutput(output)
+		if exitCode != nil {
+			state.ExitCode = exitCode
+			a.leaveZmodemPassthrough()
+			a.outputTail.value = ""
+			a.processVisibleSSHOutput(after)
+			a.submitExecutionResult()
+		}
+		return
+	}
 	a.handleZmodemOutput(data)
 }
 

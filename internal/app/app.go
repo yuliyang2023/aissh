@@ -386,6 +386,7 @@ func (a *App) Run() error {
 			a.checkZmodemCompletion(now)
 			a.maintainAIKeepalive(now)
 			a.checkInBandMonitorTimeout(now)
+			a.submitExecutionResult()
 			a.scheduleMonitors()
 			if a.inlineAI != nil && a.agentBusy {
 				a.inlineAI.Spinner++
@@ -697,7 +698,7 @@ func (a *App) handleOutput(data []byte) {
 	plain := trigger.StripANSI(string(data))
 	a.outputTail.Append(plain)
 	a.recentOutput.Append(plain)
-	if a.execution != nil && a.execution.Output != nil {
+	if a.execution != nil && a.execution.ExitCode == nil && a.execution.Output != nil {
 		a.execution.Output.Append(plain)
 	}
 	a.sensitive = trigger.LooksSensitive(a.outputTail.String())
@@ -712,15 +713,14 @@ func (a *App) handleOutput(data []byte) {
 		}
 	}
 	a.errorCarry = errorWindow
-	if trigger.LooksLikePrompt(a.outputTail.String()) {
+	if (a.execution == nil || a.execution.ExitCode != nil) && trigger.LooksLikePrompt(a.outputTail.String()) {
 		if !a.atPrompt {
 			a.promptIdleSince = time.Now()
 		}
 		a.atPrompt = true
 		a.sensitive = false
-		if a.execution != nil {
-			a.submitExecutionResult()
-		} else if a.pendingError != nil && a.pendingError.Kind == "command_not_found" && !a.agentBusy {
+		a.resolveInlineExecutionAnchor()
+		if a.execution == nil && a.pendingError != nil && a.pendingError.Kind == "command_not_found" && !a.agentBusy {
 			match := *a.pendingError
 			command := a.lastCommand
 			go func() {

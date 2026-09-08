@@ -1,7 +1,7 @@
 package app
 
 import (
-	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -374,6 +374,10 @@ func (a *App) approveProposal() {
 func (a *App) finishApproval(event approvalEvent) {
 	a.agentBusy = false
 	a.agentStatus = ""
+	marker := ""
+	if event.err == nil {
+		marker, event.err = newExecutionMarker()
+	}
 	if event.err != nil {
 		a.appendPersistentChat(chatMessage{Role: "error", Content: a.t("批准失败：%s", event.err.Error()), Time: time.Now()})
 		a.approvalStatus = a.t("批准失败：%s", event.err.Error())
@@ -404,6 +408,7 @@ func (a *App) finishApproval(event approvalEvent) {
 		Output:     newContextBuffer(a.config.AIContextChars),
 		StartedAt:  time.Now(),
 		Inline:     inlineExecution,
+		Marker:     marker,
 	}
 	a.beginCommandOutput(event.command)
 	a.proposal = nil
@@ -413,22 +418,8 @@ func (a *App) finishApproval(event approvalEvent) {
 	a.atPrompt = false
 	a.pendingError = nil
 	a.focus = focusTerminal
-	_, _ = a.sshPTY.Write([]byte(isolateApprovedCommand(event.command)))
+	_, _ = a.sshPTY.Write([]byte(isolateApprovedCommand(event.command, marker)))
 	a.dirty = true
-}
-
-// isolateApprovedCommand keeps shell-local control flow from an AI proposal
-// inside a child shell. Remote side effects still apply, but exit, exec, cd,
-// traps, and shell options cannot terminate or mutate the outer login shell.
-func isolateApprovedCommand(command string) string {
-	return isolateApprovedCommandWithLineEnding(command, approvedCommandLineEnding())
-}
-
-func isolateApprovedCommandWithLineEnding(command, lineEnding string) string {
-	command = strings.ReplaceAll(command, "\r\n", "\n")
-	command = strings.ReplaceAll(command, "\r", "\n")
-	command = strings.ReplaceAll(command, "\n", lineEnding)
-	return "(" + lineEnding + command + lineEnding + ")\r"
 }
 
 func (a *App) rejectProposal() {
@@ -499,7 +490,7 @@ func (a *App) proposalConversationContent(proposal agent.Proposal) string {
 
 func (a *App) submitExecutionResult() {
 	execution := a.execution
-	if execution == nil || a.agentBusy {
+	if execution == nil || execution.ExitCode == nil || a.agentBusy {
 		return
 	}
 	a.execution = nil
@@ -517,7 +508,7 @@ func (a *App) submitExecutionResult() {
 		SessionID:  execution.SessionID,
 		ProposalID: execution.ProposalID,
 		Output:     output,
-		Completion: "prompt",
+		Completion: fmt.Sprintf("exit_status=%d", *execution.ExitCode),
 		SystemContext: map[string]string{
 			"ui_language":       a.localizer.Language(),
 			"response_language": firstText(a.agentLanguage, a.localizer.Language()),
@@ -532,7 +523,7 @@ func (a *App) submitExecutionResult() {
 				a.events <- agentPanelEvent{action: value}
 			},
 		}
-		turn, err := a.agent.Stream(context.Background(), request, callbacks)
+		turn, err := a.agent.Stream(a.ctx, request, callbacks)
 		a.events <- executionResultEvent{turn: turn, err: err}
 	}()
 }
@@ -547,12 +538,13 @@ func (a *App) startInlineExecutionAnalysis(command string) {
 		anchorX, anchorY = cursor.X, cursor.Y
 	}
 	a.inlineAI = &inlineAIState{
-		Prompt:       a.t("AI 复核命令：%s", strings.TrimSpace(command)),
-		AnchorX:      anchorX,
-		AnchorY:      anchorY,
-		Status:       a.t("正在分析命令执行结果"),
-		StatusPrefix: a.t("分析命令结果"),
-		Started:      time.Now(),
+		Prompt:         a.t("AI 复核命令：%s", strings.TrimSpace(command)),
+		AnchorX:        anchorX,
+		AnchorY:        anchorY,
+		AwaitingPrompt: !a.atPrompt,
+		Status:         a.t("正在分析命令执行结果"),
+		StatusPrefix:   a.t("分析命令结果"),
+		Started:        time.Now(),
 	}
 	a.agentInline = a.inlineAI
 	a.focus = focusTerminal

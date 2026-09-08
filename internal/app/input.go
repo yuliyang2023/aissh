@@ -612,7 +612,7 @@ func (a *App) captureLineAnchor() {
 // so use that visible state before deciding whether Chinese input belongs to
 // the inline AI.
 func (a *App) refreshPromptFromScreen() {
-	if a.atPrompt || a.virtual == nil {
+	if a.atPrompt || a.virtual == nil || a.execution != nil {
 		return
 	}
 

@@ -42,7 +42,7 @@ func (b *rollingBuffer) Append(value string) {
 	}
 }
 
-func (b *rollingBuffer) String() string { return strings.TrimSpace(b.value) }
+func (b *rollingBuffer) String() string { return b.value }
 
 func (b *contextBuffer) Append(value string) {
 	if value == "" {
@@ -121,6 +121,9 @@ func (b *contextBuffer) Reset() {
 }
 
 func (a *App) beginCommandOutput(command string) {
+	// A mode change or a split PTY read can arrive before any command echo.
+	// Do not let the previous prompt complete the new execution in that gap.
+	a.outputTail.value = ""
 	if a.recentOutput == nil {
 		a.recentOutput = newContextBuffer(a.config.AIContextChars)
 	} else {

@@ -201,16 +201,16 @@ func TestYesExecutesProposalThroughIsolatedShellOnExistingSSHPTY(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("approval action timed out")
 	}
-	buffer := make([]byte, 256)
-	count, err := reader.Read(buffer)
+	if application.execution == nil || application.execution.Command != command {
+		t.Fatalf("execution did not preserve original command: %#v", application.execution)
+	}
+	_ = writer.Close()
+	written, err := io.ReadAll(reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(buffer[:count]), "(\n"+command+"\n)\r"; got != want {
-		t.Fatalf("ssh input = %q", got)
-	}
-	if application.execution == nil || application.execution.Command != command {
-		t.Fatalf("execution did not preserve original command: %#v", application.execution)
+	if want := isolateApprovedCommand(command, application.execution.Marker); string(written) != want {
+		t.Fatalf("ssh input = %q, want %q", written, want)
 	}
 	conversation := strings.Join(application.aiLines(60), "\n")
 	if !strings.Contains(conversation, "已批准执行命令：") || !strings.Contains(conversation, "exit 2") || !strings.Contains(conversation, "strace -V") {
@@ -257,13 +257,13 @@ func TestAlwaysYesRunsNonHighRiskCommandAfterThreeReviews(t *testing.T) {
 	if application.execution.Command != "uptime" {
 		t.Fatalf("execution=%#v", application.execution)
 	}
-	buffer := make([]byte, 64)
-	count, err := reader.Read(buffer)
+	_ = writer.Close()
+	written, err := io.ReadAll(reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(buffer[:count]), "(\nuptime\n)\r"; got != want {
-		t.Fatalf("ssh input=%q want=%q", got, want)
+	if want := isolateApprovedCommand("uptime", application.execution.Marker); string(written) != want {
+		t.Fatalf("ssh input=%q want=%q", written, want)
 	}
 	conversation := strings.Join(application.aiLines(120), "\n")
 	if !strings.Contains(conversation, "通过 3 次独立风险复核") {
@@ -361,17 +361,12 @@ func TestAlwaysYesFallsBackToManualWhenRiskReviewFails(t *testing.T) {
 	}
 }
 
-func TestIsolateApprovedCommandProtectsOuterLoginShell(t *testing.T) {
-	command := "printf 'missing\\n'\nexit 1"
-	if got, want := isolateApprovedCommand(command), "(\nprintf 'missing\\n'\nexit 1\n)\r"; got != want {
-		t.Fatalf("isolated command = %q, want %q", got, want)
-	}
-}
-
 func TestIsolateApprovedCommandUsesWindowsEnterForEveryLine(t *testing.T) {
 	command := "printf 'one\\n'\r\nprintf 'two\\n'\nexit 1"
-	if got, want := isolateApprovedCommandWithLineEnding(command, "\r"), "(\rprintf 'one\\n'\rprintf 'two\\n'\rexit 1\r)\r"; got != want {
-		t.Fatalf("Windows isolated command = %q, want %q", got, want)
+	windows := isolateApprovedCommandWithLineEnding(command, "test", "\r")
+	unix := isolateApprovedCommandWithLineEnding(command, "test", "\n")
+	if strings.Contains(windows, "\n") || strings.ReplaceAll(windows, "\r", "\n") != strings.ReplaceAll(unix, "\r", "\n") {
+		t.Fatalf("inconsistent line endings: Windows=%q Unix=%q", windows, unix)
 	}
 }
 
@@ -958,9 +953,9 @@ func TestInlineCommandShowsLoadingWhileAIAnalyzesExecutionResult(t *testing.T) {
 	application.agent = provider
 	resultOutput := newContextBuffer(application.config.AIContextChars)
 	resultOutput.Append("load average: 0.1")
-	application.execution = &executionState{Command: "uptime", Output: resultOutput, StartedAt: time.Now(), Inline: true}
+	application.execution = &executionState{Command: "uptime", Output: resultOutput, StartedAt: time.Now(), Inline: true, Marker: "test"}
 
-	application.handleOutput([]byte("root@server:~# "))
+	application.processSSHOutput([]byte(executionMarkerPrefix("test") + "0\aroot@server:~# "))
 	select {
 	case <-provider.started:
 	case <-time.After(time.Second):
@@ -992,6 +987,58 @@ func TestInlineCommandShowsLoadingWhileAIAnalyzesExecutionResult(t *testing.T) {
 	}
 	if application.inlineAI == nil || !application.inlineAI.Done || application.inlineAI.Response != "命令执行成功，结果正常。" {
 		t.Fatalf("inline result=%#v", application.inlineAI)
+	}
+}
+
+func TestInlineExecutionAnalysisAppearsAfterCompletedOutput(t *testing.T) {
+	application, err := New(Config{SSHArgs: []string{"server"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application.mainCols = 48
+	application.contentRows = 12
+	application.rows = 14
+	application.virtual = vt10x.New(vt10x.WithSize(application.mainCols, application.contentRows))
+	application.processRegularSSHOutput([]byte("root@server:~# "))
+	provider := executionAnalysisProvider{started: make(chan struct{}), release: make(chan struct{})}
+	application.agent = provider
+	defer close(provider.release)
+	application.beginCommandOutput("printf 'done\\n'")
+	application.atPrompt = false
+	execution := &executionState{Command: "printf 'done\\n'", Output: newContextBuffer(4096), Inline: true, Marker: "test"}
+	application.execution = execution
+
+	// Each read can end at PS2, in a redirection, or just after a terminal mode
+	// change. None of these means the isolated command has finished.
+	chunks := []string{
+		"\x1b[?2004l", "(\r\n> ",
+		"printf '" + strings.Repeat("x", 120) + "' > ",
+		"/dev/null\r\n> ", ")\r\n", "done\r\n",
+	}
+	for index, chunk := range chunks {
+		application.processRegularSSHOutput([]byte(chunk))
+		application.refreshPromptFromScreen()
+		if application.execution != execution || application.inlineAI != nil || application.atPrompt {
+			t.Fatalf("chunk %d started analysis before the primary prompt: execution=%v inline=%#v atPrompt=%v", index, application.execution != nil, application.inlineAI, application.atPrompt)
+		}
+	}
+	application.processRegularSSHOutput([]byte(executionMarkerPrefix("test") + "0\aroot@server:~# "))
+	select {
+	case <-provider.started:
+	case <-time.After(time.Second):
+		t.Fatal("analysis did not start at the final shell prompt")
+	}
+	if application.inlineAI == nil || application.inlineAI.AnchorY != application.virtual.Cursor().Y {
+		t.Fatalf("analysis is not anchored after the command output: %#v", application.inlineAI)
+	}
+	if output := execution.Output.ContextString(); !strings.Contains(output, "done") {
+		t.Fatalf("analysis missed the final command output: %q", output)
+	}
+	frame, _, _ := application.renderTerminalWorkspace()
+	outputAt := strings.Index(frame, "done")
+	analysisAt := strings.Index(frame, "AI 复核命令")
+	if outputAt < 0 || analysisAt <= outputAt {
+		t.Fatalf("analysis was rendered before the final command output: %q", frame)
 	}
 }
 

@@ -93,12 +93,16 @@ type executionState struct {
 	Output     *contextBuffer
 	StartedAt  time.Time
 	Inline     bool
+	Marker     string
+	Pending    []byte
+	ExitCode   *int
 }
 
 type inlineAIState struct {
 	Prompt          string
 	AnchorX         int
 	AnchorY         int
+	AwaitingPrompt  bool
 	Status          string
 	StatusPrefix    string
 	Response        string

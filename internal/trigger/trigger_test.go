@@ -28,3 +28,22 @@ func TestPromptAndError(t *testing.T) {
 		t.Fatalf("message = %q", match.Message)
 	}
 }
+
+func TestPromptRequiresCurrentPrimaryPrompt(t *testing.T) {
+	for _, value := range []string{
+		"> ", "(\r\n> ", "> printf 'ok' > ", "> printf '$", ">\tprintf '%",
+		"root@host:~# \r\n", "root@host:~# \r\n\x1b[?2004l", "Password: ",
+	} {
+		if LooksLikePrompt(value) {
+			t.Errorf("continuation or old line treated as primary prompt: %q", value)
+		}
+	}
+	for _, value := range []string{
+		"root@host:~# ", "output\r\nuser@host:~$ ", "\x1b[32mhost% \x1b[0m",
+		"PS C:\\Users\\user> ", "C:\\Users\\user> ", "prompt> ",
+	} {
+		if !LooksLikePrompt(value) {
+			t.Errorf("primary prompt not detected: %q", value)
+		}
+	}
+}

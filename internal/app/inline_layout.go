@@ -257,6 +257,19 @@ func (a *App) inlineBlocks() []*inlineAIState {
 	return blocks
 }
 
+// Command completion and the next shell prompt can arrive in separate reads.
+// Keep the review beside that prompt even if analysis started in the gap.
+func (a *App) resolveInlineExecutionAnchor() {
+	state := a.inlineAI
+	if state == nil || !state.AwaitingPrompt || a.virtual == nil {
+		return
+	}
+	cursor := a.virtual.Cursor()
+	state.AnchorX, state.AnchorY = cursor.X, cursor.Y
+	state.AwaitingPrompt = false
+	a.terminalRows = nil
+}
+
 func (a *App) scrollInlineBlocks(lines int) {
 	if lines <= 0 {
 		return
