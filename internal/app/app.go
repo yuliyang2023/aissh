@@ -155,6 +155,7 @@ type App struct {
 	mouseReporting        bool
 	mouseScrollbarDrag    scrollbarDragState
 	clearCarry            []byte
+	terminalResizePending bool
 	terminalRows          map[int]string
 	terminalHistory       []terminalview.Line
 	terminalScroll        int
@@ -573,13 +574,21 @@ func (a *App) applyPaneLayout() {
 			a.mainCols = a.cols - 34
 		}
 	}
-	if previousMainCols != a.mainCols {
+	resized := previousMainCols != a.mainCols
+	if a.virtual != nil {
+		cols, rows := a.virtual.Size()
+		resized = cols != a.mainCols || rows != a.contentRows
+		if resized {
+			// ConPTY can clear and repaint after a resize. That repaint must
+			// not erase AI output owned by the local UI.
+			a.terminalResizePending = true
+			a.virtual.Resize(a.mainCols, a.contentRows)
+		}
+	}
+	if resized {
 		a.terminalRows = nil
 	}
-	if a.virtual != nil {
-		a.virtual.Resize(a.mainCols, a.contentRows)
-	}
-	if a.sshPTY != nil {
+	if resized && a.sshPTY != nil {
 		resizeSSHSession(a.sshPTY, a.contentRows, a.mainCols)
 	}
 }
@@ -603,7 +612,12 @@ func (a *App) toggleSidebar() {
 	}
 	a.sidebarCollapsed = !a.sidebarCollapsed
 	if a.sidebarCollapsed {
-		a.focus = focusTerminal
+		a.mirrorActiveAIInline()
+		if a.proposal == nil {
+			a.focus = focusTerminal
+		} else {
+			a.focus = focusApproval
+		}
 	}
 	a.applyPaneLayout()
 	a.dirty = true

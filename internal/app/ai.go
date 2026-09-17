@@ -56,6 +56,10 @@ func (a *App) startAI(prompt string, foreground bool) {
 		a.chat = append(a.chat, chatMessage{Role: "system", Content: a.t("AI 正在处理上一个请求。"), Time: time.Now()})
 		return
 	}
+	if foreground && a.sidebarCollapsed && !a.compact {
+		a.startInlineAI(prompt, prompt, true)
+		return
+	}
 	if foreground && a.inlineAI != nil {
 		a.archiveInlineAI()
 	}
@@ -98,6 +102,42 @@ func (a *App) startAI(prompt string, foreground bool) {
 		request.SystemContext["conversation_history"] = a.agentSeedContext
 	}
 	go a.runAgentStream(request, true)
+}
+
+// Keep an in-flight sidebar conversation visible when its pane is hidden.
+// Reuse the existing request and streamed text so subsequent events update
+// both surfaces without starting another AI turn.
+func (a *App) mirrorActiveAIInline() {
+	if !a.agentBusy || a.agentInline != nil || a.proposal != nil || a.execution != nil {
+		return
+	}
+	var prompt, response string
+	var started time.Time
+	for index := len(a.chat) - 1; index >= 0; index-- {
+		message := a.chat[index]
+		if message.Role == "user" {
+			prompt, started = message.Content, message.Time
+			break
+		}
+		if message.Role == "assistant_stream" {
+			response = message.Content + response
+		}
+	}
+	if prompt == "" {
+		return
+	}
+	if started.IsZero() {
+		started = time.Now()
+	}
+	a.archiveInlineAI()
+	state := &inlineAIState{Prompt: prompt, Response: response, Status: a.agentStatus, Started: started}
+	if a.virtual != nil {
+		cursor := a.virtual.Cursor()
+		state.AnchorX, state.AnchorY = cursor.X, cursor.Y
+	}
+	a.inlineAI, a.agentInline = state, state
+	a.terminalScroll = 0
+	a.terminalRows = nil
 }
 
 func (a *App) runAgentStream(request agent.Request, retrySession bool) {
@@ -494,7 +534,7 @@ func (a *App) submitExecutionResult() {
 		return
 	}
 	a.execution = nil
-	if execution.Inline {
+	if execution.Inline || !a.sidebarVisible() {
 		a.startInlineExecutionAnalysis(execution.Command)
 	}
 	a.agentBusy = true

@@ -284,7 +284,7 @@ func (a *App) scrollInlineBlocks(lines int) {
 	a.inlineHistory = kept
 	if a.inlineAI != nil {
 		a.inlineAI.AnchorY -= lines
-		if a.inlineAI.AnchorY < 0 && !a.agentBusy && a.proposal == nil {
+		if a.inlineAI.AnchorY < 0 && !a.agentBusy && a.proposal == nil && !a.terminalResizePending {
 			a.inlineAI = nil
 		}
 	}

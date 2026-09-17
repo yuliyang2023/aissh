@@ -121,6 +121,7 @@ func (b *contextBuffer) Reset() {
 }
 
 func (a *App) beginCommandOutput(command string) {
+	a.terminalResizePending = false
 	// A mode change or a split PTY read can arrive before any command echo.
 	// Do not let the previous prompt complete the new execution in that gap.
 	a.outputTail.value = ""

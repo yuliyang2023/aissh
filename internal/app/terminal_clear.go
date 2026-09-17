@@ -14,6 +14,7 @@ var terminalClearSequences = [][]byte{
 // clearInlineTerminalOutput removes only the AI blocks inserted into the SSH
 // viewport. The synchronized conversation in the right pane remains intact.
 func (a *App) clearInlineTerminalOutput() {
+	a.terminalResizePending = false
 	a.inlineAI = nil
 	a.inlineHistory = nil
 	a.terminalRows = nil
@@ -43,7 +44,17 @@ func (a *App) observeTerminalClear(data []byte) bool {
 		a.clearCarry = append(a.clearCarry[:0], window...)
 	}
 	if cleared {
-		a.clearInlineTerminalOutput()
+		if a.terminalResizePending {
+			// A resize repaint may span several reads. Preserve local blocks
+			// until the next shell command; locally captured AI input can race
+			// the repaint. Explicit clear/Ctrl+L still clears blocks directly.
+			a.terminalRows = nil
+			if a.inlineAI != nil {
+				a.inlineAI.AwaitingPrompt = true
+			}
+		} else {
+			a.clearInlineTerminalOutput()
+		}
 	}
 	return cleared
 }

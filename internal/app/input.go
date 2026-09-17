@@ -397,6 +397,7 @@ func (a *App) finishTerminalPaste(payload []byte) bool {
 	a.aiLineCapture = false
 	a.terminalKeyCarry = nil
 	if a.sshPTY != nil {
+		a.terminalResizePending = false
 		_, _ = a.sshPTY.Write(terminalPasteStart)
 		_, _ = a.sshPTY.Write(payload)
 		_, _ = a.sshPTY.Write(terminalPasteEnd)
