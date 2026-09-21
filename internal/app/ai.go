@@ -73,6 +73,7 @@ func (a *App) startAI(prompt string, foreground bool) {
 	a.appendPersistentChat(chatMessage{Role: "user", Content: prompt, Time: time.Now()})
 	a.aiScroll = 0
 	a.agentBusy = true
+	a.aiNotice = ""
 	a.agentStatus = a.t("正在连接 AI")
 	a.agentThought = ""
 	a.agentLanguage = app_i18n.PreferredResponseLanguage(prompt, a.localizer.Language())
@@ -166,6 +167,7 @@ func (a *App) appendAssistantDelta(content string) {
 }
 
 func (a *App) finishAgentTurn(turn agent.Turn, err error) {
+	defer a.notifyAgentTurn(turn, err)
 	inline := a.agentInline
 	a.agentInline = nil
 	a.agentBusy = false
@@ -307,6 +309,11 @@ func (a *App) startAlwaysYesRiskAssessment(proposal agent.Proposal) {
 }
 
 func (a *App) finishAlwaysYesRiskAssessment(event alwaysYesRiskEvent) {
+	defer func() {
+		if a.proposal != nil && a.proposal.ID == event.proposalID {
+			a.notifyAgentTurn(agent.Turn{Proposal: a.proposal}, nil)
+		}
+	}()
 	a.agentBusy = false
 	a.agentStatus = ""
 	if a.proposal == nil || a.proposal.ID != event.proposalID {
@@ -538,6 +545,7 @@ func (a *App) submitExecutionResult() {
 		a.startInlineExecutionAnalysis(execution.Command)
 	}
 	a.agentBusy = true
+	a.aiNotice = ""
 	a.agentStatus = a.t("AI 正在分析执行结果")
 	output := ""
 	if execution.Output != nil {

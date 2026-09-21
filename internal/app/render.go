@@ -702,6 +702,9 @@ func positionedLine(row, col int, value string, width int, style string) string 
 
 func (a *App) statusLine(width int) string {
 	status := a.inputStatus()
+	if a.aiNotice != "" && !a.agentBusy && a.execution == nil {
+		status = a.aiNotice + " · " + status
+	}
 	version := strings.TrimSpace(a.config.Version)
 	if version == "" {
 		return status

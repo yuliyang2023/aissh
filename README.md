@@ -53,6 +53,11 @@ Chinese questions can be entered directly. For English and other languages, use 
 The left pane is optimized for handling the issue at hand. The bottom-right conversation keeps the full context,
 history, and review trail. Both views stay synchronized.
 
+On Windows, AI responses (including reviews of command results) trigger a desktop notification and a system sound.
+The status bar also keeps a completion notice until your next input. Command approvals, requests for more information,
+and failures have distinct alerts. Ongoing `--always-yes` reviews and execution do not trigger premature completion alerts.
+Desktop notifications and sounds follow your Windows notification and sound settings.
+
 ### ⚡ Proactive failure analysis
 
 When common errors such as `command not found` appear, `aissh` can automatically analyze the failed command together

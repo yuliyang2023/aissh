@@ -1,0 +1,174 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"io"
+	"strings"
+	"testing"
+	"time"
+
+	"git.example.com/ai/wrd-ai-cli/internal/agent"
+)
+
+func TestAICompletionNotifiesOnceAfterStreamingOnEverySurface(t *testing.T) {
+	for _, surface := range []string{"sidebar", "inline", "collapsed", "execution"} {
+		t.Run(surface, func(t *testing.T) {
+			a, err := New(Config{SSHArgs: []string{"server"}, Language: "zh"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(a.cancel)
+			a.screenOut = io.Discard
+			a.agentBusy = true
+			a.sidebarCollapsed = surface == "collapsed"
+			if surface == "inline" || surface == "collapsed" || surface == "execution" {
+				a.inlineAI = &inlineAIState{Prompt: "检查服务"}
+				a.agentInline = a.inlineAI
+			}
+			calls := 0
+			a.notifyAI = func(title, message string) {
+				calls++
+				if title != "aissh · AI 已完成" || !strings.HasPrefix(message, "server\n") {
+					t.Fatalf("notification=%q %q", title, message)
+				}
+				if strings.Contains(message, "private answer") {
+					t.Fatal("desktop notification exposed the AI answer")
+				}
+				if a.agentBusy || (a.inlineAI != nil && !a.inlineAI.Done) {
+					t.Fatal("notified before the result was ready")
+				}
+			}
+			a.handleEvent(agentStatusEvent{status: "thinking"})
+			a.handleEvent(agentThoughtEvent{content: "analysis"})
+			a.handleEvent(agentAnswerEvent{content: "private answer"})
+			if calls != 0 {
+				t.Fatal("streaming triggered an early notification")
+			}
+			turn := agent.Turn{Type: "finished", Message: "private answer"}
+			if surface == "execution" {
+				a.handleEvent(executionResultEvent{turn: turn})
+			} else {
+				a.handleEvent(agentTurnEvent{turn: turn})
+			}
+			if calls != 1 || !strings.HasPrefix(a.statusLine(100), "AI 已完成 · ") {
+				t.Fatalf("calls=%d status=%q", calls, a.statusLine(100))
+			}
+			a.handleEvent(agentStatusEvent{status: ""})
+			if calls != 1 {
+				t.Fatal("status update repeated the notification")
+			}
+			a.handleInput([]byte{0x1d}) // A local shortcut acknowledges the notice.
+			if a.aiNotice != "" || !a.dirty {
+				t.Fatal("input did not dismiss and redraw the status notice")
+			}
+		})
+	}
+}
+
+func TestAITurnNotificationDistinguishesOutcomes(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		turn agent.Turn
+		err  error
+		want string
+	}{
+		{"finished", agent.Turn{Type: "finished"}, nil, "AI finished"},
+		{"approval", agent.Turn{Proposal: &agent.Proposal{ID: "p1", Command: "uptime"}}, nil, "AI awaiting command approval"},
+		{"question", agent.Turn{Type: "ask_user"}, nil, "AI awaiting your reply"},
+		{"transport error", agent.Turn{}, errors.New("offline"), "AI request failed"},
+		{"provider error", agent.Turn{Error: "failed"}, nil, "AI request failed"},
+		{"failed turn", agent.Turn{Type: "failed"}, nil, "AI request failed"},
+		{"timeout", agent.Turn{}, context.DeadlineExceeded, "AI request failed"},
+		{"canceled", agent.Turn{}, context.Canceled, ""},
+		{"approved", agent.Turn{Type: "approved"}, nil, ""},
+		{"rejected", agent.Turn{Type: "rejected"}, nil, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			a, err := New(Config{SSHArgs: []string{"server"}, Language: "en"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(a.cancel)
+			var titles []string
+			a.notifyAI = func(title, _ string) { titles = append(titles, title) }
+			a.agentBusy = true
+			a.handleEvent(agentTurnEvent{turn: test.turn, err: test.err})
+			if test.want == "" {
+				if len(titles) != 0 || a.aiNotice != "" {
+					t.Fatalf("unexpected notification: %q", titles)
+				}
+			} else if len(titles) != 1 || titles[0] != "aissh · "+test.want || a.aiNotice != test.want {
+				t.Fatalf("titles=%q status=%q, want %q", titles, a.aiNotice, test.want)
+			}
+		})
+	}
+}
+
+func TestAlwaysYesNotificationWaitsForReviewOutcome(t *testing.T) {
+	for _, risk := range []string{"read_only", "high", "error"} {
+		t.Run(risk, func(t *testing.T) {
+			a, err := New(Config{SSHArgs: []string{"server"}, AlwaysYes: true, Language: "en"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(a.cancel)
+			provider := &alwaysYesTestProvider{risks: []string{risk}}
+			if risk == "error" {
+				provider.errAt = 1
+			}
+			a.agent = provider
+			a.atPrompt = true
+			var titles []string
+			a.notifyAI = func(title, _ string) { titles = append(titles, title) }
+			a.finishAgentTurn(agent.Turn{Proposal: &agent.Proposal{ID: "p1", Command: "uptime", Risk: "read_only"}}, nil)
+			if !a.agentBusy || len(titles) != 0 {
+				t.Fatal("notification interrupted an automatic risk review")
+			}
+			deadline := time.After(time.Second)
+			for {
+				select {
+				case event := <-a.events:
+					a.handleEvent(event)
+					if _, done := event.(alwaysYesRiskEvent); !done {
+						continue
+					}
+					if risk == "read_only" {
+						if !a.agentBusy || len(titles) != 0 {
+							t.Fatal("automatic approval triggered a premature notification")
+						}
+					} else if a.agentBusy || len(titles) != 1 || titles[0] != "aissh · AI awaiting command approval" {
+						t.Fatalf("manual approval did not notify: %q", titles)
+					}
+					return
+				case <-deadline:
+					t.Fatal("risk review did not finish")
+				}
+			}
+		})
+	}
+}
+
+func TestAICompletionDoesNotNotifyDuringShutdownOrExecution(t *testing.T) {
+	for _, state := range []string{"shutdown", "execution", "disabled"} {
+		t.Run(state, func(t *testing.T) {
+			a, err := New(Config{SSHArgs: []string{"server"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(a.cancel)
+			if state != "disabled" {
+				a.notifyAI = func(string, string) { t.Fatal("unexpected notification") }
+			}
+			if state == "shutdown" {
+				a.cancel()
+			} else if state == "execution" {
+				a.execution = &executionState{}
+			}
+			a.finishAgentTurn(agent.Turn{Type: "finished"}, nil)
+			if a.aiNotice != "" {
+				t.Fatalf("unexpected notice: %q", a.aiNotice)
+			}
+		})
+	}
+}

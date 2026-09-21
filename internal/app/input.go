@@ -29,6 +29,10 @@ func (a *App) handleInput(data []byte) {
 	if len(data) == 0 {
 		return
 	}
+	if a.aiNotice != "" {
+		a.aiNotice = ""
+		a.dirty = true
+	}
 	if a.inBandMonitor != nil {
 		a.inBandMonitor.pendingInput = append(a.inBandMonitor.pendingInput, data...)
 		return

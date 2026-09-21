@@ -133,6 +133,8 @@ type App struct {
 	agentSessionID        string
 	agentStatus           string
 	agentThought          string
+	notifyAI              func(title, message string)
+	aiNotice              string
 	agentLanguage         string
 	agentSeedContext      string
 	promptIdleSince       time.Time
@@ -368,6 +370,7 @@ func (a *App) Run() error {
 		}
 	}()
 	_, _ = io.WriteString(os.Stdout, "\x1b[?1049h\x1b[2J\x1b[H"+bracketedPasteEnable+mouseReportingDisable)
+	a.notifyAI = newAINotifier(a.ctx)
 
 	a.startInputReader()
 	a.startSignalReader()
