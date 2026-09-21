@@ -309,7 +309,7 @@ bin/aissh --no-workspace production
 # 切换界面语言
 bin/aissh --lang en production
 
-# 调整 AI 请求超时
+# 调整 AI 请求超时（默认 30 分钟）
 bin/aissh --ai-timeout 10m production
 
 # 调整 OpenSSH 传输层保活间隔（默认 30 秒，不会产生终端输入）

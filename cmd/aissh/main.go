@@ -325,7 +325,7 @@ aissh options:
   --model-name MODEL  Direct model name
   --scrollback-lines N SSH scrollback lines kept locally (default: 20000)
   --ai-context-chars N Maximum SSH output characters sent to AI (default: 120000)
-  --ai-timeout DURATION AI request timeout; e.g. 30s, 5m, 1h; bare number = seconds (default: 5m)
+  --ai-timeout DURATION AI request timeout; e.g. 30s, 5m, 1h; bare number = seconds (default: 30m)
   --ssh-keepalive DURATION OpenSSH transport keepalive interval (default: 30s; use off to disable)
   --shell-tmout DURATION Remote shell TMOUT; send an empty line near expiry only while AI runs (default: off)
   --ai-keepalive DURATION Legacy alias for --ssh-keepalive
@@ -380,7 +380,7 @@ aissh选项:
   --model-name MODEL  直连模型名称
   --scrollback-lines N 本机保留的 SSH 回滚行数，默认 20000
   --ai-context-chars N 每次交给 AI 的 SSH 输出字符上限，默认 120000
-  --ai-timeout DURATION AI 请求超时；如 30s、5m、1h；纯数字按秒（默认 5m）
+  --ai-timeout DURATION AI 请求超时；如 30s、5m、1h；纯数字按秒（默认 30m）
   --ssh-keepalive DURATION OpenSSH 传输层保活间隔（默认 30s；off 可关闭）
   --shell-tmout DURATION 远端 Shell 的 TMOUT；仅在 AI 执行且临近超时时发送空行（默认关闭）
   --ai-keepalive DURATION --ssh-keepalive 的兼容别名

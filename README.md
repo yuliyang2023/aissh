@@ -326,7 +326,7 @@ bin/aissh --no-workspace production
 # Select the interface language
 bin/aissh --lang zh-CN production
 
-# Increase the AI request timeout
+# Change the AI request timeout (default: 30m)
 bin/aissh --ai-timeout 10m production
 
 # Change the OpenSSH transport keepalive interval (default: 30s; no terminal input)

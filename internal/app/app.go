@@ -57,7 +57,7 @@ type Config struct {
 const terminalFrameInterval = time.Second / 30
 const DefaultScrollbackLines = 20000
 const DefaultAIContextChars = agent.DefaultOutputContextChars
-const DefaultAITimeout = 5 * time.Minute
+const DefaultAITimeout = 30 * time.Minute
 const DefaultSSHKeepalive = 30 * time.Second
 const AlwaysYesRiskAssessmentPasses = 3
 
