@@ -156,6 +156,7 @@ type App struct {
 	mouseScrollbarDrag    scrollbarDragState
 	clearCarry            []byte
 	terminalResizePending bool
+	terminalResizeAnchors map[*inlineAIState]inlineResizeAnchor
 	terminalRows          map[int]string
 	terminalHistory       []terminalview.Line
 	terminalScroll        int
@@ -582,6 +583,7 @@ func (a *App) applyPaneLayout() {
 			// ConPTY can clear and repaint after a resize. That repaint must
 			// not erase AI output owned by the local UI.
 			a.terminalResizePending = true
+			a.captureInlineResizeAnchors()
 			a.virtual.Resize(a.mainCols, a.contentRows)
 		}
 	}

@@ -94,11 +94,13 @@ func (a *App) processVisibleSSHOutput(data []byte) {
 	if len(data) == 0 || a.virtual == nil {
 		return
 	}
+	a.captureInlineResizeAnchors()
 	tokens := a.transformer.TransformTokens(data)
 	historyLines := a.writeTerminalOutput(tokens)
 	scrolls := len(historyLines)
 	a.appendTerminalHistory(historyLines)
 	a.scrollInlineBlocks(scrolls)
+	a.resolveInlineResizeAnchors()
 	a.handleOutput(data)
 	a.flushDeferredMonitorInput()
 }

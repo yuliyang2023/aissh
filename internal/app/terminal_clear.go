@@ -15,6 +15,7 @@ var terminalClearSequences = [][]byte{
 // viewport. The synchronized conversation in the right pane remains intact.
 func (a *App) clearInlineTerminalOutput() {
 	a.terminalResizePending = false
+	a.terminalResizeAnchors = nil
 	a.inlineAI = nil
 	a.inlineHistory = nil
 	a.terminalRows = nil
@@ -49,9 +50,6 @@ func (a *App) observeTerminalClear(data []byte) bool {
 			// until the next shell command; locally captured AI input can race
 			// the repaint. Explicit clear/Ctrl+L still clears blocks directly.
 			a.terminalRows = nil
-			if a.inlineAI != nil {
-				a.inlineAI.AwaitingPrompt = true
-			}
 		} else {
 			a.clearInlineTerminalOutput()
 		}

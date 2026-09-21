@@ -271,7 +271,9 @@ func (a *App) resolveInlineExecutionAnchor() {
 }
 
 func (a *App) scrollInlineBlocks(lines int) {
-	if lines <= 0 {
+	if lines <= 0 || (a.terminalResizePending && len(a.terminalResizeAnchors) > 0) {
+		// Resize repaint scrolling belongs to the remote screen, not the
+		// local conversation. Restore its saved offsets at the new prompt.
 		return
 	}
 	kept := a.inlineHistory[:0]
@@ -284,7 +286,7 @@ func (a *App) scrollInlineBlocks(lines int) {
 	a.inlineHistory = kept
 	if a.inlineAI != nil {
 		a.inlineAI.AnchorY -= lines
-		if a.inlineAI.AnchorY < 0 && !a.agentBusy && a.proposal == nil && !a.terminalResizePending {
+		if a.inlineAI.AnchorY < 0 && !a.agentBusy && a.proposal == nil {
 			a.inlineAI = nil
 		}
 	}
