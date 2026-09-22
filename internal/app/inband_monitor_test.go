@@ -145,6 +145,46 @@ func TestInputWaitsForActiveInBandMonitor(t *testing.T) {
 	}
 }
 
+func TestInBandMonitorDoesNotBlockLocalEditor(t *testing.T) {
+	for _, timedOut := range []bool{false, true} {
+		t.Run(fmt.Sprint(timedOut), func(t *testing.T) {
+			a, terminal := newMonitorTestApp(t)
+			a.scheduleMonitors()
+			terminal.Reset()
+			if timedOut {
+				a.checkInBandMonitorTimeout(time.Now().Add(time.Hour))
+			}
+			a.focus = focusAI
+			a.handleInput([]byte("检查服务器"))
+			a.handleInput([]byte("\x1b[D\x7f"))
+			if got := string(a.editor); got != "检查服器" {
+				t.Fatalf("local editor blocked by monitoring: %q", got)
+			}
+			if terminal.Len() != 0 || len(a.monitorDeferredInput) != 0 {
+				t.Fatal("local editing leaked into remote input")
+			}
+		})
+	}
+}
+
+func TestInBandMonitorAllowsMouseFocusAndKeepsQueuedInputInTerminal(t *testing.T) {
+	a, terminal := newMonitorTestApp(t)
+	a.scheduleMonitors()
+	marker := a.inBandMonitor.marker
+	terminal.Reset()
+	a.handleInput([]byte("date\r"))
+	top, left, _, height := a.aiRegion()
+	a.handleInput([]byte(fmt.Sprintf("\x1b[<0;%d;%dM", left+3, top+height-1)))
+	a.handleInput([]byte("正在编辑"))
+	if a.focus != focusAI || string(a.editor) != "正在编辑" {
+		t.Fatal("monitor blocked clicking or typing in the AI editor")
+	}
+	a.processSSHOutput([]byte(marker + "BEGIN__\r\nHOST=server\r\n" + marker + "END__:0__\r\nroot@server:~# "))
+	if terminal.String() != "date\r" || string(a.editor) != "正在编辑" || a.focus != focusAI {
+		t.Fatalf("queued terminal input changed destinations: remote=%q editor=%q focus=%v", terminal.String(), string(a.editor), a.focus)
+	}
+}
+
 func TestInBandMonitorTimeoutDoesNotInterruptOrRetryAndPreservesInput(t *testing.T) {
 	application, err := New(Config{SSHArgs: []string{"server"}})
 	if err != nil {
@@ -209,6 +249,33 @@ func TestInBandMonitorCompletionDoesNotDependOnTerminalEraseSequence(t *testing.
 				t.Fatalf("complete=%v content=%q visible=%q err=%v", complete, content, visible, err)
 			}
 		})
+	}
+}
+
+func TestInBandMonitorParsesConPTYFormattedMarkers(t *testing.T) {
+	marker := "__AISSH_MONITOR_22_"
+	for _, separator := range []string{"\x1b[0m", "\x1b[K", "\r\n", "\x1b[12;1H"} {
+		for _, chunkSize := range []int{1, 7, 4096} {
+			t.Run(fmt.Sprintf("separator=%q/chunk=%d", separator, chunkSize), func(t *testing.T) {
+				decorate := func(text string) string { return strings.Join(strings.Split(text, ""), separator) }
+				// The OSC title contains decoy marker text and must be ignored.
+				data := []byte("\x1b]0;" + marker + "BEGIN__ decoy " + marker + "END__:1__\a" +
+					decorate(marker+"BEGIN__") + "\x1b[13;1HHOST=server" +
+					"\x1b[14;1HLOAD=0.1 0.2 0.3\x1b[15;1H" + decorate(marker+"END__:0__"))
+				state := &inBandMonitorState{marker: marker}
+				for offset := 0; offset < len(data); offset += chunkSize {
+					end := min(offset+chunkSize, len(data))
+					_, complete, content, err := state.consume(data[offset:end])
+					if end < len(data) {
+						if complete {
+							t.Fatalf("completed before real marker: content=%q err=%v", content, err)
+						}
+					} else if !complete || err != nil || content != "HOST=server\nLOAD=0.1 0.2 0.3" {
+						t.Fatalf("complete=%v content=%q err=%v", complete, content, err)
+					}
+				}
+			})
+		}
 	}
 }
 
@@ -368,5 +435,44 @@ func TestMonitorAuthenticationFailureFallsBackToPrimarySession(t *testing.T) {
 	}
 	if got := application.panels.ByID("system").LastError; got != "" {
 		t.Fatalf("transient authentication error was shown: %q", got)
+	}
+}
+
+func TestMonitorTimeoutFallbackDoesNotRetrySlowCommands(t *testing.T) {
+	for _, started := range []bool{false, true} {
+		t.Run(fmt.Sprint(started), func(t *testing.T) {
+			a, terminal := newMonitorTestApp(t)
+			a.monitorViaPrimary = false
+			a.monitorPrimaryFallback = true
+			a.applyMonitorResult(monitorResultEvent{panelID: "system", err: &monitor.RunError{
+				Message: "monitor query timed out", CommandStarted: started, ConnectionTimeout: !started,
+			}})
+			if a.monitorViaPrimary == started {
+				t.Fatalf("command_started=%v fallback=%v", started, a.monitorViaPrimary)
+			}
+			if !started {
+				a.scheduleMonitors()
+				if a.inBandMonitor == nil || terminal.Len() == 0 {
+					t.Fatal("connection timeout did not retry through the authenticated session")
+				}
+			} else if a.panels.ByID("system").LastError == "" {
+				t.Fatal("slow command error was hidden")
+			}
+		})
+	}
+}
+
+func TestInBandMonitorWaitsUntilTerminalInputIsIdle(t *testing.T) {
+	a, terminal := newMonitorTestApp(t)
+	a.handleInput([]byte("date\r"))
+	a.processSSHOutput([]byte("\r\nroot@server:~# "))
+	terminal.Reset()
+	a.scheduleInBandMonitor(a.terminalInputAt.Add(100 * time.Millisecond))
+	if a.inBandMonitor != nil || terminal.Len() != 0 {
+		t.Fatal("monitor interrupted the user's next keystroke immediately after a command")
+	}
+	a.scheduleInBandMonitor(a.terminalInputAt.Add(time.Second))
+	if a.inBandMonitor == nil {
+		t.Fatal("monitor did not resume after input became idle")
 	}
 }

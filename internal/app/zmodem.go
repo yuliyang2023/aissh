@@ -264,6 +264,7 @@ func (a *App) leaveZmodemPassthrough() {
 	a.zmodem = nil
 	a.zmodemTail = nil
 	a.transformer = terminalview.WideTransformer{}
+	a.sidebarFrame = ""
 	a.terminalRows = nil
 	a.terminalScroll = 0
 	a.lineInput = nil

@@ -33,9 +33,6 @@ func (a *App) handleInput(data []byte) {
 		a.aiNotice = ""
 		a.dirty = true
 	}
-	if a.handleInBandMonitorInput(data) {
-		return
-	}
 	if a.zmodem != nil {
 		a.handleZmodemInput(data)
 		return
@@ -118,6 +115,12 @@ func (a *App) handleKeyboardInput(data []byte) {
 }
 
 func (a *App) handleTerminalInput(data []byte) {
+	a.terminalInputAt = time.Now()
+	// Only input destined for SSH waits for a primary-session monitor.
+	// Local editors, mouse events and navigation stay responsive.
+	if a.handleInBandMonitorInput(data) {
+		return
+	}
 	a.refreshPromptFromScreen()
 	if a.terminalScroll > 0 {
 		a.terminalScroll = 0

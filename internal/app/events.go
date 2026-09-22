@@ -99,6 +99,7 @@ type executionState struct {
 }
 
 type inlineAIState struct {
+	answerCache     *inlineAnswerCache
 	Prompt          string
 	AnchorX         int
 	AnchorY         int

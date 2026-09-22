@@ -24,7 +24,7 @@ type inBandMonitorState struct {
 }
 
 func (a *App) scheduleInBandMonitor(now time.Time) {
-	if !a.canStartInBandMonitor() {
+	if !a.canStartInBandMonitor() || now.Sub(a.terminalInputAt) < 750*time.Millisecond {
 		return
 	}
 	for _, item := range a.panels.Panels() {
@@ -68,6 +68,7 @@ func (a *App) startInBandMonitor(item *panel.Panel, now time.Time) {
 		startedAt: now,
 	}
 	command := inBandMonitorCommand(marker, item.Command)
+	a.debugInput("primary_monitor start panel=%s cols=%d rows=%d", item.ID, a.mainCols, a.contentRows)
 	a.inBandMonitor = state
 	a.monitorAwaitingPrompt = true
 	a.monitorActive[item.ID] = true
@@ -113,6 +114,7 @@ func (a *App) processInBandMonitorOutput(data []byte) bool {
 	}
 
 	a.inBandMonitor = nil
+	a.debugInput("primary_monitor complete panel=%s duration=%s pending_bytes=%d error=%t", state.panelID, time.Since(state.startedAt), len(state.pendingInput), err != nil)
 	a.monitorDeferredInput = append(a.monitorDeferredInput, state.pendingInput...)
 	if err == nil {
 		content = a.monitor.Format(state.command, content)
@@ -128,38 +130,43 @@ func (a *App) processInBandMonitorOutput(data []byte) bool {
 
 func (state *inBandMonitorState) consume(data []byte) (visible []byte, complete bool, content string, err error) {
 	state.buffer = append(state.buffer, data...)
+	output := decodeMonitorOutput(state.buffer)
 	beginMarker := []byte(state.marker + "BEGIN__")
 	if !state.sawBegin {
-		index := bytes.Index(state.buffer, beginMarker)
+		index, end := findMonitorMarker(output.text, beginMarker)
 		if index < 0 {
-			keep := len(beginMarker) - 1
-			if keep > 0 && len(state.buffer) > keep {
-				state.buffer = append(state.buffer[:0], state.buffer[len(state.buffer)-keep:]...)
-			}
+			start := output.suffixStart(len(beginMarker) - 1)
+			state.buffer = append(state.buffer[:0], state.buffer[start:]...)
 			return nil, false, "", nil
 		}
-		state.buffer = append(state.buffer[:0], state.buffer[index+len(beginMarker):]...)
+		state.buffer = append(state.buffer[:0], state.buffer[output.ends[end-1]:]...)
 		state.sawBegin = true
+		output = decodeMonitorOutput(state.buffer)
 	}
 
 	endMarker := []byte(state.marker + "END__:")
-	endIndex := bytes.Index(state.buffer, endMarker)
+	endIndex, statusStart := findMonitorMarker(output.text, endMarker)
 	if endIndex < 0 {
 		return nil, false, "", nil
 	}
-	statusStart := endIndex + len(endMarker)
-	statusEndOffset := bytes.Index(state.buffer[statusStart:], []byte("__"))
+	statusEndOffset, completionEnd := findMonitorMarker(output.text[statusStart:], []byte("__"))
 	if statusEndOffset < 0 {
 		return nil, false, "", nil
 	}
 	statusEnd := statusStart + statusEndOffset
-	rawContent := trimInBandWrapperNewlines(state.buffer[:endIndex])
-	statusText := strings.TrimSpace(string(state.buffer[statusStart:statusEnd]))
+	rawContent := trimInBandWrapperNewlines(output.text[:endIndex])
+	statusText := strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' {
+			return -1
+		}
+		return r
+	}, strings.TrimSpace(string(output.text[statusStart:statusEnd])))
 	status, parseErr := strconv.Atoi(statusText)
 	// ConPTY may consume or rewrite erase/cursor controls. Complete on the
 	// printable delimiter and restore the local prompt row ourselves. The
 	// remote marker remains on its own line so a repaint cannot erase it.
-	visible = append(append([]byte(nil), inBandMonitorScreenRestore...), state.buffer[statusEnd+2:]...)
+	rawEnd := output.ends[statusStart+completionEnd-1]
+	visible = append(append([]byte(nil), inBandMonitorScreenRestore...), state.buffer[rawEnd:]...)
 	if parseErr != nil {
 		return visible, true, "", fmt.Errorf("invalid monitor exit status %q", statusText)
 	}
@@ -211,6 +218,7 @@ func (a *App) checkInBandMonitorTimeout(now time.Time) {
 	if now.Sub(state.startedAt) < timeout {
 		return
 	}
+	a.debugInput("primary_monitor timeout panel=%s begin_seen=%t buffered_bytes=%d pending_bytes=%d", state.panelID, state.sawBegin, len(state.buffer), len(state.pendingInput))
 	a.pauseInBandMonitor(fmt.Errorf("%s", a.t("监控查询超时，主会话监控已暂停")))
 }
 
@@ -257,5 +265,12 @@ func (a *App) flushDeferredMonitorInput() {
 	}
 	data := append([]byte(nil), a.monitorDeferredInput...)
 	a.monitorDeferredInput = nil
+	// The user may have opened a local editor while SSH input was waiting.
+	// Replay to the original terminal destination without stealing that focus.
+	focus := a.focus
+	a.focus = focusTerminal
 	a.handleInput(data)
+	if a.focus == focusTerminal {
+		a.focus = focus
+	}
 }

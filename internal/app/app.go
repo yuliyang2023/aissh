@@ -114,6 +114,7 @@ type App struct {
 	approvalCommandExpanded bool
 	aiLineCapture           bool
 	lineInput               []byte
+	terminalInputAt         time.Time
 	lineCursor              int
 	lineAnchorX             int
 	lineAnchorY             int
@@ -145,6 +146,8 @@ type App struct {
 	proposal              *agent.Proposal
 	aiExpanded            bool
 	aiScroll              int
+	aiDisplayCache        *aiConversationCache
+	sidebarFrame          string
 	inlineAI              *inlineAIState
 	inlineHistory         []*inlineAIState
 	execution             *executionState
@@ -791,9 +794,9 @@ func (a *App) scheduleMonitors() {
 
 func (a *App) applyMonitorResult(value monitorResultEvent) {
 	a.monitorActive[value.panelID] = false
-	if value.err != nil && a.monitorPrimaryFallback && !a.monitorPrimaryPaused && monitor.IsAuthenticationError(value.err) {
+	if value.err != nil && a.monitorPrimaryFallback && !a.monitorPrimaryPaused && monitor.CanRetryViaPrimary(value.err) {
 		a.monitorViaPrimary = true
-		// Retry through the authenticated shell on the next maintenance tick,
+		// Retry connection/authentication failures through the authenticated shell,
 		// instead of displaying and repeating an error that cannot succeed.
 		a.monitorLast[value.panelID] = time.Time{}
 		if a.monitorWorkspaceVisible() {

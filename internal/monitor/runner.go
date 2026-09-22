@@ -1,7 +1,10 @@
 package monitor
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -25,8 +28,10 @@ type Runner struct {
 // pane's error text concise. OpenSSH uses status 255 for connection and
 // authentication failures; remote commands keep their own exit status.
 type RunError struct {
-	Message  string
-	ExitCode int
+	Message           string
+	ExitCode          int
+	CommandStarted    bool
+	ConnectionTimeout bool
 }
 
 func (e *RunError) Error() string {
@@ -37,7 +42,7 @@ func (e *RunError) Error() string {
 // it could run the remote command because authentication was unavailable.
 func IsAuthenticationError(err error) bool {
 	var runErr *RunError
-	if !errors.As(err, &runErr) || runErr.ExitCode != 255 {
+	if !errors.As(err, &runErr) || runErr.ExitCode != 255 || runErr.CommandStarted {
 		return false
 	}
 	message := strings.ToLower(runErr.Message)
@@ -55,6 +60,11 @@ func IsAuthenticationError(err error) bool {
 	return false
 }
 
+func CanRetryViaPrimary(err error) bool {
+	var runErr *RunError
+	return IsAuthenticationError(err) || (errors.As(err, &runErr) && runErr.ConnectionTimeout && !runErr.CommandStarted)
+}
+
 func (r Runner) Run(ctx context.Context, command string) (string, error) {
 	if strings.TrimSpace(command) == "" {
 		return "", fmt.Errorf("monitor command is empty")
@@ -65,16 +75,32 @@ func (r Runner) Run(ctx context.Context, command string) (string, error) {
 	}
 	queryContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	args := []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=5"}
+	args := []string{"-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5"}
 	if r.ControlPath != "" {
 		args = append(args, "-o", "ControlPath="+r.ControlPath)
 	}
 	args = append(args, r.Parsed.MonitorArgs()...)
-	args = append(args, command)
+	// A private startup marker distinguishes SSH setup timeouts from slow
+	// commands. Only setup failures may retry through the authenticated shell.
+	var token [16]byte
+	if _, err := rand.Read(token[:]); err != nil {
+		return "", err
+	}
+	marker := "AISSH_MONITOR_START_" + hex.EncodeToString(token[:])
+	wrapped := "printf '\\036" + marker + "\\037'; exec sh -c '" + strings.ReplaceAll(command, "'", "'\"'\"'") + "'"
+	args = append(args, wrapped)
 	cmd := exec.CommandContext(queryContext, r.SSHPath, args...)
+	configureMonitorProcess(cmd)
+	cmd.WaitDelay = time.Second
 	data, err := cmd.CombinedOutput()
+	startMarker := []byte("\x1e" + marker + "\x1f")
+	started := bytes.Contains(data, startMarker)
+	data = bytes.Replace(data, startMarker, nil, 1)
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
 	if queryContext.Err() != nil {
-		return "", fmt.Errorf("monitor query timed out")
+		return "", &RunError{Message: "monitor query timed out", ExitCode: -1, CommandStarted: started, ConnectionTimeout: !started}
 	}
 	if err != nil {
 		message := strings.TrimSpace(string(data))
@@ -86,7 +112,10 @@ func (r Runner) Run(ctx context.Context, command string) (string, error) {
 		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
 		}
-		return "", &RunError{Message: message, ExitCode: exitCode}
+		return "", &RunError{
+			Message: message, ExitCode: exitCode, CommandStarted: started,
+			ConnectionTimeout: !started && exitCode == 255 && strings.Contains(strings.ToLower(message), "timed out"),
+		}
 	}
 	return r.Format(command, strings.TrimSpace(string(data))), nil
 }

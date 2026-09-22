@@ -55,6 +55,7 @@ func (a *App) render() {
 		a.terminalRows = nil
 	}
 	if a.compact {
+		a.sidebarFrame = ""
 		if workspaceOnly {
 			if a.focus == focusAI || a.focus == focusAIHistory {
 				output.WriteString(a.renderAIWorkspace(2, 1, a.cols, a.contentRows))
@@ -64,10 +65,18 @@ func (a *App) render() {
 		}
 	} else if a.sidebarVisible() {
 		borderCol := a.mainCols + 2
+		var sidebar strings.Builder
 		for row := 2; row < a.rows; row++ {
-			output.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b[38;5;238m│", row, borderCol))
+			sidebar.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b[38;5;238m│", row, borderCol))
 		}
-		output.WriteString(a.renderSidebar(2, borderCol+1, a.cols-borderCol, a.contentRows))
+		sidebar.WriteString(a.renderSidebar(2, borderCol+1, a.cols-borderCol, a.contentRows))
+		frame := sidebar.String()
+		if frame != a.sidebarFrame {
+			output.WriteString(frame)
+			a.sidebarFrame = frame
+		}
+	} else {
+		a.sidebarFrame = ""
 	}
 
 	output.WriteString(positionedLine(a.rows, 1, a.statusLine(a.cols), a.cols, "\x1b[38;5;245m"))
@@ -473,6 +482,10 @@ func (a *App) inlineConversationLinesFor(state *inlineAIState, width, available 
 		}
 		return limitLines(lines, available)
 	}
+	return a.cachedInlineAnswerLines(state, width, available)
+}
+
+func (a *App) buildInlineAnswerLines(state *inlineAIState, width, available int) []string {
 	response := strings.TrimSpace(state.Response)
 	if response == "" {
 		response = a.t("处理完成。")

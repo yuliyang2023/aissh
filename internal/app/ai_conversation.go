@@ -139,6 +139,10 @@ func (a *App) aiDisplayLines(width int) []aiDisplayLine {
 	if width <= 0 {
 		return nil
 	}
+	return a.cachedAIConversationLines(width)
+}
+
+func (a *App) buildAIConversationLines(width int) []aiDisplayLine {
 	var lines []aiDisplayLine
 	for chatIndex := range a.chat {
 		message := a.chat[chatIndex]
