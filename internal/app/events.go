@@ -96,6 +96,9 @@ type executionState struct {
 	Marker     string
 	Pending    []byte
 	ExitCode   *int
+	Completion string
+	WriteJob   *sshWriteJob
+	WaitWarned bool
 }
 
 type inlineAIState struct {

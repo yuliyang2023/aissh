@@ -75,6 +75,12 @@ AI 长时间运行期间，`aissh` 还会同时保持 SSH 连接和空闲 Shell 
 - 获批命令会在同一 SSH 连接的隔离子 Shell 中执行，因此 `exit`、`exec`、`set -e`、`cd` 等
   Shell 局部控制不会结束或污染外层登录 Shell。
 
+长命令发送和执行期间均可按 `Ctrl+C`：aissh 会停止发送剩余命令、向 SSH 传递中断，并等待新的
+Shell 提示符后恢复中文 AI 输入和命令审批。如果中断发生在 Shell 解析命令期间，可能收不到完成标记；
+此时退出状态记为未知，不会当作成功。等待超过 30 秒会显示恢复提示，不会自动中断远端命令。
+大量 Base64 文件内容建议通过 SFTP/scp 上传并校验完整性；本地 PTY 接收了全部字节，并不能证明
+远端交互式 Shell 已完整接收这些内容。
+
 在可信环境中，可以使用 `--always-yes`（或 `AISSH_ALWAYS_YES=1`）自动批准低于高风险的命令。
 自动批准前，aissh 会让当前 AI 后端进行 3 次全新且相互独立的风险复核。只要任一次结果为 `high` 或
 `critical`、回显的命令发生变化、结果未知或复核失败，该命令就会保留在界面上等待手动确认。初始即为
@@ -328,6 +334,9 @@ bin/aissh --scrollback-lines 50000 production
 
 # 临时关闭本机 AI 历史
 bin/aissh --no-history production
+
+# 记录输入及命令状态诊断（临时目录 aissh-input.log，包含写入字节数、错误和完成标记状态）
+AISSH_INPUT_DEBUG=1 bin/aissh production
 
 # 记录 OpenSSH 协议调试日志（适合排查 SSH 返回 EOF）
 bin/aissh -vvv -E /tmp/aissh-ssh.log production

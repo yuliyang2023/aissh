@@ -99,6 +99,11 @@ func (l Localizer) T(message string, args ...any) string {
 }
 
 var englishCatalog = map[string]string{
+	"SSH 写入失败（%d/%d 字节）：%s":                   "SSH write failed (%d/%d bytes): %s",
+	"命令结果尚未确认；等待新的 Shell 提示符，可按 Ctrl+C 重新同步。": "Command result is unconfirmed; waiting for a fresh shell prompt. Press Ctrl+C to resynchronize.",
+	"仍未收到命令完成标记；按 Ctrl+C 中断并重新同步 Shell。":      "Still waiting for command completion. Press Ctrl+C to interrupt and resynchronize the shell.",
+	"等待新的 Shell 提示符；Ctrl+C 重新同步":              "Waiting for a fresh shell prompt; Ctrl+C Resynchronize",
+	"正在等待命令结果；Ctrl+C 中断并恢复":                   "Waiting for command result; Ctrl+C Interrupt and recover",
 	"系统":       "System",
 	"进程":       "Processes",
 	"磁盘":       "Disks",

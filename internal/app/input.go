@@ -76,6 +76,9 @@ func isSidebarToggleShortcut(data []byte) bool {
 }
 
 func (a *App) handleKeyboardInput(data []byte) {
+	if a.handleExecutionControl(data) {
+		return
+	}
 	diagnosticInput, diagnosticHan := false, false
 	if a.inputDebug != nil {
 		diagnosticHan = containsHanInput(data)
@@ -116,6 +119,13 @@ func (a *App) handleKeyboardInput(data []byte) {
 
 func (a *App) handleTerminalInput(data []byte) {
 	a.terminalInputAt = time.Now()
+	if a.handleExecutionControl(data) {
+		return
+	}
+	if !a.sensitive && a.safePromptScreen() && (a.executionRecovery || (a.execution != nil && a.execution.sending())) {
+		// Do not queue typing behind an incomplete or cancelled command.
+		return
+	}
 	// Only input destined for SSH waits for a primary-session monitor.
 	// Local editors, mouse events and navigation stay responsive.
 	if a.handleInBandMonitorInput(data) {
@@ -137,7 +147,7 @@ func (a *App) handleTerminalInput(data []byte) {
 				case 0x0c:
 					a.clearInlineTerminalOutput()
 					if a.sshPTY != nil {
-						_, _ = a.sshPTY.Write(data[:1])
+						_, _ = a.writeSSH(data[:1])
 					}
 				}
 			}
@@ -206,7 +216,7 @@ func (a *App) handleSensitiveTerminalInput(data []byte) {
 			a.terminalPasteBuffer = nil
 			a.terminalPasteMode = false
 			if a.sshPTY != nil {
-				_, _ = a.sshPTY.Write(payload)
+				_, _ = a.writeSSH(payload)
 			}
 			continue
 		}
@@ -214,12 +224,12 @@ func (a *App) handleSensitiveTerminalInput(data []byte) {
 		start := bytes.Index(data, terminalPasteStart)
 		if start < 0 {
 			if a.sshPTY != nil {
-				_, _ = a.sshPTY.Write(data)
+				_, _ = a.writeSSH(data)
 			}
 			return
 		}
 		if start > 0 && a.sshPTY != nil {
-			_, _ = a.sshPTY.Write(data[:start])
+			_, _ = a.writeSSH(data[:start])
 		}
 		a.terminalPasteMode = true
 		a.terminalPasteBuffer = nil
@@ -268,12 +278,15 @@ func (a *App) handleTerminalBytes(data []byte) {
 				}
 			}
 			if !a.aiLineCapture {
-				_, _ = a.sshPTY.Write(unit)
+				_, _ = a.writeSSH(unit)
 			}
 			continue
 		}
 		switch value {
 		case 0x03: // Ctrl+C
+			if a.handleExecutionControl(unit) {
+				return
+			}
 			captured := a.aiLineCapture
 			a.lineInput = nil
 			a.lineCursor = 0
@@ -371,7 +384,7 @@ func (a *App) handleTerminalBytes(data []byte) {
 			}
 		}
 		if !a.aiLineCapture {
-			_, _ = a.sshPTY.Write(unit)
+			_, _ = a.writeSSH(unit)
 		}
 	}
 }
@@ -384,7 +397,7 @@ func (a *App) finishTerminalPaste(payload []byte) bool {
 	if a.atPrompt && a.lineReliable && !a.sensitive {
 		if prompt, ok := trigger.IsAIInput(line); ok {
 			if !captured && len(a.lineInput) > 0 && a.sshPTY != nil {
-				_, _ = a.sshPTY.Write([]byte{0x15})
+				_, _ = a.writeSSH([]byte{0x15})
 			}
 			a.lineInput = nil
 			a.lineCursor = 0
@@ -405,9 +418,9 @@ func (a *App) finishTerminalPaste(payload []byte) bool {
 	if a.sshPTY != nil {
 		a.terminalResizePending = false
 		a.terminalResizeAnchors = nil
-		_, _ = a.sshPTY.Write(terminalPasteStart)
-		_, _ = a.sshPTY.Write(payload)
-		_, _ = a.sshPTY.Write(terminalPasteEnd)
+		_, _ = a.writeSSH(terminalPasteStart)
+		_, _ = a.writeSSH(payload)
+		_, _ = a.writeSSH(terminalPasteEnd)
 	}
 	return false
 }
@@ -428,7 +441,7 @@ func (a *App) submitTerminalLine(newline byte) {
 	if a.atPrompt && reliable && !a.sensitive {
 		if _, ok := parseLocalWorkspaceCommand(line); ok {
 			if !captured && a.sshPTY != nil {
-				_, _ = a.sshPTY.Write([]byte{0x15})
+				_, _ = a.writeSSH([]byte{0x15})
 			}
 			a.handleLocalWorkspaceCommand(line, true)
 			a.pendingError = nil
@@ -436,15 +449,15 @@ func (a *App) submitTerminalLine(newline byte) {
 		}
 		if prompt, ok := trigger.IsAIInput(line); ok {
 			if !captured {
-				_, _ = a.sshPTY.Write([]byte{0x15})
+				_, _ = a.writeSSH([]byte{0x15})
 			}
 			a.startInlineAI(prompt, line, captured)
 			return
 		}
 		if command, ok := trigger.ForceShellInput(line); ok {
-			_, _ = a.sshPTY.Write([]byte{0x15})
+			_, _ = a.writeSSH([]byte{0x15})
 			a.beginCommandOutput(command)
-			_, _ = a.sshPTY.Write([]byte(command + "\r"))
+			_, _ = a.writeSSH([]byte(command + "\r"))
 			a.lastCommand = command
 			a.atPrompt = false
 			a.lineAnchored = false
@@ -459,8 +472,8 @@ func (a *App) submitTerminalLine(newline byte) {
 			newline = '\r'
 		}
 		a.beginCommandOutput(line)
-		_, _ = a.sshPTY.Write([]byte(line))
-		_, _ = a.sshPTY.Write([]byte{newline})
+		_, _ = a.writeSSH([]byte(line))
+		_, _ = a.writeSSH([]byte{newline})
 		a.lastCommand = strings.TrimSpace(line)
 		a.atPrompt = false
 		a.pendingError = nil
@@ -471,7 +484,7 @@ func (a *App) submitTerminalLine(newline byte) {
 		newline = '\r'
 	}
 	a.beginCommandOutput(line)
-	_, _ = a.sshPTY.Write([]byte{newline})
+	_, _ = a.writeSSH([]byte{newline})
 	a.lastCommand = strings.TrimSpace(line)
 	a.atPrompt = false
 	a.pendingError = nil
@@ -620,7 +633,7 @@ func (a *App) captureLineAnchor() {
 // so use that visible state before deciding whether Chinese input belongs to
 // the inline AI.
 func (a *App) refreshPromptFromScreen() {
-	if a.atPrompt || a.virtual == nil || a.execution != nil || a.monitorAwaitingPrompt {
+	if a.atPrompt || a.virtual == nil || a.execution != nil || a.executionRecovery || a.monitorAwaitingPrompt {
 		return
 	}
 
@@ -996,6 +1009,12 @@ func (a *App) openAIConversation() {
 }
 
 func (a *App) inputStatus() string {
+	if a.executionRecovery {
+		return a.t("等待新的 Shell 提示符；Ctrl+C 重新同步")
+	}
+	if a.execution != nil && !a.execution.finished() {
+		return a.t("正在等待命令结果；Ctrl+C 中断并恢复")
+	}
 	if a.monitorPrimaryPaused && a.monitorAwaitingPrompt {
 		return a.t("监控已暂停，等待 Shell 提示符；可按 Ctrl+C 中断")
 	}

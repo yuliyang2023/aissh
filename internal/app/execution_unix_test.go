@@ -57,13 +57,10 @@ func TestApprovedCommandCompletesInInteractivePTY(t *testing.T) {
 	if err != nil {
 		t.Skip("bash unavailable")
 	}
-	for _, interrupted := range []bool{false, true} {
-		name := "normal"
-		if interrupted {
-			name = "ctrl_c"
-		}
+	for _, name := range []string{"normal", "ctrl_c"} {
+		interrupted := name == "ctrl_c"
 		t.Run(name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, path, "--noprofile", "--norc", "-i")
 			cmd.Env = append(os.Environ(), "PS1=AISSH_TEST_READY> ", "PS2=> ", "TERM=xterm")
@@ -94,10 +91,14 @@ func TestApprovedCommandCompletesInInteractivePTY(t *testing.T) {
 					}
 				}
 			}()
+			a, requests := executionTestApp(t)
 			var transcript string
 			read := func() []byte {
 				t.Helper()
 				select {
+				case event := <-a.events:
+					a.handleEvent(event)
+					return nil
 				case data, ok := <-chunks:
 					if !ok {
 						t.Fatalf("shell exited early: %q", transcript)
@@ -105,7 +106,7 @@ func TestApprovedCommandCompletesInInteractivePTY(t *testing.T) {
 					transcript += string(data)
 					return data
 				case <-ctx.Done():
-					t.Fatalf("PTY timed out: %q", transcript)
+					t.Fatalf("PTY timed out: execution=%+v recovery=%v recovery_output=%v interrupt=%+v tail=%q safe=%v sensitive=%v transcript=%q", a.execution, a.executionRecovery, a.executionRecoveryOutput, a.executionInterrupt, a.outputTail.String(), a.safePromptScreen(), a.sensitive, transcript)
 					return nil
 				}
 			}
@@ -113,23 +114,21 @@ func TestApprovedCommandCompletesInInteractivePTY(t *testing.T) {
 				read()
 			}
 			transcript = ""
-			a, requests := executionTestApp(t)
 			command := "printf '\\nSTARTED\\n'; sleep 0.05; printf 'DONE\\n'; exit 7"
 			wantStatus := "exit_status=7"
 			if interrupted {
 				command = "printf '\\nSTARTED\\n'; sleep 30"
-				wantStatus = "exit_status=130"
+				wantStatus = "cancelled; exit_status=130"
 			}
-			if _, err := terminal.Write([]byte(isolateApprovedCommand(command, "test"))); err != nil {
-				t.Fatal(err)
-			}
+
+			a.sshPTY = terminal
+			a.execution.Command = command
+			a.sendApprovedCommand(a.execution)
 			for !strings.Contains(transcript, "\r\nSTARTED\r\n") {
 				a.processSSHOutput(read())
 			}
 			if interrupted {
-				if _, err := terminal.Write([]byte{3}); err != nil {
-					t.Fatal(err)
-				}
+				a.handleInput([]byte{3})
 			}
 			for a.execution != nil || !strings.Contains(transcript, "AISSH_TEST_READY> ") {
 				a.processSSHOutput(read())
@@ -143,5 +142,95 @@ func TestApprovedCommandCompletesInInteractivePTY(t *testing.T) {
 				t.Fatal("PTY result was not submitted")
 			}
 		})
+	}
+}
+
+func TestCtrlCDuringLongCommandParsingRestoresAIInRealPTY(t *testing.T) {
+	path, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "--noprofile", "--norc", "-i")
+	cmd.Env = append(os.Environ(), "PS1=AISSH_TEST_READY> ", "PS2=> ", "TERM=xterm")
+	terminal, err := pty.Start(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = terminal.Close()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+	a, requests := executionTestApp(t)
+	a.sshPTY = terminal
+	go func() {
+		buffer := make([]byte, 4096)
+		for {
+			n, err := terminal.Read(buffer)
+			if n > 0 {
+				select {
+				case a.events <- outputEvent{data: append([]byte(nil), buffer[:n]...)}:
+				case <-ctx.Done():
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	var transcript string
+	readEvent := func() {
+		t.Helper()
+		select {
+		case event := <-a.events:
+			if output, ok := event.(outputEvent); ok {
+				transcript += string(output.data)
+			}
+			a.handleEvent(event)
+		case <-ctx.Done():
+			t.Fatalf("PTY timed out: execution=%+v recovery=%v transcript=%q", a.execution, a.executionRecovery, transcript)
+		}
+	}
+	for !strings.Contains(transcript, "AISSH_TEST_READY> ") {
+		readEvent()
+	}
+	transcript = ""
+	gate := &gatedSSHWriter{target: terminal, entered: make(chan struct{}), release: make(chan struct{})}
+	a.sshInput = newSSHInputWriter(a.ctx, gate, a.events)
+	command := "cat <<'UPLOAD_END'\n" + strings.Repeat("QUJDREVGR0g=\n", 20000) + "UPLOAD_END\nprintf MUST_NOT_RUN"
+	a.execution.Command = command
+	a.sendApprovedCommand(a.execution)
+	select {
+	case <-gate.entered:
+	case <-ctx.Done():
+		t.Fatal("command did not start writing")
+	}
+	for !strings.Contains(transcript, "eval") {
+		readEvent()
+	}
+	// The shell is still parsing the outer compound command. Its EXIT trap has
+	// not been installed and cannot emit a completion marker after this Ctrl+C.
+	a.handleInput([]byte{3})
+	close(gate.release)
+	for a.execution != nil || a.agentBusy || !a.atPrompt {
+		readEvent()
+	}
+	select {
+	case request := <-requests:
+		if request.Completion != "cancelled; exit_status=unknown" {
+			t.Fatalf("parser interrupt invented a status: %+v", request)
+		}
+	case <-ctx.Done():
+		t.Fatal("missing parser-interruption result")
+	}
+	if strings.Contains(transcript, executionMarkerPrefix("test")) || strings.Contains(transcript, "MUST_NOT_RUN") {
+		t.Fatalf("cancelled suffix executed or emitted a completion marker: %q", transcript)
+	}
+	a.handleInput([]byte("测试"))
+	if !a.aiLineCapture || string(a.lineInput) != "测试" {
+		t.Fatal("Chinese AI input was not restored after parsing interruption")
 	}
 }

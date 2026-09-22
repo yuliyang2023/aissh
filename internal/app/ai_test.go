@@ -187,6 +187,7 @@ func TestYesExecutesProposalThroughIsolatedShellOnExistingSSHPTY(t *testing.T) {
 	}
 	defer reader.Close()
 	defer writer.Close()
+	t.Cleanup(application.cancel)
 	application.agent = approvalTestProvider{}
 	application.sshPTY = writer
 	application.atPrompt = true
@@ -201,6 +202,7 @@ func TestYesExecutesProposalThroughIsolatedShellOnExistingSSHPTY(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("approval action timed out")
 	}
+	awaitExecutionWrite(t, application)
 	if application.execution == nil || application.execution.Command != command {
 		t.Fatalf("execution did not preserve original command: %#v", application.execution)
 	}
@@ -229,6 +231,7 @@ func TestAlwaysYesRunsNonHighRiskCommandAfterThreeReviews(t *testing.T) {
 	}
 	defer reader.Close()
 	defer writer.Close()
+	t.Cleanup(application.cancel)
 	provider := &alwaysYesTestProvider{risks: []string{"read_only", "low", "medium"}}
 	application.agent = provider
 	application.sshPTY = writer
@@ -254,6 +257,7 @@ func TestAlwaysYesRunsNonHighRiskCommandAfterThreeReviews(t *testing.T) {
 	if assessments != AlwaysYesRiskAssessmentPasses || actions != 1 {
 		t.Fatalf("assessments=%d actions=%d", assessments, actions)
 	}
+	awaitExecutionWrite(t, application)
 	if application.execution.Command != "uptime" {
 		t.Fatalf("execution=%#v", application.execution)
 	}

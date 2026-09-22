@@ -81,6 +81,13 @@ purpose, expected effect, and risk level.
 - Approved commands run in an isolated child shell on the same SSH connection, so shell-local control flow such as
   `exit`, `exec`, `set -e`, or `cd` cannot terminate or mutate the outer login shell.
 
+Press `Ctrl+C` while an approved command is being sent or executed to stop sending its remaining bytes and forward
+an interrupt to SSH. Chinese AI input and command approval resume after a fresh shell prompt appears. An interrupt
+while the shell is still parsing may produce no completion marker; the exit status is then reported as unknown.
+After 30 seconds of waiting, aissh shows a recovery hint without automatically interrupting the remote command.
+For large Base64 file payloads, use SFTP/scp and verify file integrity. A complete local PTY write does not prove that
+the remote interactive shell received every byte.
+
 For trusted environments, `--always-yes` (or `AISSH_ALWAYS_YES=1`) can automatically approve commands below high risk.
 Before doing so, aissh asks the configured AI provider for three fresh, independent risk reviews. If any review returns
 `high` or `critical`, changes the reviewed command, reports an unknown result, or fails, the command stays on screen for
@@ -345,6 +352,9 @@ bin/aissh --scrollback-lines 50000 production
 
 # Disable local AI history for this connection
 bin/aissh --no-history production
+
+# Record input and command diagnostics (aissh-input.log in the temp directory: write counts, errors, marker state)
+AISSH_INPUT_DEBUG=1 bin/aissh production
 
 # Record OpenSSH protocol diagnostics (useful when the session ends with EOF)
 bin/aissh -vvv -E /tmp/aissh-ssh.log production

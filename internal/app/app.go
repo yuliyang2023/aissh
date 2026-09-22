@@ -71,6 +71,7 @@ type App struct {
 
 	sshCommand   *exec.Cmd
 	sshPTY       io.ReadWriteCloser
+	sshInput     *sshInputWriter
 	controlDir   string
 	controlPath  string
 	monitor      monitor.Runner
@@ -168,6 +169,11 @@ type App struct {
 	terminalRows          map[int]string
 	terminalHistory       []terminalview.Line
 	terminalScroll        int
+
+	retiredExecutions       []*executionState
+	executionRecovery       bool
+	executionRecoveryOutput bool
+	executionInterrupt      *sshWriteJob
 
 	dirty bool
 
@@ -395,6 +401,7 @@ func (a *App) Run() error {
 		case <-maintenanceTicker.C:
 			now := time.Now()
 			a.checkZmodemCompletion(now)
+			a.checkExecutionWait(now)
 			a.maintainAIKeepalive(now)
 			a.checkInBandMonitorTimeout(now)
 			a.submitExecutionResult()
@@ -445,7 +452,8 @@ func (a *App) startSSH() error {
 	}
 	a.sshCommand = cmd
 	a.sshPTY = ptmx
-	a.virtual = vt10x.New(vt10x.WithWriter(ptmx), vt10x.WithSize(a.mainCols, a.contentRows))
+	a.sshInput = newSSHInputWriter(a.ctx, ptmx, a.events)
+	a.virtual = vt10x.New(vt10x.WithWriter(a.sshInput), vt10x.WithSize(a.mainCols, a.contentRows))
 	a.monitor = monitor.Runner{
 		SSHPath:     a.config.SSHPath,
 		Parsed:      a.parsed,
@@ -645,6 +653,8 @@ func (a *App) ensureSidebarVisible() {
 
 func (a *App) handleEvent(event interface{}) {
 	switch value := event.(type) {
+	case sshWriteEvent:
+		a.finishSSHWrite(value)
 	case inputEvent:
 		a.handleInput(value.data)
 	case outputEvent:
@@ -723,7 +733,7 @@ func (a *App) handleOutput(data []byte) {
 	plain := trigger.StripANSI(string(data))
 	a.outputTail.Append(plain)
 	a.recentOutput.Append(plain)
-	if a.execution != nil && a.execution.ExitCode == nil && a.execution.Output != nil {
+	if a.execution != nil && !a.execution.finished() && a.execution.Output != nil {
 		a.execution.Output.Append(plain)
 	}
 	a.sensitive = trigger.LooksSensitive(a.outputTail.String())
@@ -738,7 +748,17 @@ func (a *App) handleOutput(data []byte) {
 		}
 	}
 	a.errorCarry = errorWindow
-	if (a.execution == nil || a.execution.ExitCode != nil) && trigger.LooksLikePrompt(a.outputTail.String()) {
+	if a.executionRecovery {
+		if a.executionRecoveryCanObserveOutput() {
+			a.executionRecoveryOutput = a.executionRecoveryOutput || plain != ""
+			a.tryRecoverExecutionPrompt()
+		} else {
+			// Discard output received before the interrupt starts. Keep output
+			// received during that write until its acknowledgement arrives.
+			a.outputTail.value = ""
+		}
+	}
+	if !a.executionRecovery && (a.execution == nil || a.execution.finished()) && a.safePromptScreen() && trigger.LooksLikePrompt(a.outputTail.String()) {
 		if !a.atPrompt {
 			a.promptIdleSince = time.Now()
 		}

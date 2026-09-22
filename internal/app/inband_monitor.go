@@ -77,7 +77,7 @@ func (a *App) startInBandMonitor(item *panel.Panel, now time.Time) {
 	// The visible prompt is intentionally left untouched while the hidden query
 	// runs. Make prompt detection wait for the fresh prompt emitted afterwards.
 	a.outputTail.Append("\n[aissh monitor]\n")
-	if _, err := a.sshPTY.Write([]byte(command)); err != nil {
+	if _, err := a.writeSSH([]byte(command)); err != nil {
 		a.pauseInBandMonitor(fmt.Errorf("%s: %w", a.t("主会话监控已暂停"), err))
 	}
 }
@@ -249,7 +249,7 @@ func (a *App) handleInBandMonitorInput(data []byte) bool {
 		// An explicit user interrupt cancels any queued typing too.
 		a.monitorDeferredInput = nil
 		if a.sshPTY != nil {
-			_, _ = a.sshPTY.Write(data)
+			_, _ = a.writeSSH(data)
 		}
 	} else if a.inBandMonitor != nil {
 		a.inBandMonitor.pendingInput = append(a.inBandMonitor.pendingInput, data...)

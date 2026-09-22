@@ -43,6 +43,10 @@ func (a *App) processSSHOutput(data []byte) {
 	if len(data) == 0 {
 		return
 	}
+	data = a.filterRetiredExecutionMarkers(data)
+	if len(data) == 0 {
+		return
+	}
 	if a.processInBandMonitorOutput(data) {
 		return
 	}
@@ -80,14 +84,16 @@ func (a *App) processRegularSSHOutput(data []byte) {
 		a.processVisibleSSHOutput(output)
 		if exitCode != nil {
 			state.ExitCode = exitCode
+			a.debugInput("execution marker=%s exit_status=%d reason=%s", state.Marker, *exitCode, state.Completion)
 			// Prompt detection must only see fresh output after completion.
 			a.outputTail.value = ""
 			a.processVisibleSSHOutput(after)
-			a.submitExecutionResult()
 		}
+		a.submitExecutionResult()
 		return
 	}
 	a.processVisibleSSHOutput(data)
+	a.submitExecutionResult()
 }
 
 func (a *App) processVisibleSSHOutput(data []byte) {
@@ -136,11 +142,12 @@ func (a *App) processZmodemOutput(data []byte) {
 		a.handleZmodemOutput(output)
 		if exitCode != nil {
 			state.ExitCode = exitCode
+			a.debugInput("execution marker=%s exit_status=%d reason=%s", state.Marker, *exitCode, state.Completion)
 			a.leaveZmodemPassthrough()
 			a.outputTail.value = ""
 			a.processVisibleSSHOutput(after)
-			a.submitExecutionResult()
 		}
+		a.submitExecutionResult()
 		return
 	}
 	a.handleZmodemOutput(data)
@@ -210,6 +217,9 @@ func (a *App) handleZmodemInput(data []byte) {
 	}
 	state.clientStarted = true
 	state.touchFinishTimer()
+	if bytes.Contains(data, []byte{0x03}) && a.execution != nil {
+		a.stopExecutionWait("cancelled")
+	}
 	hadFinishHeader := state.finishHeaderSeen
 	state.inputTail = appendSignalTail(state.inputTail, data)
 	if hasZmodemFinish(state.inputTail) {
@@ -223,7 +233,7 @@ func (a *App) handleZmodemInput(data []byte) {
 		state.markFinished()
 	}
 	if a.sshPTY != nil {
-		_, _ = a.sshPTY.Write(data)
+		_, _ = a.writeSSH(data)
 	}
 }
 
@@ -277,6 +287,6 @@ func (a *App) leaveZmodemPassthrough() {
 	// Ask the remote shell for a fresh prompt so the VT model, which intentionally
 	// skipped binary transfer traffic, is synchronized again without replaying it.
 	if a.sshPTY != nil {
-		_, _ = a.sshPTY.Write([]byte{'\r'})
+		_, _ = a.writeSSH([]byte{'\r'})
 	}
 }

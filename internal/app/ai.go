@@ -240,7 +240,7 @@ func (a *App) finishAgentTurn(turn agent.Turn, err error) {
 		a.approvalStatus = ""
 		a.terminalScroll = 0
 		a.terminalRows = nil
-		if !a.atPrompt || a.sensitive {
+		if !a.atPrompt || a.sensitive || a.execution != nil || a.executionRecovery {
 			a.approvalStatus = a.t("当前不在安全的 Shell 提示符；可输入 no 拒绝，或稍后再确认")
 		}
 		a.focus = focusApproval
@@ -400,7 +400,7 @@ func (a *App) approveProposal() {
 	if a.proposal == nil || a.agentBusy {
 		return
 	}
-	if !a.atPrompt || a.sensitive {
+	if !a.atPrompt || a.sensitive || a.execution != nil || a.executionRecovery {
 		a.approvalStatus = a.t("当前不在安全的 Shell 提示符，暂时不能执行；请输入 no 拒绝")
 		return
 	}
@@ -422,6 +422,9 @@ func (a *App) finishApproval(event approvalEvent) {
 	a.agentBusy = false
 	a.agentStatus = ""
 	marker := ""
+	if event.err == nil && (!a.atPrompt || a.sensitive || a.execution != nil || a.executionRecovery) {
+		event.err = fmt.Errorf("%s", a.t("当前不在安全的 Shell 提示符，暂时不能执行；请输入 no 拒绝"))
+	}
 	if event.err == nil {
 		marker, event.err = newExecutionMarker()
 	}
@@ -465,7 +468,7 @@ func (a *App) finishApproval(event approvalEvent) {
 	a.atPrompt = false
 	a.pendingError = nil
 	a.focus = focusTerminal
-	_, _ = a.sshPTY.Write([]byte(isolateApprovedCommand(event.command, marker)))
+	a.sendApprovedCommand(a.execution)
 	a.dirty = true
 }
 
@@ -537,10 +540,11 @@ func (a *App) proposalConversationContent(proposal agent.Proposal) string {
 
 func (a *App) submitExecutionResult() {
 	execution := a.execution
-	if execution == nil || execution.ExitCode == nil || a.agentBusy {
+	if execution == nil || !execution.finished() || execution.sending() || a.executionRecovery || a.agentBusy {
 		return
 	}
 	a.execution = nil
+	a.retireExecution(execution)
 	if execution.Inline || !a.sidebarVisible() {
 		a.startInlineExecutionAnalysis(execution.Command)
 	}
@@ -556,7 +560,7 @@ func (a *App) submitExecutionResult() {
 		SessionID:  execution.SessionID,
 		ProposalID: execution.ProposalID,
 		Output:     output,
-		Completion: fmt.Sprintf("exit_status=%d", *execution.ExitCode),
+		Completion: execution.completionDescription(),
 		SystemContext: map[string]string{
 			"ui_language":       a.localizer.Language(),
 			"response_language": firstText(a.agentLanguage, a.localizer.Language()),

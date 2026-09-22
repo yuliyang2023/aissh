@@ -54,7 +54,7 @@ func (a *App) maintainAIKeepalive(now time.Time) bool {
 	if now.Sub(a.promptIdleSince) < shellKeepaliveDelay(timeout) {
 		return false
 	}
-	if _, err := a.sshPTY.Write(shellIdleKeepalive); err != nil {
+	if _, err := a.writeSSH(shellIdleKeepalive); err != nil {
 		return false
 	}
 	// Wait for the resulting prompt before starting the next TMOUT window.
