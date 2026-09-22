@@ -75,9 +75,23 @@ func isSidebarToggleShortcut(data []byte) bool {
 	return len(data) == 1 && data[0] == 0x1f // Ctrl+Shift+- (Ctrl+_)
 }
 
+// Returning to the SSH pane must keep a pending confirmation local. Sending
+// "yes" to the shell instead would start the Unix yes command.
+func (a *App) focusTerminalWorkspace() {
+	if a.proposal != nil {
+		a.focus = focusApproval
+	} else {
+		a.focus = focusTerminal
+	}
+}
+
 func (a *App) handleKeyboardInput(data []byte) {
 	if a.handleExecutionControl(data) {
 		return
+	}
+	if a.focus == focusTerminal {
+		// Also guard against a stale focus set by an asynchronous event.
+		a.focusTerminalWorkspace()
 	}
 	diagnosticInput, diagnosticHan := false, false
 	if a.inputDebug != nil {
@@ -696,7 +710,7 @@ func (a *App) handleAIInput(data []byte) {
 				data = data[consumed:]
 				continue
 			}
-			a.focus = focusTerminal
+			a.focusTerminalWorkspace()
 			a.aiPasteMode = false
 			return
 		}
@@ -806,7 +820,7 @@ func (a *App) handleMonitorInput(data []byte) {
 	}
 	switch data[0] {
 	case 0x1b:
-		a.focus = focusTerminal
+		a.focusTerminalWorkspace()
 	case 0x14:
 		a.panels.Next()
 	case 0x0c: // Ctrl+L
@@ -912,10 +926,10 @@ func (a *App) handlePanelMenuInput(data []byte) {
 	}
 	switch data[0] {
 	case 0x1b:
-		a.focus = focusTerminal
+		a.focusTerminalWorkspace()
 	case '1':
 		a.panels.Activate("system")
-		a.focus = focusTerminal
+		a.focusTerminalWorkspace()
 	case '2':
 		a.openUserPanel(a.t("进程"), panel.KindTable, panel.BuiltinProcessCommand, 3*time.Second)
 	case '3':
@@ -937,7 +951,7 @@ func (a *App) handleCustomPanelInput(data []byte) {
 		data = data[1:]
 		switch value {
 		case 0x1b:
-			a.focus = focusTerminal
+			a.focusTerminalWorkspace()
 			a.editor = nil
 			return
 		case '\r', '\n':

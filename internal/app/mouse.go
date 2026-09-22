@@ -203,7 +203,7 @@ func (a *App) dragScrollbarTo(y int) {
 			total,
 			a.contentRows,
 		)
-		a.focus = focusTerminal
+		a.focusTerminalWorkspace()
 	case dragAIScrollbar:
 		top, _, width, height := a.aiRegion()
 		viewport := aiConversationViewport(height, true)
@@ -274,15 +274,13 @@ func (a *App) handleLeftClick(x, y int) {
 		return
 	}
 	if !a.sidebarVisible() {
-		if x <= a.terminalScrollbarCol() && y >= 2 && y < a.rows && a.proposal == nil {
-			a.focus = focusTerminal
+		if x <= a.terminalScrollbarCol() && y >= 2 && y < a.rows {
+			a.focusTerminalWorkspace()
 		}
 		return
 	}
 	if x <= a.terminalScrollbarCol() && y >= 2 && y < a.rows {
-		if a.proposal == nil {
-			a.focus = focusTerminal
-		}
+		a.focusTerminalWorkspace()
 		return
 	}
 	monitorTop, monitorLeft, monitorWidth, monitorHeight := a.monitorRegion()
@@ -403,7 +401,7 @@ func (a *App) handleCompactClick(x, y int) {
 			a.focus = focusMonitor
 		}
 	default:
-		a.focus = focusTerminal
+		a.focusTerminalWorkspace()
 	}
 }
 
@@ -643,13 +641,17 @@ func (a *App) monitorHeaderTarget(x int) (id string, add bool, ok bool) {
 }
 
 func (a *App) handleApprovalClick(x, y int) bool {
-	if a.proposal == nil || a.agentBusy || a.approvalStatus != "" {
+	if a.proposal == nil || (a.compact && a.sidebarWorkspaceFocused()) {
 		return false
 	}
 	if a.inlineApprovalAvailable() {
 		top, left, width, height := a.inlineArea()
+		if !pointInRegion(x, y, top, left, width, height) {
+			return false
+		}
+		a.focus = focusApproval
 		lines := a.inlineProposalLines(width, height-1)
-		if len(lines) >= 2 {
+		if !a.agentBusy && a.approvalStatus == "" && len(lines) >= 2 {
 			buttonLine := lines[len(lines)-2]
 			buttonRow := top + len(lines) - 1
 			if choice, ok := a.approvalButtonAt(x, y, left, buttonRow, buttonLine); ok {
@@ -657,15 +659,20 @@ func (a *App) handleApprovalClick(x, y int) bool {
 				return true
 			}
 		}
-		return false
-	}
-	top, left, _, height := a.approvalGeometry()
-	buttonRow := top + height - 3
-	if choice, ok := a.approvalButtonAt(x, y, left+2, buttonRow, a.approvalButtonsText()); ok {
-		a.applyMouseApproval(choice)
 		return true
 	}
-	return false
+	top, left, width, height := a.approvalGeometry()
+	if !pointInRegion(x, y, top, left, width, height) {
+		return false
+	}
+	a.focus = focusApproval
+	buttonRow := top + height - 3
+	if !a.agentBusy && a.approvalStatus == "" {
+		if choice, ok := a.approvalButtonAt(x, y, left+2, buttonRow, a.approvalButtonsText()); ok {
+			a.applyMouseApproval(choice)
+		}
+	}
+	return true
 }
 
 func (a *App) applyMouseApproval(approve bool) {

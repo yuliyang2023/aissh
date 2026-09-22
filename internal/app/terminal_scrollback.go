@@ -43,7 +43,7 @@ func (a *App) scrollTerminal(up bool) {
 			a.terminalScroll = 0
 		}
 	}
-	a.focus = focusTerminal
+	a.focusTerminalWorkspace()
 }
 
 func (a *App) jumpTerminalScroll(row int) {
@@ -59,7 +59,7 @@ func (a *App) jumpTerminalScroll(row int) {
 	}
 	start := len(a.terminalHistory) * relative / (a.contentRows - 1)
 	a.terminalScroll = len(a.terminalHistory) - start
-	a.focus = focusTerminal
+	a.focusTerminalWorkspace()
 }
 
 func (a *App) renderTerminalScrollback() (string, int, int) {

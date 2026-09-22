@@ -555,7 +555,7 @@ func (a *App) inlineProposalLinesFor(state *inlineAIState, width, available int)
 }
 
 func (a *App) inlineApprovalAvailable() bool {
-	if a.inlineAI == nil || a.proposal == nil {
+	if a.inlineAI == nil || a.proposal == nil || a.terminalScroll > 0 {
 		return false
 	}
 	if a.inlineAI.AnchorY < 0 || a.inlineAI.AnchorY >= a.contentRows {
