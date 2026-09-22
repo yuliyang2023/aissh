@@ -2,12 +2,17 @@ package app
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/hinshun/vt10x"
+
+	"git.example.com/ai/wrd-ai-cli/internal/agent"
 	"git.example.com/ai/wrd-ai-cli/internal/monitor"
 )
 
@@ -27,8 +32,8 @@ func TestInBandMonitorStateCollectsChunkedOutputAndRestoresPrompt(t *testing.T) 
 	chunks := [][]byte{
 		[]byte("echoed command containing __AISSH_MONITOR_9_ but no complete marker\r\n__AISSH_MON"),
 		[]byte("ITOR_9_BEGIN__\r\nHOST=server\r\nUPTIME=1 day\r\n"),
-		[]byte("\r\n__AISSH_MONITOR_9_END__:0\x1b[2"),
-		[]byte("K\ruser@server$ "),
+		[]byte("\r\n__AISSH_MONITOR_9_END__:0_"),
+		[]byte("_\r\nuser@server$ "),
 	}
 	for index, chunk := range chunks {
 		visible, complete, content, err := state.consume(chunk)
@@ -44,7 +49,7 @@ func TestInBandMonitorStateCollectsChunkedOutputAndRestoresPrompt(t *testing.T) 
 		if got, want := content, "HOST=server\r\nUPTIME=1 day\r\n"; got != want {
 			t.Fatalf("content=%q want=%q", got, want)
 		}
-		if got, want := string(visible), "\x1b[2K\ruser@server$ "; got != want {
+		if got, want := string(visible), "\x1b[2K\r\r\nuser@server$ "; got != want {
 			t.Fatalf("visible=%q want=%q", got, want)
 		}
 	}
@@ -52,7 +57,7 @@ func TestInBandMonitorStateCollectsChunkedOutputAndRestoresPrompt(t *testing.T) 
 
 func TestInBandMonitorStateReportsRemoteFailure(t *testing.T) {
 	state := &inBandMonitorState{marker: "__AISSH_MONITOR_11_"}
-	data := []byte("__AISSH_MONITOR_11_BEGIN__\r\npermission denied\r\n\r\n__AISSH_MONITOR_11_END__:1\x1b[2K\rhost$ ")
+	data := []byte("__AISSH_MONITOR_11_BEGIN__\r\npermission denied\r\n\r\n__AISSH_MONITOR_11_END__:1__\r\nhost$ ")
 	visible, complete, content, err := state.consume(data)
 	if !complete || err == nil || content != "" {
 		t.Fatalf("complete=%v content=%q err=%v", complete, content, err)
@@ -140,7 +145,7 @@ func TestInputWaitsForActiveInBandMonitor(t *testing.T) {
 	}
 }
 
-func TestInBandMonitorTimeoutInterruptsQueryAndPreservesInput(t *testing.T) {
+func TestInBandMonitorTimeoutDoesNotInterruptOrRetryAndPreservesInput(t *testing.T) {
 	application, err := New(Config{SSHArgs: []string{"server"}})
 	if err != nil {
 		t.Fatal(err)
@@ -151,6 +156,7 @@ func TestInBandMonitorTimeoutInterruptsQueryAndPreservesInput(t *testing.T) {
 	}
 	defer reader.Close()
 	application.sshPTY = writer
+	application.monitorViaPrimary = true
 	application.monitor.Timeout = time.Second
 	application.monitorActive["system"] = true
 	application.inBandMonitor = &inBandMonitorState{
@@ -160,6 +166,18 @@ func TestInBandMonitorTimeoutInterruptsQueryAndPreservesInput(t *testing.T) {
 	}
 
 	application.checkInBandMonitorTimeout(time.Now())
+	if got, want := string(application.monitorDeferredInput), "date\r"; got != want {
+		t.Fatalf("deferred input=%q want=%q", got, want)
+	}
+	// Even after the prompt returns, maintenance ticks must not restart a
+	// broken query and send another interrupt every timeout interval.
+	application.monitorDeferredInput = nil
+	for tick := 0; tick < 3; tick++ {
+		application.handleOutput([]byte("\r\nroot@server:~# "))
+		later := time.Now().Add(time.Duration(tick+1) * time.Hour)
+		application.scheduleInBandMonitor(later)
+		application.checkInBandMonitorTimeout(later.Add(time.Minute))
+	}
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -167,14 +185,158 @@ func TestInBandMonitorTimeoutInterruptsQueryAndPreservesInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := written, []byte{0x03}; !bytes.Equal(got, want) {
-		t.Fatalf("interrupt=%v want=%v", got, want)
+	if len(written) != 0 {
+		t.Fatalf("timed-out monitor wrote to the interactive shell: %q", written)
 	}
 	if application.inBandMonitor != nil || application.monitorActive["system"] {
 		t.Fatalf("monitor was not released: state=%#v active=%v", application.inBandMonitor, application.monitorActive["system"])
 	}
-	if got, want := string(application.monitorDeferredInput), "date\r"; got != want {
-		t.Fatalf("deferred input=%q want=%q", got, want)
+}
+
+func TestInBandMonitorCompletionDoesNotDependOnTerminalEraseSequence(t *testing.T) {
+	marker := "__AISSH_MONITOR_12_"
+	response := marker + "BEGIN__\r\nHOST=server\r\n" + marker + "END__:0__"
+	// ConPTY can replace the remote newline/erase sequence with cursor moves.
+	prompt := "\x1b[12;1Hroot@server:~# "
+	for split := 0; split < len(response); split++ {
+		t.Run(fmt.Sprint(split), func(t *testing.T) {
+			state := &inBandMonitorState{marker: marker}
+			if _, complete, _, _ := state.consume([]byte(response[:split])); complete {
+				t.Fatal("partial response completed early")
+			}
+			visible, complete, content, err := state.consume([]byte(response[split:] + prompt))
+			if !complete || err != nil || content != "HOST=server" || string(visible) != string(inBandMonitorScreenRestore)+prompt {
+				t.Fatalf("complete=%v content=%q visible=%q err=%v", complete, content, visible, err)
+			}
+		})
+	}
+}
+
+func TestInBandMonitorWrapperEmitsPersistentPrintableCompletion(t *testing.T) {
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("sh unavailable")
+	}
+	marker := "__AISSH_MONITOR_13_"
+	command := inBandMonitorCommand(marker, "printf 'HOST=server\\n'")
+	output, err := exec.Command(shell, "-c", strings.TrimSuffix(command, "\r")).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(output, []byte(marker+"END__:0__\n")) || bytes.Contains(output, []byte("\x1b[2K")) {
+		t.Fatalf("completion can be erased before ConPTY delivers it: %q", output)
+	}
+	state := &inBandMonitorState{marker: marker}
+	_, complete, content, err := state.consume(output)
+	if !complete || err != nil || content != "HOST=server\n" {
+		t.Fatalf("complete=%v content=%q err=%v", complete, content, err)
+	}
+}
+
+type monitorTestPTY struct{ bytes.Buffer }
+
+func (*monitorTestPTY) Read([]byte) (int, error) { return 0, io.EOF }
+func (*monitorTestPTY) Close() error             { return nil }
+
+func newMonitorTestApp(t *testing.T) (*App, *monitorTestPTY) {
+	t.Helper()
+	a, err := New(Config{SSHArgs: []string{"server"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.cancel)
+	a.setViewportSize(140, 30)
+	a.virtual = vt10x.New(vt10x.WithSize(a.mainCols, a.contentRows))
+	a.processSSHOutput([]byte("root@server:~# "))
+	terminal := &monitorTestPTY{}
+	a.sshPTY = terminal
+	a.monitorViaPrimary = true
+	return a, terminal
+}
+
+func TestInBandMonitorDoesNotUseStalePromptToReplayInput(t *testing.T) {
+	a, terminal := newMonitorTestApp(t)
+	a.scheduleMonitors()
+	terminal.Reset()
+	a.handleInput([]byte("date\r"))
+	a.checkInBandMonitorTimeout(time.Now().Add(time.Hour))
+	a.refreshPromptFromScreen()
+	a.flushDeferredMonitorInput()
+	if a.atPrompt || terminal.Len() != 0 {
+		t.Fatal("timeout trusted the old visible prompt or wrote queued input early")
+	}
+	a.handleInput([]byte("whoami\r"))
+	if terminal.Len() != 0 {
+		t.Fatal("new input bypassed the queued input while waiting for the shell")
+	}
+	a.processSSHOutput([]byte("\r\nroot@server:~# "))
+	if got := terminal.String(); got != "date\rwhoami\r" {
+		t.Fatalf("queued input not restored in order: %q", got)
+	}
+}
+
+func TestSuccessfulInBandMonitorWaitsForFreshPromptAndCanRunAgain(t *testing.T) {
+	a, terminal := newMonitorTestApp(t)
+	a.scheduleMonitors()
+	marker := a.inBandMonitor.marker
+	terminal.Reset()
+	a.processSSHOutput([]byte(marker + "BEGIN__\r\nHOST=server\r\n" + marker + "END__:0__"))
+	if a.inBandMonitor != nil || a.monitorActive["system"] || a.atPrompt {
+		t.Fatal("monitor did not finish independently of the next shell prompt")
+	}
+	a.refreshPromptFromScreen()
+	a.handleInput([]byte("date\r"))
+	if a.atPrompt || terminal.Len() != 0 {
+		t.Fatal("monitor reused a stale prompt before the new one arrived")
+	}
+	a.processSSHOutput([]byte("\x1b[12;1Hroot@server:~# "))
+	if terminal.String() != "date\r" {
+		t.Fatalf("successful query did not restore input: %q", terminal.String())
+	}
+	if content := a.panels.ByID("system").Content; !strings.Contains(content, "server") {
+		t.Fatalf("monitor result missing: %q", content)
+	}
+	a.processSSHOutput([]byte("\r\nroot@server:~# "))
+	a.scheduleInBandMonitor(time.Now().Add(time.Minute))
+	if a.inBandMonitor == nil || bytes.Contains(terminal.Bytes(), []byte{0x03}) {
+		t.Fatal("healthy monitoring did not resume normally")
+	}
+}
+
+func TestUserCanInterruptInBandMonitorWithoutAutomaticRetries(t *testing.T) {
+	a, terminal := newMonitorTestApp(t)
+	a.scheduleMonitors()
+	terminal.Reset()
+	a.handleInput([]byte("unfinished"))
+	a.handleInput([]byte{0x03})
+	if terminal.String() != "\x03" || a.inBandMonitor != nil {
+		t.Fatalf("user Ctrl+C was not forwarded once: %q", terminal.String())
+	}
+	a.processSSHOutput([]byte("\r\nroot@server:~# "))
+	a.scheduleMonitors()
+	a.checkInBandMonitorTimeout(time.Now().Add(time.Hour))
+	if terminal.String() != "\x03" {
+		t.Fatalf("monitor restarted or replayed cancelled input: %q", terminal.String())
+	}
+}
+
+func TestInBandMonitorDoesNotStartInHiddenOrBusyWorkspace(t *testing.T) {
+	for _, mode := range []string{"hidden", "execution", "approval"} {
+		t.Run(mode, func(t *testing.T) {
+			a, terminal := newMonitorTestApp(t)
+			switch mode {
+			case "hidden":
+				a.toggleSidebar()
+			case "execution":
+				a.execution = &executionState{Command: "sleep 60"}
+			case "approval":
+				a.proposal = &agent.Proposal{Command: "uptime"}
+			}
+			a.scheduleMonitors()
+			if terminal.Len() != 0 || a.inBandMonitor != nil {
+				t.Fatalf("monitor took over the primary session in %s mode", mode)
+			}
+		})
 	}
 }
 

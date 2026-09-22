@@ -33,8 +33,7 @@ func (a *App) handleInput(data []byte) {
 		a.aiNotice = ""
 		a.dirty = true
 	}
-	if a.inBandMonitor != nil {
-		a.inBandMonitor.pendingInput = append(a.inBandMonitor.pendingInput, data...)
+	if a.handleInBandMonitorInput(data) {
 		return
 	}
 	if a.zmodem != nil {
@@ -618,7 +617,7 @@ func (a *App) captureLineAnchor() {
 // so use that visible state before deciding whether Chinese input belongs to
 // the inline AI.
 func (a *App) refreshPromptFromScreen() {
-	if a.atPrompt || a.virtual == nil || a.execution != nil {
+	if a.atPrompt || a.virtual == nil || a.execution != nil || a.monitorAwaitingPrompt {
 		return
 	}
 
@@ -994,6 +993,9 @@ func (a *App) openAIConversation() {
 }
 
 func (a *App) inputStatus() string {
+	if a.monitorPrimaryPaused && a.monitorAwaitingPrompt {
+		return a.t("监控已暂停，等待 Shell 提示符；可按 Ctrl+C 中断")
+	}
 	if a.focus == focusTerminal && a.terminalScroll > 0 {
 		return a.t("SSH 历史  ↑ %d / %d 行  键盘输入返回实时终端", a.terminalScroll, len(a.terminalHistory))
 	}

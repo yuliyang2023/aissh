@@ -52,7 +52,8 @@ func (a *App) scheduleInBandMonitor(now time.Time) {
 }
 
 func (a *App) canStartInBandMonitor() bool {
-	return a.inBandMonitor == nil && len(a.monitorDeferredInput) == 0 && a.atPrompt && !a.sensitive &&
+	return !a.monitorPrimaryPaused && !a.monitorAwaitingPrompt && a.monitorWorkspaceVisible() &&
+		a.execution == nil && a.proposal == nil && a.inBandMonitor == nil && len(a.monitorDeferredInput) == 0 && a.atPrompt && !a.sensitive &&
 		!a.agentBusy && !a.terminalDone && a.zmodem == nil && a.sshPTY != nil && len(a.lineInput) == 0 &&
 		a.lineReliable && !a.aiLineCapture && !a.terminalPasteMode
 }
@@ -68,6 +69,7 @@ func (a *App) startInBandMonitor(item *panel.Panel, now time.Time) {
 	}
 	command := inBandMonitorCommand(marker, item.Command)
 	a.inBandMonitor = state
+	a.monitorAwaitingPrompt = true
 	a.monitorActive[item.ID] = true
 	a.atPrompt = false
 	a.promptIdleSince = time.Time{}
@@ -75,8 +77,7 @@ func (a *App) startInBandMonitor(item *panel.Panel, now time.Time) {
 	// runs. Make prompt detection wait for the fresh prompt emitted afterwards.
 	a.outputTail.Append("\n[aissh monitor]\n")
 	if _, err := a.sshPTY.Write([]byte(command)); err != nil {
-		a.inBandMonitor = nil
-		a.applyMonitorResult(monitorResultEvent{panelID: item.ID, err: err})
+		a.pauseInBandMonitor(fmt.Errorf("%s: %w", a.t("主会话监控已暂停"), err))
 	}
 }
 
@@ -86,7 +87,7 @@ func inBandMonitorCommand(marker, command string) string {
 	// ignore shell echo and start collecting only after the command really runs.
 	return "(__aissh_monitor_marker=" + quotePOSIXShell(marker) +
 		"; printf '%sBEGIN__\\n' \"$__aissh_monitor_marker\"; sh -c " + quotePOSIXShell(strings.TrimSpace(command)) +
-		"; __aissh_monitor_status=$?; printf '\\n%sEND__:%s\\033[2K\\r' \"$__aissh_monitor_marker\" \"$__aissh_monitor_status\")\r"
+		"; __aissh_monitor_status=$?; printf '\\n%sEND__:%s__\\n' \"$__aissh_monitor_marker\" \"$__aissh_monitor_status\")\r"
 }
 
 func quotePOSIXShell(value string) string {
@@ -94,6 +95,14 @@ func quotePOSIXShell(value string) string {
 }
 
 func (a *App) processInBandMonitorOutput(data []byte) bool {
+	if a.monitorPrompt != nil {
+		visible, ready := a.monitorPrompt.consume(data)
+		if ready {
+			a.monitorPrompt = nil
+			a.processSSHOutput(visible)
+		}
+		return true
+	}
 	state := a.inBandMonitor
 	if state == nil {
 		return false
@@ -109,6 +118,7 @@ func (a *App) processInBandMonitorOutput(data []byte) bool {
 		content = a.monitor.Format(state.command, content)
 	}
 	a.applyMonitorResult(monitorResultEvent{panelID: state.panelID, content: content, err: err})
+	a.monitorPrompt = &monitorPromptState{}
 	if len(visible) > 0 {
 		a.processSSHOutput(visible)
 	}
@@ -138,15 +148,18 @@ func (state *inBandMonitorState) consume(data []byte) (visible []byte, complete 
 		return nil, false, "", nil
 	}
 	statusStart := endIndex + len(endMarker)
-	restoreOffset := bytes.Index(state.buffer[statusStart:], inBandMonitorScreenRestore)
-	if restoreOffset < 0 {
+	statusEndOffset := bytes.Index(state.buffer[statusStart:], []byte("__"))
+	if statusEndOffset < 0 {
 		return nil, false, "", nil
 	}
-	restoreStart := statusStart + restoreOffset
+	statusEnd := statusStart + statusEndOffset
 	rawContent := trimInBandWrapperNewlines(state.buffer[:endIndex])
-	statusText := strings.TrimSpace(string(state.buffer[statusStart:restoreStart]))
+	statusText := strings.TrimSpace(string(state.buffer[statusStart:statusEnd]))
 	status, parseErr := strconv.Atoi(statusText)
-	visible = append([]byte(nil), state.buffer[restoreStart:]...)
+	// ConPTY may consume or rewrite erase/cursor controls. Complete on the
+	// printable delimiter and restore the local prompt row ourselves. The
+	// remote marker remains on its own line so a repaint cannot erase it.
+	visible = append(append([]byte(nil), inBandMonitorScreenRestore...), state.buffer[statusEnd+2:]...)
 	if parseErr != nil {
 		return visible, true, "", fmt.Errorf("invalid monitor exit status %q", statusText)
 	}
@@ -198,17 +211,48 @@ func (a *App) checkInBandMonitorTimeout(now time.Time) {
 	if now.Sub(state.startedAt) < timeout {
 		return
 	}
-	a.inBandMonitor = nil
-	a.monitorDeferredInput = append(a.monitorDeferredInput, state.pendingInput...)
-	a.applyMonitorResult(monitorResultEvent{panelID: state.panelID, err: fmt.Errorf("monitor query timed out")})
-	a.atPrompt = false
-	if a.sshPTY != nil {
-		_, _ = a.sshPTY.Write([]byte{0x03})
+	a.pauseInBandMonitor(fmt.Errorf("%s", a.t("监控查询超时，主会话监控已暂停")))
+}
+
+// A missing marker does not prove the monitor still owns the remote shell.
+// Stop automatic queries without injecting Ctrl+C into the user's session.
+func (a *App) pauseInBandMonitor(err error) {
+	state := a.inBandMonitor
+	if state == nil {
+		return
 	}
+	a.inBandMonitor = nil
+	a.monitorPrimaryPaused = true
+	a.monitorAwaitingPrompt = true
+	a.monitorDeferredInput = append(a.monitorDeferredInput, state.pendingInput...)
+	a.atPrompt = false
+	a.outputTail.value = ""
+	a.applyMonitorResult(monitorResultEvent{panelID: state.panelID, err: err})
+	a.dirty = true
+}
+
+func (a *App) handleInBandMonitorInput(data []byte) bool {
+	if a.inBandMonitor == nil && !a.monitorAwaitingPrompt {
+		return false
+	}
+	if len(data) == 1 && data[0] == 0x03 {
+		a.pauseInBandMonitor(fmt.Errorf("%s", a.t("主会话监控已暂停")))
+		a.monitorPrompt = nil
+		// An explicit user interrupt cancels any queued typing too.
+		a.monitorDeferredInput = nil
+		if a.sshPTY != nil {
+			_, _ = a.sshPTY.Write(data)
+		}
+	} else if a.inBandMonitor != nil {
+		a.inBandMonitor.pendingInput = append(a.inBandMonitor.pendingInput, data...)
+	} else {
+		a.monitorDeferredInput = append(a.monitorDeferredInput, data...)
+	}
+	return true
 }
 
 func (a *App) flushDeferredMonitorInput() {
-	if a.inBandMonitor != nil || !a.atPrompt || len(a.monitorDeferredInput) == 0 {
+	if a.inBandMonitor != nil || a.monitorAwaitingPrompt || !a.atPrompt || len(a.monitorDeferredInput) == 0 {
 		return
 	}
 	data := append([]byte(nil), a.monitorDeferredInput...)

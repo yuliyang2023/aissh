@@ -91,7 +91,10 @@ type App struct {
 	panels                  *panel.Manager
 	monitorViaPrimary       bool
 	monitorPrimaryFallback  bool
+	monitorPrimaryPaused    bool
+	monitorAwaitingPrompt   bool
 	inBandMonitor           *inBandMonitorState
+	monitorPrompt           *monitorPromptState
 	monitorDeferredInput    []byte
 	monitorSequence         uint64
 	monitorLayout           monitorLayoutMode
@@ -737,6 +740,7 @@ func (a *App) handleOutput(data []byte) {
 			a.promptIdleSince = time.Now()
 		}
 		a.atPrompt = true
+		a.monitorAwaitingPrompt = false
 		a.sensitive = false
 		a.resolveInlineExecutionAnchor()
 		if a.execution == nil && a.pendingError != nil && a.pendingError.Kind == "command_not_found" && !a.agentBusy {
@@ -787,7 +791,7 @@ func (a *App) scheduleMonitors() {
 
 func (a *App) applyMonitorResult(value monitorResultEvent) {
 	a.monitorActive[value.panelID] = false
-	if value.err != nil && a.monitorPrimaryFallback && monitor.IsAuthenticationError(value.err) {
+	if value.err != nil && a.monitorPrimaryFallback && !a.monitorPrimaryPaused && monitor.IsAuthenticationError(value.err) {
 		a.monitorViaPrimary = true
 		// Retry through the authenticated shell on the next maintenance tick,
 		// instead of displaying and repeating an error that cannot succeed.
