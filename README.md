@@ -57,6 +57,8 @@ On Windows, AI responses (including reviews of command results) trigger a deskto
 The status bar also keeps a completion notice until your next input. Command approvals, requests for more information,
 and failures have distinct alerts. Ongoing `--always-yes` reviews and execution do not trigger premature completion alerts.
 Desktop notifications and sounds follow your Windows notification and sound settings.
+In a standalone PowerShell / CMD window, clicking a notification brings its aissh session window to the foreground
+and restores it if minimized. Targeting a specific tab in Windows Terminal or other tabbed terminals is not yet supported.
 
 ### ⚡ Proactive failure analysis
 
