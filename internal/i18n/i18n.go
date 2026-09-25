@@ -149,6 +149,7 @@ var englishCatalog = map[string]string{
 	"› AI 完整对话":         "› Full AI conversation",
 	"AI 已就绪（%s）。中文开头或 /ai 会自动提问。": "AI is ready (%s). Use Chinese input or /ai to ask from the SSH prompt.",
 	"SSH 已结束：%s":      "SSH ended: %s",
+	"SSH 连接失败或异常结束（%s）": "SSH connection failed or ended unexpectedly (%s)",
 	"不可用":             " unavailable",
 	"[Ctrl+Shift+- 收起右栏]": "[Ctrl+Shift+- Hide sidebar]",
 	"[Ctrl+Shift+- 展开右栏]": "[Ctrl+Shift+- Show sidebar]",

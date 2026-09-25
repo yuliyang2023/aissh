@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -78,6 +77,7 @@ type App struct {
 	virtual      vt10x.Terminal
 	transformer  terminalview.WideTransformer
 	terminalDone bool
+	terminalErr  error
 	screenOut    io.Writer
 	zmodem       *zmodemPassthrough
 	zmodemTail   []byte
@@ -386,7 +386,6 @@ func (a *App) Run() error {
 
 	a.startInputReader()
 	a.startSignalReader()
-	a.startOutputReader()
 
 	maintenanceTicker := time.NewTicker(120 * time.Millisecond)
 	frameTicker := time.NewTicker(terminalFrameInterval)
@@ -421,7 +420,7 @@ func (a *App) Run() error {
 				a.render()
 				a.dirty = false
 			}
-			return nil
+			return a.sshSessionError()
 		}
 	}
 }
@@ -467,7 +466,7 @@ func (a *App) startSSH() error {
 	// switches monitoring to the already authenticated primary shell.
 	a.monitorViaPrimary = false
 	a.monitorPrimaryFallback = !supportsSSHControlPath()
-	go func() { a.events <- sshExitEvent{err: waitSSHProcess(a.ctx, cmd)} }()
+	a.startOutputReader()
 	return nil
 }
 
@@ -478,24 +477,6 @@ func (a *App) stopSSH() {
 	if a.sshPTY != nil {
 		_ = a.sshPTY.Close()
 	}
-}
-
-func (a *App) startOutputReader() {
-	go func() {
-		buffer := make([]byte, 32*1024)
-		for {
-			count, err := a.sshPTY.Read(buffer)
-			if count > 0 {
-				a.events <- outputEvent{data: append([]byte(nil), buffer[:count]...)}
-			}
-			if err != nil {
-				if !errors.Is(err, os.ErrClosed) {
-					a.events <- sshExitEvent{err: err}
-				}
-				return
-			}
-		}
-	}()
 }
 
 func (a *App) writeTerminalOutput(tokens []terminalview.OutputToken) []terminalview.Line {
@@ -663,7 +644,8 @@ func (a *App) handleEvent(event interface{}) {
 		_ = a.updateSize()
 		a.dirty = true
 	case sshExitEvent:
-		if !a.terminalDone && value.err != nil && !strings.Contains(value.err.Error(), "input/output error") {
+		a.terminalErr = value.err
+		if !a.terminalDone && value.err != nil {
 			a.appendPersistentChat(chatMessage{Role: "system", Content: a.t("SSH 已结束：%s", value.err.Error()), Time: time.Now()})
 		}
 		a.terminalDone = true
