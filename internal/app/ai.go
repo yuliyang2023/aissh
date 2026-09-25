@@ -9,6 +9,7 @@ import (
 	app_i18n "git.example.com/ai/wrd-ai-cli/internal/i18n"
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
 	"git.example.com/ai/wrd-ai-cli/internal/policy"
+	"git.example.com/ai/wrd-ai-cli/internal/resources"
 )
 
 func (a *App) startInlineAI(prompt, sourceLine string, locallyCaptured bool) {
@@ -142,6 +143,7 @@ func (a *App) mirrorActiveAIInline() {
 }
 
 func (a *App) runAgentStream(request agent.Request, retrySession bool) {
+	a.prepareAgentRequest(&request)
 	callbacks := agent.Callbacks{
 		OnStatus:  func(value string) { a.events <- agentStatusEvent{status: value} },
 		OnThought: func(value string) { a.events <- agentThoughtEvent{content: value} },
@@ -151,6 +153,9 @@ func (a *App) runAgentStream(request agent.Request, retrySession bool) {
 		},
 	}
 	turn, err := a.agent.Stream(a.ctx, request, callbacks)
+	if err != nil {
+		err = fmt.Errorf("%s", a.safeText(err.Error()))
+	}
 	if err != nil && retrySession && request.SessionID != "" && strings.Contains(strings.ToLower(err.Error()), "session not found") {
 		request.Event = "start"
 		request.SessionID = ""
@@ -251,6 +256,20 @@ func (a *App) finishAgentTurn(turn agent.Turn, err error) {
 			inline.Done = true
 			inline.Status = ""
 		}
+		if a.resourceProposal(turn.Proposal.Command) {
+			a.dirty = true
+			if a.config.Resources != nil && a.atPrompt && !a.sensitive && !isReviewRisk(turn.Proposal.Risk) {
+				op, err := resources.Parse(strings.TrimSpace(turn.Proposal.Command))
+				if err == nil {
+					needs, checkErr := a.config.Resources.RequiresApproval(op)
+					if checkErr == nil && !needs {
+						a.executeResource(turn.Proposal.Command, turn.Proposal.ID, a.agentSessionID, false)
+						return
+					}
+				}
+			}
+			return // Credential grants are independent of --always-yes.
+		}
 		if a.config.AlwaysYes && a.atPrompt && !a.sensitive {
 			if risk, known := agent.NormalizeRisk(turn.Proposal.Risk); !known {
 				a.approvalStatus = a.t("风险等级未知，always-yes 未自动批准；请手动确认")
@@ -284,13 +303,20 @@ func (a *App) startAlwaysYesRiskAssessment(proposal agent.Proposal) {
 	a.approvalStatus = a.agentStatus
 	request := agent.RiskAssessmentRequest{
 		Proposal:     proposal,
-		RecentOutput: agent.LimitOutputContext(a.recentOutput.ContextString(), a.config.AIContextChars),
+		RecentOutput: a.safeText(agent.LimitOutputContext(a.recentOutput.ContextString(), a.config.AIContextChars)),
 		Target: &agent.Target{
 			Type:      "linux",
 			HostLabel: a.parsed.Target,
 			Protocol:  "ssh",
 		},
 	}
+	if a.safeText(proposal.Command) != proposal.Command {
+		a.agentBusy = false
+		a.approvalStatus = "命令包含已保存的凭据，已阻止自动执行；请改用系统连接操作"
+		return
+	}
+	request.Proposal.Explanation = a.safeText(request.Proposal.Explanation)
+	request.Proposal.ExpectedEffect = a.safeText(request.Proposal.ExpectedEffect)
 	go func() {
 		assessments := make([]agent.RiskAssessment, 0, AlwaysYesRiskAssessmentPasses)
 		for pass := 1; pass <= AlwaysYesRiskAssessmentPasses; pass++ {
@@ -424,6 +450,15 @@ func (a *App) finishApproval(event approvalEvent) {
 	marker := ""
 	if event.err == nil && (!a.atPrompt || a.sensitive || a.execution != nil || a.executionRecovery) {
 		event.err = fmt.Errorf("%s", a.t("当前不在安全的 Shell 提示符，暂时不能执行；请输入 no 拒绝"))
+	}
+	if event.err == nil && a.resourceProposal(event.command) {
+		proposalID := ""
+		if a.proposal != nil {
+			proposalID = a.proposal.ID
+		}
+		a.appendPersistentChat(chatMessage{Role: "user", Content: "已批准系统操作：" + event.command, Time: time.Now()})
+		a.executeResource(event.command, proposalID, a.agentSessionID, true)
+		return
 	}
 	if event.err == nil {
 		marker, event.err = newExecutionMarker()
@@ -566,6 +601,7 @@ func (a *App) submitExecutionResult() {
 			"response_language": firstText(a.agentLanguage, a.localizer.Language()),
 		},
 	}
+	a.prepareAgentRequest(&request)
 	go func() {
 		callbacks := agent.Callbacks{
 			OnStatus:  func(value string) { a.events <- agentStatusEvent{status: value} },

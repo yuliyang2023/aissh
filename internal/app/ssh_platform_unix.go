@@ -48,11 +48,17 @@ func stopSSHProcess(process *os.Process) {
 func (a *App) startSignalReader() {
 	resize := make(chan os.Signal, 2)
 	signal.Notify(resize, syscall.SIGWINCH)
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
 		defer signal.Stop(resize)
+		defer signal.Stop(stop)
 		for {
 			select {
 			case <-a.ctx.Done():
+				return
+			case <-stop:
+				a.cancel()
 				return
 			case <-resize:
 				a.events <- resizeEvent{}

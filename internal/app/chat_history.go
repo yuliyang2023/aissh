@@ -192,6 +192,14 @@ func (a *App) appendPersistentChat(message chatMessage) {
 }
 
 func (a *App) persistChatMessage(message chatMessage) {
+	message.Content = a.safeText(message.Content)
+	if message.Proposal != nil {
+		copy := *message.Proposal
+		copy.Command = a.safeText(copy.Command)
+		copy.Explanation = a.safeText(copy.Explanation)
+		copy.ExpectedEffect = a.safeText(copy.ExpectedEffect)
+		message.Proposal = &copy
+	}
 	if a.historyStore == nil || message.Historical || message.Role == "assistant_stream" || strings.TrimSpace(message.Content) == "" {
 		return
 	}

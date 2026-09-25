@@ -1,0 +1,1481 @@
+import { useEffect, useRef, useState } from 'react';
+import {
+  ArrowUpRight,
+  CheckCircle2,
+  ChevronRight,
+  Database,
+  Download,
+  Folder,
+  KeyRound,
+  LoaderCircle,
+  LockKeyhole,
+  PanelLeft,
+  Plus,
+  RefreshCw,
+  Search,
+  Server,
+  ShieldCheck,
+  Sparkles,
+  TerminalSquare,
+  Trash2,
+  X,
+  PlugZap,
+  Pencil,
+  Play,
+  Globe,
+} from 'lucide-react';
+import {
+  AIProfile,
+  api,
+  Catalog,
+  connected,
+  Credential,
+  emptyCatalog,
+  errorText,
+  Host,
+  HostCheck,
+  newAI,
+  newCredential,
+  newHost,
+  newResource,
+  Operation,
+  Resource,
+  Session,
+  sessionLive,
+  sessionStatus,
+} from './api';
+import { AIEditor, CredentialEditor, HostEditor, ResourceEditor } from './forms';
+import { Empty, ErrorBox, Modal } from './components';
+import { Terminal } from './Terminal';
+import { Sessions } from './Sessions';
+import { primaryModifier } from './platform';
+
+type Page = 'hosts' | 'credentials' | 'resources' | 'ai' | 'sessions' | 'terminal';
+type Editor =
+  | { kind: 'host'; value: Host }
+  | { kind: 'resource'; value: Resource }
+  | { kind: 'ai'; value: AIProfile };
+const kinds: Record<string, string> = {
+  password: '账号密码',
+  key: 'SSH 私钥',
+  agent: 'SSH Agent',
+  token: 'API Token',
+  http: 'HTTP API',
+  postgres: 'PostgreSQL',
+  mysql: 'MySQL',
+  redis: 'Redis',
+};
+const navigation = [
+  { id: 'hosts' as Page, label: '主机', icon: Server },
+  { id: 'credentials' as Page, label: '凭据', icon: KeyRound },
+  { id: 'resources' as Page, label: '系统连接', icon: Database },
+  { id: 'ai' as Page, label: 'AI 配置', icon: Sparkles },
+];
+
+export function App() {
+  const [data, setData] = useState<Catalog>(emptyCatalog);
+  const [page, setPage] = useState<Page>('hosts');
+  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [selectedRow, setSelectedRow] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [search, setSearch] = useState('');
+  const [group, setGroup] = useState('全部主机');
+  const [routeFilter, setRouteFilter] = useState<'all' | 'direct' | 'jump'>('all');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [toast, setToast] = useState('');
+  const [busy, setBusy] = useState('');
+  const [editor, setEditor] = useState<Editor | null>(null);
+  const [credentialEditor, setCredentialEditor] = useState<{
+    value: Credential;
+    done?: (c: Credential) => void;
+  } | null>(null);
+  const [deletion, setDeletion] = useState<{ kind: string; id: string; name: string } | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+  const [trust, setTrust] = useState<{ check: HostCheck; resolve: (ok: boolean) => void } | null>(
+    null,
+  );
+  const [trustError, setTrustError] = useState('');
+  const [imports, setImports] = useState<Host[] | null>(null);
+  const [importSelection, setImportSelection] = useState<Set<number>>(new Set());
+  const [result, setResult] = useState<{ name: string; content: string } | null>(null);
+  const [operation, setOperation] = useState<Resource | null>(null);
+  const [operationText, setOperationText] = useState('');
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const sessionChanges = useRef(0);
+  const [activeSession, setActiveSession] = useState('');
+  useEffect(() => {
+    if (!sessions.some((s) => s.id === activeSession)) setActiveSession(sessions[0]?.id || '');
+  }, [sessions, activeSession]);
+  const [closeSession, setCloseSession] = useState<Session | null>(null);
+  const [credentialRequests, setCredentialRequests] = useState<
+    { requestId: string; credentialId: string; sessionId: string }[]
+  >([]);
+  async function reload() {
+    setError('');
+    const changes = sessionChanges.current;
+    try {
+      const [snapshot, opened] = await Promise.all([api.Snapshot(), api.ListSessions()]);
+      setData(snapshot);
+      // A delayed refresh must not restore a closed tab, discard a new one,
+      // or overwrite a newer process-exit event.
+      if (changes === sessionChanges.current) setSessions(opened);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    void reload();
+  }, []);
+  useEffect(() => {
+    const offSession = window.runtime?.EventsOn('session-updated', (session: Session) => {
+      sessionChanges.current++;
+      setSessions((v) => v.map((s) => (s.id === session.id ? session : s)));
+    });
+    const off = window.runtime?.EventsOn(
+      'credential-needed',
+      (request: { requestId: string; credentialId: string; sessionId: string }) => {
+        setCredentialRequests((v) => [...v, request]);
+        void reload();
+      },
+    );
+    const ended = window.runtime?.EventsOn('credential-request-ended', (id: string) =>
+      setCredentialRequests((v) => v.filter((r) => r.requestId !== id)),
+    );
+    return () => {
+      offSession?.();
+      off?.();
+      ended?.();
+    };
+  }, []);
+  useEffect(() => {
+    if (toast) {
+      const timeout = setTimeout(() => setToast(''), 4500);
+      return () => clearTimeout(timeout);
+    }
+  }, [toast]);
+  const saved = () => {
+    setEditor(null);
+    void reload();
+    setToast('配置已保存');
+  };
+  const createCredential = (done: (c: Credential) => void) =>
+    setCredentialEditor({ value: newCredential(), done });
+  const credentialSaved = (c: Credential) => {
+    credentialEditor?.done?.(c);
+    setCredentialEditor(null);
+    void reload();
+    setToast('凭据已保存到系统凭据库');
+  };
+  async function ensureTrust(id: string) {
+    for (let i = 0; i < 8; i++) {
+      const check = await api.CheckHost(id);
+      if (check.known) return true;
+      const accepted = await new Promise<boolean>((resolve) => {
+        setTrustError('');
+        setTrust({ check, resolve });
+      });
+      if (!accepted) return false;
+    }
+    throw new Error('跳板机层数过多');
+  }
+  async function hostAction(host: Host, test = false, previous?: Session) {
+    if (busy) return;
+    setBusy(host.id);
+    setError('');
+    try {
+      if (!(await ensureTrust(host.id))) return;
+      if (test) {
+        await api.TestHost(host.id);
+        setToast('已成功连接 ' + host.name);
+      } else {
+        const session = await api.CreateSession(host.id);
+        sessionChanges.current++;
+        setSessions((v) => [...v, session]);
+        setActiveSession(session.id);
+        setPage('terminal');
+        setSearch('');
+        if (previous) await removeSession(previous.id);
+        setData(await api.Snapshot());
+      }
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy('');
+    }
+  }
+  async function trustHost() {
+    if (!trust) return;
+    setBusy('trust');
+    try {
+      await api.TrustHost(trust.check.token);
+      trust.resolve(true);
+      setTrust(null);
+    } catch (e) {
+      setTrustError(errorText(e));
+    } finally {
+      setBusy('');
+    }
+  }
+  async function deleteItem() {
+    if (!deletion) return;
+    setBusy('delete');
+    setDeleteError('');
+    try {
+      await api.Delete(deletion.kind, deletion.id);
+      setDeletion(null);
+      await reload();
+      setToast('已删除本机配置');
+    } catch (e) {
+      await reload();
+      setDeleteError(errorText(e));
+    } finally {
+      setBusy('');
+    }
+  }
+  async function importHosts() {
+    setBusy('import');
+    try {
+      const items = await api.ImportSSH();
+      setImports(items);
+      setImportSelection(new Set(items.map((_, i) => i)));
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy('');
+    }
+  }
+  async function saveImports() {
+    if (!imports) return;
+    setBusy('import');
+    try {
+      for (const i of importSelection) {
+        await api.SaveHost(imports[i]);
+      }
+      setImports(null);
+      await reload();
+      setToast('SSH 主机已导入；请检查凭据和跳板机绑定');
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy('');
+    }
+  }
+  async function resourceAction(resource: Resource, op?: Operation) {
+    setBusy(resource.id);
+    setError('');
+    try {
+      if (resource.route === 'ssh' && !(await ensureTrust(resource.hostId))) return;
+      const text = op ? await api.RunResource(op) : await api.TestResource(resource.id);
+      setOperation(null);
+      setResult({ name: resource.name, content: text });
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy('');
+    }
+  }
+  const credentialName = (id: string) =>
+    data.credentials.find((c) => c.id === id)?.name || '系统 SSH 配置';
+  const hostName = (id: string) => data.hosts.find((h) => h.id === id)?.name || '本机';
+  const matches = (...values: string[]) =>
+    values.join(' ').toLowerCase().includes(search.toLowerCase());
+  const visibleHosts = data.hosts.filter(
+    (h) =>
+      matches(h.name, h.address, h.user, h.group) &&
+      (group === '全部主机' || h.group === group) &&
+      (routeFilter === 'all' || (routeFilter === 'jump' ? !!h.jumpHostId : !h.jumpHostId)),
+  );
+  const credentialUses = (id: string) =>
+    data.hosts.filter((h) => h.credentialId === id).length +
+    data.resources.filter((r) => r.credentialId === id).length +
+    data.aiProfiles.filter((p) => p.credentialId === id).length;
+  const title =
+    page === 'sessions'
+      ? '会话管理'
+      : page === 'terminal'
+        ? '连接工作台'
+        : navigation.find((n) => n.id === page)?.label;
+  const add = () => {
+    if (page === 'hosts') setEditor({ kind: 'host', value: newHost() });
+    if (page === 'credentials') setCredentialEditor({ value: newCredential() });
+    if (page === 'resources') setEditor({ kind: 'resource', value: newResource() });
+    if (page === 'ai') setEditor({ kind: 'ai', value: newAI() });
+  };
+  async function removeSession(id: string) {
+    await api.CloseSession(id);
+    sessionChanges.current++;
+    setSessions((v) => v.filter((s) => s.id !== id));
+  }
+  const requestClose = (session: Session) => {
+    if (sessionLive(session)) setCloseSession(session);
+    else void removeSession(session.id).catch((e) => setError(errorText(e)));
+  };
+  async function clearEnded() {
+    setBusy('clear-sessions');
+    try {
+      for (const session of sessions.filter((s) => !sessionLive(s)))
+        await removeSession(session.id);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy('');
+    }
+  }
+  async function clearHistory() {
+    setBusy('clear-history');
+    try {
+      await api.ClearRecentConnections();
+      setData(await api.Snapshot());
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy('');
+    }
+  }
+  const openSession = (session: Session) => {
+    setActiveSession(session.id);
+    goto('terminal');
+  };
+  const goto = (value: Page) => {
+    setPage(value);
+    setSearch('');
+    setSelectedRow('');
+    setRouteFilter('all');
+  };
+  useEffect(() => {
+    return window.runtime?.EventsOn('desktop-command', (command: string) => {
+      // Native menu commands must not dismiss an unfinished sheet or approve it.
+      if (document.querySelector('dialog[open]') || busy) return;
+      if (command.startsWith('page:')) {
+        const destination = command.slice(5) as Page;
+        if (['hosts', 'credentials', 'resources', 'ai', 'sessions'].includes(destination)) {
+          goto(destination);
+          if (destination === 'hosts') setGroup('全部主机');
+        }
+      } else if (command === 'new-host') {
+        goto('hosts');
+        setEditor({ kind: 'host', value: newHost() });
+      } else if (command === 'new-credential') {
+        goto('credentials');
+        setCredentialEditor({ value: newCredential() });
+      } else if (command === 'new-resource') {
+        goto('resources');
+        setEditor({ kind: 'resource', value: newResource() });
+      } else if (command === 'new-ai') {
+        goto('ai');
+        setEditor({ kind: 'ai', value: newAI() });
+      } else if (command === 'sidebar') {
+        setSidebarVisible((v) => !v);
+      } else if (command === 'search') {
+        if (page === 'terminal') goto('sessions');
+        requestAnimationFrame(() => searchRef.current?.focus());
+      } else if (command === 'refresh') {
+        void reload();
+      } else if (command === 'import') {
+        goto('hosts');
+        void importHosts();
+      }
+    });
+  }, [busy, page]);
+  const itemCount =
+    page === 'hosts'
+      ? visibleHosts.length
+      : page === 'credentials'
+        ? data.credentials.filter((c) => matches(c.name, c.username, kinds[c.kind])).length
+        : page === 'resources'
+          ? data.resources.filter((r) => matches(r.name, r.kind, r.endpoint)).length
+          : page === 'ai'
+            ? data.aiProfiles.filter((p) => matches(p.name, p.provider, p.model)).length
+            : sessions.length;
+  const needed = credentialRequests[0];
+  const neededCredential = needed && data.credentials.find((c) => c.id === needed.credentialId);
+  const resolveNeeded = (accepted: boolean) => {
+    if (!needed) return;
+    void api
+      .ResolveCredentialRequest(needed.requestId, accepted)
+      .catch((e) => setError(errorText(e)));
+    setCredentialRequests((v) => v.filter((r) => r.requestId !== needed.requestId));
+    void reload();
+  };
+  return (
+    <div className={'shell' + (sidebarVisible ? '' : ' sidebar-hidden')}>
+      <aside className="sidebar" aria-label="侧栏">
+        <div className="sidebar-titlebar">
+          <button
+            className="icon-button"
+            aria-label="隐藏侧栏"
+            title="隐藏侧栏"
+            onClick={() => setSidebarVisible(false)}
+          >
+            <PanelLeft size={18} />
+          </button>
+        </div>
+        <div className="workspace-identity">
+          <span className="workspace-mark">
+            <TerminalSquare size={22} />
+          </span>
+          <div>
+            <strong>
+              aissh<span> / </span>
+            </strong>
+            <small>本地工作空间</small>
+          </div>
+        </div>
+        <div className="sidebar-scroll">
+          <div className="nav-caption">工作空间</div>
+          <nav aria-label="资料库">
+            {navigation.map((n) => (
+              <button
+                key={n.id}
+                className={
+                  'nav-item ' +
+                  (page === n.id && (n.id !== 'hosts' || group === '全部主机') ? 'selected' : '')
+                }
+                aria-current={page === n.id ? 'page' : undefined}
+                onClick={() => {
+                  goto(n.id);
+                  if (n.id === 'hosts') setGroup('全部主机');
+                }}
+              >
+                <n.icon size={17} />
+                <span>{n.label}</span>
+                {n.id === 'hosts' && <span className="nav-count">{data.hosts.length}</span>}
+              </button>
+            ))}
+          </nav>
+          {data.hosts.some((h) => h.group) && (
+            <>
+              <div className="nav-caption section-caption">主机分组</div>
+              {[...new Set(data.hosts.map((h) => h.group).filter(Boolean))].map((g) => (
+                <button
+                  key={g}
+                  className={
+                    'nav-item group-item ' + (page === 'hosts' && group === g ? 'selected' : '')
+                  }
+                  onClick={() => {
+                    goto('hosts');
+                    setGroup(g);
+                  }}
+                >
+                  <Folder size={16} />
+                  <span>{g}</span>
+                  <span className="nav-count">
+                    {data.hosts.filter((h) => h.group === g).length}
+                  </span>
+                </button>
+              ))}
+            </>
+          )}
+          <div className="nav-caption section-caption">连接</div>
+          <button
+            className={'nav-item ' + (page === 'sessions' ? 'selected' : '')}
+            onClick={() => goto('sessions')}
+          >
+            <TerminalSquare size={17} />
+            <span>会话管理</span>
+            {sessions.length > 0 && (
+              <span className="nav-count">{sessions.filter(sessionLive).length}</span>
+            )}
+          </button>
+          {sessions.length > 0 && (
+            <div className="session-shortcuts">
+              {sessions.map((s) => (
+                <button
+                  key={s.id}
+                  className={page === 'terminal' && activeSession === s.id ? 'active' : ''}
+                  title={s.name + ' · ' + sessionStatus[s.status]}
+                  onClick={() => {
+                    setActiveSession(s.id);
+                    goto('terminal');
+                  }}
+                >
+                  <span className={'status-dot ' + s.status} />
+                  <span>{s.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="sidebar-bottom">
+          <span className="vault-icon">
+            <LockKeyhole size={17} />
+          </span>
+          <div>
+            <strong>本机凭据库</strong>
+            <small>密码由系统安全保存</small>
+          </div>
+        </div>
+      </aside>
+      <main className={'main ' + (page === 'terminal' ? 'session-main' : '')}>
+        <header className="topbar">
+          {!sidebarVisible && (
+            <button
+              className="icon-button"
+              aria-label="显示侧栏"
+              title="显示侧栏"
+              onClick={() => setSidebarVisible(true)}
+            >
+              <PanelLeft size={18} />
+            </button>
+          )}
+          <div className="window-heading">
+            <h1>{page === 'hosts' && group !== '全部主机' ? group : title}</h1>
+            <span>
+              {page === 'hosts'
+                ? 'SSH 连接与访问路径'
+                : page === 'credentials'
+                  ? '在连接之间安全复用'
+                  : page === 'resources'
+                    ? 'API、数据库与内部服务'
+                    : page === 'ai'
+                      ? '本机助手与模型服务'
+                      : page === 'sessions'
+                        ? '当前会话与最近连接'
+                        : '终端与 AI 助手'}
+            </span>
+          </div>
+          <div className="toolbar-actions">
+            {page === 'terminal' && (
+              <button className="button" onClick={() => goto('sessions')}>
+                管理会话
+              </button>
+            )}
+            {page === 'sessions' && (
+              <button className="button primary" onClick={() => goto('hosts')}>
+                <Plus size={16} />
+                新建连接
+              </button>
+            )}
+
+            <button
+              className="icon-button"
+              title={'刷新配置 · ' + primaryModifier + 'R'}
+              aria-label="刷新配置"
+              onClick={() => void reload()}
+            >
+              <RefreshCw size={17} />
+            </button>
+            {page === 'hosts' && (
+              <button
+                className="button import-button"
+                aria-label="导入 SSH 配置"
+                title="导入 SSH 配置"
+                disabled={!!busy || !connected()}
+                onClick={() => void importHosts()}
+              >
+                <Download size={15} />
+                导入
+              </button>
+            )}
+            {page !== 'sessions' && page !== 'terminal' && (
+              <button
+                className="button primary add-button"
+                onClick={add}
+                disabled={!connected()}
+                aria-label={
+                  page === 'hosts'
+                    ? '添加主机'
+                    : page === 'credentials'
+                      ? '添加凭据'
+                      : page === 'resources'
+                        ? '添加系统'
+                        : '添加 AI 配置'
+                }
+                title={
+                  page === 'hosts'
+                    ? '添加主机 · ' + primaryModifier + 'N'
+                    : page === 'credentials'
+                      ? '添加凭据'
+                      : page === 'resources'
+                        ? '添加系统'
+                        : '添加 AI 配置'
+                }
+              >
+                <Plus size={16} />
+                {page === 'hosts'
+                  ? '新建主机'
+                  : page === 'credentials'
+                    ? '新建凭据'
+                    : page === 'resources'
+                      ? '新建系统'
+                      : '新建 AI 配置'}
+              </button>
+            )}
+          </div>
+        </header>
+        {page !== 'terminal' && (
+          <div className="collection-toolbar">
+            <label className="search">
+              <Search size={15} />
+              <input
+                ref={searchRef}
+                aria-label="搜索"
+                placeholder={
+                  page === 'hosts'
+                    ? '搜索名称、地址或分组…'
+                    : page === 'sessions'
+                      ? '搜索会话或主机地址…'
+                      : '搜索配置…'
+                }
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              {search && (
+                <button className="icon-button" aria-label="清除搜索" onClick={() => setSearch('')}>
+                  <X size={12} />
+                </button>
+              )}
+              {!search && <kbd>{primaryModifier}F</kbd>}
+            </label>
+            {page === 'hosts' && (
+              <div className="filter-tabs" role="group" aria-label="连接方式">
+                {(
+                  [
+                    ['all', '全部'],
+                    ['direct', '直接连接'],
+                    ['jump', '通过跳板'],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    aria-pressed={routeFilter === value}
+                    onClick={() => {
+                      setRouteFilter(value);
+                      setSelectedRow('');
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <span className="collection-count">
+              {itemCount} {page === 'hosts' ? '台主机' : page === 'sessions' ? '个会话' : '项配置'}
+            </span>
+          </div>
+        )}
+        {error && (
+          <div className="page-error">
+            <ErrorBox error={error} />
+            <button className="icon-button" aria-label="关闭错误提示" onClick={() => setError('')}>
+              <X size={15} />
+            </button>
+          </div>
+        )}
+        <div className="page-content" style={{ display: page === 'terminal' ? 'none' : undefined }}>
+          {page === 'credentials' && !!data.pendingDeletes?.length && (
+            <div className="info-box">
+              <span>有 {data.pendingDeletes.length} 项已停用的秘密等待从系统凭据库清理。</span>
+              <button
+                className="button small"
+                onClick={() =>
+                  void api
+                    .CleanupSecrets()
+                    .then(() => reload())
+                    .catch((e) => setError(errorText(e)))
+                }
+              >
+                清理旧凭据
+              </button>
+            </div>
+          )}
+          {loading ? (
+            <div className="loading">
+              <LoaderCircle className="spin" />
+              正在读取本机配置…
+            </div>
+          ) : (
+            <>
+              {page === 'sessions' && (
+                <Sessions
+                  data={data}
+                  sessions={sessions}
+                  search={search}
+                  busy={!!busy}
+                  onOpen={openSession}
+                  onConnect={(host, previous) => void hostAction(host, false, previous)}
+                  onClose={requestClose}
+                  onClearEnded={() => void clearEnded()}
+                  onClearHistory={() => void clearHistory()}
+                  onNew={() => goto('hosts')}
+                />
+              )}
+              {page === 'hosts' &&
+                (visibleHosts.length ? (
+                  <div className="table-card">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>主机</th>
+                          <th>连接地址</th>
+                          <th>登录凭据</th>
+                          <th>访问路径</th>
+                          <th className="align-right">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleHosts.map((h) => (
+                          <tr
+                            key={h.id}
+                            className={selectedRow === h.id ? 'selected-row' : ''}
+                            onClick={() => setSelectedRow(h.id)}
+                            onDoubleClick={(e) => {
+                              if (!(e.target as HTMLElement).closest('button') && !busy)
+                                void hostAction(h);
+                            }}
+                          >
+                            <td>
+                              <div className="identity">
+                                <div className="row-icon">
+                                  <Server size={19} />
+                                </div>
+                                <div>
+                                  <strong>{h.name}</strong>
+                                  <small>{h.group || '未分组'}</small>
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              <span className="mono">
+                                {h.user ? h.user + '@' : ''}
+                                {h.address}
+                              </span>
+                              <small className="cell-small">端口 {h.port}</small>
+                            </td>
+                            <td>
+                              <span className="credential-chip">
+                                <KeyRound size={13} />
+                                {credentialName(h.credentialId)}
+                              </span>
+                            </td>
+                            <td>
+                              <span className="subtle">
+                                {h.jumpHostId ? hostName(h.jumpHostId) : '直接连接'}
+                              </span>
+                            </td>
+                            <td>
+                              <div className="row-actions">
+                                <button
+                                  className="button connect"
+                                  disabled={!!busy}
+                                  onClick={() => void hostAction(h)}
+                                >
+                                  {busy === h.id ? (
+                                    <LoaderCircle size={14} className="spin" />
+                                  ) : (
+                                    <ArrowUpRight size={15} />
+                                  )}
+                                  连接
+                                </button>
+                                <button
+                                  className="icon-button"
+                                  aria-label={'测试连接 ' + h.name}
+                                  title="测试连接"
+                                  disabled={!!busy}
+                                  onClick={() => void hostAction(h, true)}
+                                >
+                                  <PlugZap size={16} />
+                                </button>
+                                <button
+                                  className="icon-button"
+                                  aria-label={'编辑 ' + h.name}
+                                  onClick={() => setEditor({ kind: 'host', value: h })}
+                                >
+                                  <Pencil size={15} />
+                                </button>
+                                <button
+                                  className="icon-button danger-hover"
+                                  aria-label={'删除 ' + h.name}
+                                  onClick={() => {
+                                    setDeleteError('');
+                                    setDeletion({ kind: 'host', id: h.id, name: h.name });
+                                  }}
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <Empty
+                    icon={<Server size={29} />}
+                    title={search || routeFilter !== 'all' ? '没有找到匹配的主机' : '没有主机'}
+                    description={
+                      search || routeFilter !== 'all'
+                        ? '试试其他搜索条件或连接方式。'
+                        : '添加主机，或从 SSH 配置导入。'
+                    }
+                    action={
+                      !search &&
+                      routeFilter === 'all' && (
+                        <button className="button primary" onClick={add} disabled={!connected()}>
+                          <Plus size={16} />
+                          添加第一台主机
+                        </button>
+                      )
+                    }
+                  />
+                ))}
+              {page === 'credentials' &&
+                (data.credentials.filter((c) => matches(c.name, c.username, kinds[c.kind]))
+                  .length ? (
+                  <div className="table-card">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>凭据</th>
+                          <th>类型</th>
+                          <th>账号 / 密钥</th>
+                          <th>使用情况</th>
+                          <th className="align-right">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.credentials
+                          .filter((c) => matches(c.name, c.username, kinds[c.kind]))
+                          .map((c) => (
+                            <tr
+                              key={c.id}
+                              className={selectedRow === c.id ? 'selected-row' : ''}
+                              onClick={() => setSelectedRow(c.id)}
+                              onDoubleClick={(e) => {
+                                if (!(e.target as HTMLElement).closest('button'))
+                                  setCredentialEditor({ value: c });
+                              }}
+                            >
+                              <td>
+                                <div className="identity">
+                                  <div className="row-icon purple">
+                                    <KeyRound size={19} />
+                                  </div>
+                                  <div>
+                                    <strong>{c.name}</strong>
+                                    <small>
+                                      {c.hasSecret
+                                        ? '已保存到系统凭据库'
+                                        : c.kind === 'agent'
+                                          ? '使用 SSH Agent'
+                                          : '私钥文件引用'}
+                                    </small>
+                                  </div>
+                                </div>
+                              </td>
+                              <td>
+                                <span className="pill">{kinds[c.kind]}</span>
+                              </td>
+                              <td>
+                                <span className="mono">
+                                  {c.kind === 'key' ? c.identityFile : c.username || '—'}
+                                </span>
+                              </td>
+                              <td>
+                                <span className="subtle">{credentialUses(c.id)} 个配置引用</span>
+                              </td>
+                              <td>
+                                <div className="row-actions">
+                                  <button
+                                    className="button small"
+                                    onClick={() => setCredentialEditor({ value: c })}
+                                  >
+                                    <Pencil size={14} />
+                                    编辑
+                                  </button>
+                                  <button
+                                    className="icon-button danger-hover"
+                                    aria-label={'删除 ' + c.name}
+                                    onClick={() => {
+                                      setDeleteError('');
+                                      setDeletion({ kind: 'credential', id: c.id, name: c.name });
+                                    }}
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <Empty
+                    icon={<KeyRound size={29} />}
+                    title="没有凭据"
+                    description="保存密码、Token，或引用已有私钥。多个主机和系统可以绑定同一项凭据。"
+                    action={
+                      <button className="button primary" onClick={add} disabled={!connected()}>
+                        <Plus size={16} />
+                        添加凭据
+                      </button>
+                    }
+                  />
+                ))}
+              {page === 'resources' &&
+                (data.resources.filter((r) => matches(r.name, r.kind, r.endpoint)).length ? (
+                  <div className="table-card">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>系统</th>
+                          <th>凭据</th>
+                          <th>访问与授权</th>
+                          <th className="align-right">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.resources
+                          .filter((r) => matches(r.name, r.kind, r.endpoint))
+                          .map((r) => (
+                            <tr
+                              key={r.id}
+                              className={selectedRow === r.id ? 'selected-row' : ''}
+                              onClick={() => setSelectedRow(r.id)}
+                            >
+                              <td>
+                                <div className="identity">
+                                  <div className="row-icon blue">
+                                    {r.kind === 'http' ? (
+                                      <Globe size={19} />
+                                    ) : (
+                                      <Database size={19} />
+                                    )}
+                                  </div>
+                                  <div>
+                                    <strong>
+                                      <span>{r.name}</span>
+                                      <span className="inline-kind">{kinds[r.kind]}</span>
+                                    </strong>
+                                    <small className="mono">{r.endpoint}</small>
+                                  </div>
+                                </div>
+                              </td>
+                              <td>
+                                <span className="credential-chip">
+                                  <KeyRound size={13} />
+                                  {r.credentialId ? credentialName(r.credentialId) : '无需认证'}
+                                </span>
+                              </td>
+                              <td>
+                                <span>
+                                  {r.route === 'ssh'
+                                    ? hostName(r.hostId) + ' · SSH 隧道'
+                                    : '本机直接访问'}
+                                </span>
+                                <small className="cell-small">
+                                  {r.grant === 'read'
+                                    ? '自动执行只读操作'
+                                    : r.grant === 'session'
+                                      ? '本次会话授权'
+                                      : '每次操作确认'}
+                                </small>
+                              </td>
+                              <td>
+                                <div className="row-actions">
+                                  <button
+                                    className="button small"
+                                    disabled={!!busy}
+                                    onClick={() => void resourceAction(r)}
+                                  >
+                                    {busy === r.id ? (
+                                      <LoaderCircle size={13} className="spin" />
+                                    ) : (
+                                      <PlugZap size={13} />
+                                    )}
+                                    测试连接
+                                  </button>
+                                  <button
+                                    className="button small"
+                                    onClick={() => {
+                                      setOperation(r);
+                                      setOperationText(
+                                        r.kind === 'http'
+                                          ? '/'
+                                          : r.kind === 'redis'
+                                            ? 'INFO'
+                                            : 'SELECT 1',
+                                      );
+                                    }}
+                                  >
+                                    <Play size={12} />
+                                    执行
+                                  </button>
+                                  <button
+                                    className="icon-button"
+                                    aria-label={'编辑 ' + r.name}
+                                    onClick={() => setEditor({ kind: 'resource', value: r })}
+                                  >
+                                    <Pencil size={14} />
+                                  </button>
+                                  <button
+                                    className="icon-button danger-hover"
+                                    aria-label={'删除 ' + r.name}
+                                    onClick={() => {
+                                      setDeleteError('');
+                                      setDeletion({ kind: 'resource', id: r.id, name: r.name });
+                                    }}
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <Empty
+                    icon={<Database size={29} />}
+                    title="没有系统连接"
+                    description="添加数据库、Redis 或 HTTP API，并选择访问凭据。"
+                    action={
+                      <button className="button primary" onClick={add} disabled={!connected()}>
+                        <Plus size={16} />
+                        添加系统连接
+                      </button>
+                    }
+                  />
+                ))}
+              {page === 'ai' &&
+                (data.aiProfiles.filter((p) => matches(p.name, p.provider, p.model)).length ? (
+                  <div className="table-card">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>配置</th>
+                          <th>后端</th>
+                          <th>模型</th>
+                          <th>凭据</th>
+                          <th className="align-right">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.aiProfiles
+                          .filter((p) => matches(p.name, p.provider, p.model))
+                          .map((p) => (
+                            <tr
+                              key={p.id}
+                              className={selectedRow === p.id ? 'selected-row' : ''}
+                              onClick={() => setSelectedRow(p.id)}
+                            >
+                              <td>
+                                <div className="identity">
+                                  <div className="row-icon purple">
+                                    <Sparkles size={19} />
+                                  </div>
+                                  <div>
+                                    <strong>
+                                      <span>{p.name}</span>
+                                      {data.defaultAIProfileId === p.id && (
+                                        <span className="pill default-pill">默认</span>
+                                      )}
+                                    </strong>
+                                    <small>{p.url || '本机 CLI'}</small>
+                                  </div>
+                                </div>
+                              </td>
+                              <td>{p.provider}</td>
+                              <td>{p.model || '后端默认'}</td>
+                              <td>
+                                <span className="subtle">
+                                  {p.credentialId ? credentialName(p.credentialId) : '沿用后端认证'}
+                                </span>
+                              </td>
+                              <td>
+                                <div className="row-actions">
+                                  <button
+                                    className="button small"
+                                    onClick={() => setEditor({ kind: 'ai', value: p })}
+                                  >
+                                    <Pencil size={13} />
+                                    编辑配置
+                                  </button>
+                                  <button
+                                    className="icon-button danger-hover"
+                                    aria-label={'删除 ' + p.name}
+                                    onClick={() => {
+                                      setDeleteError('');
+                                      setDeletion({ kind: 'ai', id: p.id, name: p.name });
+                                    }}
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <Empty
+                    icon={<Sparkles size={29} />}
+                    title="没有 AI 配置"
+                    description="使用本机 Codex、Claude Code，或配置模型 API。每台主机都可以选择自己的助手。"
+                    action={
+                      <button className="button primary" onClick={add} disabled={!connected()}>
+                        <Plus size={16} />
+                        添加 AI 配置
+                      </button>
+                    }
+                  />
+                ))}
+            </>
+          )}
+        </div>
+        <div className="workspace" style={{ display: page === 'terminal' ? 'flex' : 'none' }}>
+          {sessions.length ? (
+            <>
+              <div className="terminal-tabs">
+                {sessions.map((s) => (
+                  <div
+                    className={'terminal-tab ' + (activeSession === s.id ? 'active' : '')}
+                    key={s.id}
+                  >
+                    <button onClick={() => setActiveSession(s.id)}>
+                      <span className={'status-dot ' + s.status} />
+                      {s.name}
+                    </button>
+                    <button
+                      aria-label={'关闭连接 ' + s.name}
+                      disabled={!!busy}
+                      onClick={() => requestClose(s)}
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
+                <button className="terminal-new" title="添加连接" onClick={() => goto('hosts')}>
+                  <Plus size={17} />
+                </button>
+              </div>
+              {sessions.map((s) => (
+                <Terminal
+                  key={s.id}
+                  session={s}
+                  active={page === 'terminal' && activeSession === s.id}
+                  onReconnect={() => {
+                    const host = data.hosts.find((h) => h.id === s.hostId);
+                    if (host) void hostAction(host, false, s);
+                  }}
+                  canReconnect={!busy && data.hosts.some((h) => h.id === s.hostId)}
+                />
+              ))}
+            </>
+          ) : (
+            <Empty
+              icon={<TerminalSquare size={30} />}
+              title="还没有打开的连接"
+              description="从主机列表选择服务器，终端和 AI 工作台会在这里打开。"
+              action={
+                <button className="button primary" onClick={() => goto('hosts')}>
+                  前往主机列表 <ArrowUpRight size={16} />
+                </button>
+              }
+            />
+          )}
+        </div>
+        {page !== 'terminal' && (
+          <footer className="statusbar">
+            <span>
+              {itemCount} 个项目{search && ' · 已筛选'}
+            </span>
+            <span>
+              {page === 'hosts'
+                ? '双击主机连接'
+                : page === 'credentials'
+                  ? '秘密保存在系统凭据库'
+                  : page === 'resources'
+                    ? '按配置范围使用凭据'
+                    : page === 'sessions'
+                      ? '最近记录保存在本机'
+                      : '每台主机可单独选择 AI 配置'}
+            </span>
+          </footer>
+        )}
+      </main>
+      {toast && (
+        <div className="toast" role="status">
+          <CheckCircle2 size={18} />
+          {toast}
+          <button className="icon-button" aria-label="关闭通知" onClick={() => setToast('')}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
+      {editor?.kind === 'host' && (
+        <HostEditor
+          item={editor.value}
+          data={data}
+          onClose={() => setEditor(null)}
+          onSaved={saved}
+          createCredential={createCredential}
+        />
+      )}
+      {editor?.kind === 'resource' && (
+        <ResourceEditor
+          item={editor.value}
+          data={data}
+          onClose={() => setEditor(null)}
+          onSaved={saved}
+          createCredential={createCredential}
+        />
+      )}
+      {editor?.kind === 'ai' && (
+        <AIEditor
+          item={editor.value}
+          data={data}
+          onClose={() => setEditor(null)}
+          onSaved={saved}
+          createCredential={(done) =>
+            setCredentialEditor({ value: { ...newCredential(), kind: 'token' }, done })
+          }
+        />
+      )}
+      {credentialEditor && (
+        <CredentialEditor
+          item={credentialEditor.value}
+          onClose={() => setCredentialEditor(null)}
+          onSaved={credentialSaved}
+        />
+      )}
+      {neededCredential && (
+        <CredentialEditor
+          key={needed.requestId}
+          item={neededCredential}
+          secretOnly
+          onClose={() => resolveNeeded(false)}
+          onSaved={() => resolveNeeded(true)}
+        />
+      )}
+      {deletion && (
+        <Modal
+          title={'删除「' + deletion.name + '」？'}
+          subtitle={
+            deletion.kind === 'credential'
+              ? '这会删除本机保存的凭据，不会撤销服务器上的账号或密码。被其他配置引用的凭据需要先解除绑定。'
+              : '这会删除本机连接配置。'
+          }
+          onClose={() => !busy && setDeletion(null)}
+        >
+          <div className="modal-body">
+            <ErrorBox error={deleteError} />
+            <div className="form-actions">
+              <button className="button" onClick={() => setDeletion(null)} disabled={!!busy}>
+                取消
+              </button>
+              <button className="button danger" disabled={!!busy} onClick={() => void deleteItem()}>
+                确认删除
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {trust && (
+        <Modal
+          title="核对 SSH 主机指纹"
+          subtitle={'首次连接 ' + trust.check.name + ' · ' + trust.check.address}
+          onClose={() => {
+            trust.resolve(false);
+            setTrust(null);
+          }}
+        >
+          <div className="modal-body">
+            <p className="explanation">
+              请通过管理员或可信渠道核对以下指纹。确认后会保存该主机的公钥，后续连接将自动验证。
+            </p>
+            <div className="fingerprints">
+              {trust.check.keys.map((k) => (
+                <div key={k.fingerprint}>
+                  <span>{k.algorithm}</span>
+                  <code>{k.fingerprint}</code>
+                </div>
+              ))}
+            </div>
+            <ErrorBox error={trustError} />
+            <div className="form-actions">
+              <button
+                className="button"
+                onClick={() => {
+                  trust.resolve(false);
+                  setTrust(null);
+                }}
+              >
+                取消连接
+              </button>
+              <button
+                className="button primary"
+                disabled={busy === 'trust'}
+                onClick={() => void trustHost()}
+              >
+                <ShieldCheck size={16} />
+                已核对，信任并继续
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {imports && (
+        <Modal
+          title="导入 SSH 主机"
+          subtitle="读取 ~/.ssh/config 中的主机别名。导入后请配置私钥、跳板机等凭据绑定。"
+          onClose={() => setImports(null)}
+        >
+          <div className="modal-body">
+            {imports.length ? (
+              <div className="import-list">
+                {imports.map((h, i) => (
+                  <label key={i} className="check import-item">
+                    <input
+                      type="checkbox"
+                      checked={importSelection.has(i)}
+                      onChange={(e) =>
+                        setImportSelection((v) => {
+                          const n = new Set(v);
+                          if (e.target.checked) n.add(i);
+                          else n.delete(i);
+                          return n;
+                        })
+                      }
+                    />
+                    <span>
+                      <strong>{h.name}</strong>
+                      <small>
+                        {h.user}@{h.address}:{h.port}
+                      </small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <p className="explanation">
+                没有找到可导入的主机别名。可以关闭此窗口后手动添加主机。
+              </p>
+            )}
+            <div className="form-actions">
+              <button className="button" onClick={() => setImports(null)}>
+                取消
+              </button>
+              <button
+                className="button primary"
+                disabled={!importSelection.size || busy === 'import'}
+                onClick={() => void saveImports()}
+              >
+                导入 {importSelection.size} 台主机
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {result && (
+        <Modal
+          title={result.name + ' · 执行结果'}
+          subtitle="凭据由 aissh 使用，结果经过已知凭据脱敏。"
+          wide
+          onClose={() => setResult(null)}
+        >
+          <div className="modal-body">
+            <pre className="result-output">{result.content}</pre>
+            <div className="form-actions">
+              <button className="button primary" onClick={() => setResult(null)}>
+                完成
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {operation && (
+        <Modal
+          title={'访问 ' + operation.name}
+          subtitle="点击执行将批准本次只读操作使用绑定的凭据。"
+          onClose={() => setOperation(null)}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const op: Operation = {
+                resourceId: operation.id,
+                action:
+                  operation.kind === 'http'
+                    ? 'http.get'
+                    : operation.kind === 'redis'
+                      ? 'redis.read'
+                      : 'database.query',
+              };
+              if (operation.kind === 'http') op.path = operationText;
+              else if (operation.kind === 'redis') op.args = operationText.trim().split(/\s+/);
+              else op.query = operationText;
+              void resourceAction(operation, op);
+            }}
+          >
+            <label className="field">
+              <span>
+                {operation.kind === 'http'
+                  ? 'GET 路径'
+                  : operation.kind === 'redis'
+                    ? '只读命令'
+                    : '只读 SQL'}
+              </span>
+              <textarea
+                required
+                autoFocus
+                rows={5}
+                value={operationText}
+                onChange={(e) => setOperationText(e.target.value)}
+              />
+            </label>
+            <ErrorBox error={error} />
+            <div className="form-actions">
+              <button type="button" className="button" onClick={() => setOperation(null)}>
+                取消
+              </button>
+              <button type="submit" className="button primary" disabled={!!busy}>
+                <Play size={14} />
+                批准并执行
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+      {closeSession && (
+        <Modal
+          title={'断开 ' + closeSession.name + '？'}
+          subtitle="此连接中的远端命令可能正在运行。断开会结束当前 aissh 会话。"
+          onClose={() => setCloseSession(null)}
+        >
+          <div className="modal-body">
+            <div className="form-actions">
+              <button className="button" onClick={() => setCloseSession(null)}>
+                保持连接
+              </button>
+              <button
+                className="button danger"
+                disabled={!!busy}
+                onClick={async () => {
+                  setBusy('close-session');
+                  try {
+                    await removeSession(closeSession.id);
+                    setCloseSession(null);
+                  } catch (e) {
+                    setError(errorText(e));
+                  } finally {
+                    setBusy('');
+                  }
+                }}
+              >
+                断开连接
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}

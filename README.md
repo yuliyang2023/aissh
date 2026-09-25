@@ -165,9 +165,27 @@ Keyboard-first users can still access every core feature.
 - Adding AI to an existing SSH workflow without changing server infrastructure
 - Maintaining per-host troubleshooting history across a fleet of servers
 
+## Desktop client and saved credentials
+
+A native desktop client manages SSH hosts, passwords, key passphrases, system
+connections and AI profiles. It opens the existing aissh workspace in terminal
+tabs. Secrets live in the OS keyring; connection metadata stays on this device.
+
+Build on macOS with Go 1.25+, Node.js 20+ and Xcode command-line tools:
+
+```bash
+make desktop
+open "dist/desktop/WRD AI SSH.app"
+```
+
+On Windows, use `powershell -File scripts/build-desktop.ps1` (OpenSSH Client and
+WebView2 Runtime are required). Linux builds require GTK3/WebKitGTK development
+packages. See [desktop setup and credential usage](docs/desktop.md), including
+local tool access, authorization policies and platform validation limits.
+
 ## Quick start
 
-The project can currently be built from source and requires Go 1.23 or newer:
+The project can currently be built from source and requires Go 1.25 or newer:
 
 ```bash
 go test ./...
@@ -382,7 +400,7 @@ bin/aissh --help
 - AI-created monitors are restricted to read-only commands.
 - User-created monitor data is not shared with AI by default.
 - Local code is never uploaded or deployed automatically, and is not modified by default.
-- Authentication data, API keys, and local history are never sent to the target server.
+- Saved secrets are resolved only for their bound SSH/service/model destination; they are not injected into arbitrary shell commands. Known secret values are filtered from model requests and saved aissh chat history.
 
 When a third-party model provider is used, the question, relevant SSH output, and approved command results are sent to
 the configured model API. Choose a provider that matches your data security requirements.

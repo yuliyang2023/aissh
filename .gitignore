@@ -5,3 +5,6 @@
 /.gocache/
 /.aissh/
 *.log
+/frontend/node_modules/
+/frontend/dist/*
+/build/bin/

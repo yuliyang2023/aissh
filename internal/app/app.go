@@ -20,12 +20,22 @@ import (
 	"git.example.com/ai/wrd-ai-cli/internal/monitor"
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
 	"git.example.com/ai/wrd-ai-cli/internal/policy"
+	"git.example.com/ai/wrd-ai-cli/internal/redact"
+	"git.example.com/ai/wrd-ai-cli/internal/resources"
+	"git.example.com/ai/wrd-ai-cli/internal/sshauth"
 	"git.example.com/ai/wrd-ai-cli/internal/sshwrap"
 	"git.example.com/ai/wrd-ai-cli/internal/terminalview"
 	"git.example.com/ai/wrd-ai-cli/internal/trigger"
 )
 
 type Config struct {
+	ProfileID           string
+	AIProfileID         string
+	HostLabel           string
+	HistoryTarget       string
+	SSHEnvironment      []string
+	SecretFilter        *redact.Filter
+	Resources           *resources.Executor
 	Version             string
 	SSHPath             string
 	SSHArgs             []string
@@ -255,6 +265,9 @@ func New(config Config) (*App, error) {
 	if strings.TrimSpace(config.HistoryDir) != "" {
 		value.historyStore = history.New(config.HistoryDir)
 		value.historyTarget = parsed.Target
+		if config.HistoryTarget != "" {
+			value.historyTarget = config.HistoryTarget
+		}
 		value.loadChatHistory()
 	}
 	value.appendAIReadyMessages()
@@ -445,7 +458,10 @@ func (a *App) startSSH() error {
 	}
 	args = interactiveSSHArgs(args)
 	cmd := exec.CommandContext(a.ctx, a.config.SSHPath, args...)
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	cmd.Env = append(sshauth.CleanEnvironment(os.Environ()), "TERM=xterm-256color")
+	if a.config.SSHEnvironment != nil {
+		cmd.Env = append(append([]string(nil), a.config.SSHEnvironment...), "TERM=xterm-256color")
+	}
 	ptmx, err := startSSHSession(cmd, a.contentRows, a.mainCols)
 	if err != nil {
 		return err

@@ -88,7 +88,7 @@ func NewClient(streamURL, token string) *Client {
 		StreamURL: streamURL,
 		ActionURL: actionURL,
 		Token:     strings.TrimSpace(token),
-		HTTP:      &http.Client{Timeout: 90 * time.Second},
+		HTTP:      &http.Client{Timeout: 90 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 	}
 }
 

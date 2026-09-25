@@ -30,6 +30,9 @@ func (a *App) render() {
 	// Unsupported terminals safely ignore it.
 	output.WriteString("\x1b[?2026h\x1b[?25l")
 	header := fmt.Sprintf(" aissh  %s", a.parsed.Target)
+	if a.config.HostLabel != "" {
+		header = fmt.Sprintf(" aissh  %s", a.config.HostLabel)
+	}
 	if a.agent.Configured() {
 		header += "  AI:" + a.agent.Name()
 	} else {

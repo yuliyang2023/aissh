@@ -46,7 +46,7 @@ func TestSSHExitDiagnosticSurvivesTerminalRestore(t *testing.T) {
 					cmd.Env = append(cmd.Env, variable)
 				}
 			}
-			cmd.Env = append(cmd.Env, "AISSH_TEST_SSH_EXIT="+script)
+			cmd.Env = append(cmd.Env, "AISSH_TEST_SSH_EXIT="+script, "AISSH_CONFIG_DIR="+t.TempDir())
 			terminal, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 100})
 			if err != nil {
 				t.Fatal(err)

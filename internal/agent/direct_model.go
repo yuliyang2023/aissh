@@ -59,7 +59,7 @@ func NewDirectModelProvider(label, baseURL, apiKey, model string, requireToken b
 		Model:              strings.TrimSpace(model),
 		RequireToken:       requireToken,
 		OutputContextChars: DefaultOutputContextChars,
-		HTTP:               &http.Client{Timeout: 90 * time.Second},
+		HTTP:               &http.Client{Timeout: 90 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 		sessions:           make(map[string]*codexSession),
 	}
 }

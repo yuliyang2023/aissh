@@ -10,6 +10,7 @@ import (
 	"git.example.com/ai/wrd-ai-cli/internal/app"
 	"git.example.com/ai/wrd-ai-cli/internal/history"
 	"git.example.com/ai/wrd-ai-cli/internal/i18n"
+	"git.example.com/ai/wrd-ai-cli/internal/sshauth"
 )
 
 var (
@@ -18,6 +19,19 @@ var (
 )
 
 func main() {
+	if os.Getenv("AISSH_ASKPASS_MODE") == "1" {
+		if len(os.Args) != 2 || sshauth.RunHelper(os.Args[1], os.Stdout) != nil {
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "--resource" {
+		if err := resourceCLI(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "aissh:", err)
+			os.Exit(2)
+		}
+		return
+	}
 	config, showHelp, showVersion, err := parseArgs(os.Args[1:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "aissh:", err)
@@ -31,12 +45,20 @@ func main() {
 		fmt.Println("aissh", version)
 		return
 	}
-	application, err := app.New(config)
+	cleanup, err := prepareManaged(&config)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "aissh:", err)
 		os.Exit(2)
 	}
+	defer cleanup()
+	application, err := app.New(config)
+	if err != nil {
+		cleanup()
+		fmt.Fprintln(os.Stderr, "aissh:", err)
+		os.Exit(2)
+	}
 	if err := application.Run(); err != nil {
+		cleanup()
 		fmt.Fprintln(os.Stderr, "aissh:", err)
 		os.Exit(1)
 	}
@@ -130,6 +152,20 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 		switch {
 		case value == "--help" || value == "-h":
 			return config, true, false, nil
+		case value == "--profile" || value == "--ai-profile":
+			if index+1 >= len(args) {
+				return config, false, false, fmt.Errorf("%s requires a value", value)
+			}
+			index++
+			if value == "--profile" {
+				config.ProfileID = args[index]
+			} else {
+				config.AIProfileID = args[index]
+			}
+		case strings.HasPrefix(value, "--profile="):
+			config.ProfileID = strings.TrimPrefix(value, "--profile=")
+		case strings.HasPrefix(value, "--ai-profile="):
+			config.AIProfileID = strings.TrimPrefix(value, "--ai-profile=")
 		case value == "--version":
 			return config, false, true, nil
 		case value == "--no-history":
@@ -285,7 +321,7 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 			sshArgs = append(sshArgs, value)
 		}
 	}
-	if len(sshArgs) == 0 {
+	if len(sshArgs) == 0 && config.ProfileID == "" {
 		return config, true, false, nil
 	}
 	config.SSHArgs = sshArgs
@@ -306,6 +342,9 @@ Examples:
   aissh -J bastion internal-server
 
 aissh options:
+  --profile ID        Connect using a saved desktop host profile
+  --ai-profile ID     Use a saved AI profile and its bound credential
+  --resource JSON     Run an authorised local read-only system operation
   --agent PROVIDER    AI backend: codex, claude, deepseek, model, or http
   --codex-path PATH   Local Codex CLI path; defaults to codex
   --codex-model MODEL Codex model; defaults to the local configuration
@@ -363,6 +402,9 @@ All unrecognized options are passed through to OpenSSH.
   aissh -J bastion internal-server
 
 aissh选项:
+  --profile ID        使用桌面端保存的主机及登录凭据
+  --ai-profile ID     使用保存的 AI 配置及绑定凭据
+  --resource JSON     执行已授权本机使用的只读系统操作
   --agent PROVIDER    AI 后端：codex、claude、deepseek、model 或 http
   --codex-path PATH   本机 Codex CLI 路径，默认 codex
   --codex-model MODEL 指定 Codex 模型；默认沿用本机配置

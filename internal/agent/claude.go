@@ -427,6 +427,7 @@ func claudeWorkingDirectory(workspace string) string {
 
 func runClaude(ctx context.Context, path string, args []string, dir, prompt string) ([]byte, []byte, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Env = localProviderEnvironment("claude", path)
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(prompt)
 	var stdout bytes.Buffer

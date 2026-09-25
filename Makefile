@@ -1,4 +1,4 @@
-.PHONY: build test dist publish clean
+.PHONY: build test dist desktop publish clean
 
 GO ?= go
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || printf dev)
@@ -9,6 +9,9 @@ build:
 
 test:
 	$(GO) test ./...
+
+desktop:
+	GO="$(GO)" VERSION="$(VERSION)" sh ./scripts/build-desktop.sh
 
 dist:
 	GO="$(GO)" ./scripts/build-release.sh "$(VERSION)"

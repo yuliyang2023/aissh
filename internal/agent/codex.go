@@ -538,6 +538,7 @@ func codexWorkingDirectory(workspace string) string {
 
 func runCodex(ctx context.Context, path string, args []string, prompt string) ([]byte, []byte, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Env = localProviderEnvironment("codex", path)
 	cmd.Stdin = strings.NewReader(prompt)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

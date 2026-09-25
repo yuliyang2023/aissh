@@ -19,7 +19,7 @@ case "$version" in
 esac
 
 if ! command -v "$go_command" >/dev/null 2>&1; then
-	printf 'Go was not found. Install Go 1.23 or newer, or set GO to its executable path.\n' >&2
+	printf 'Go was not found. Install Go 1.25 or newer, or set GO to its executable path.\n' >&2
 	exit 1
 fi
 

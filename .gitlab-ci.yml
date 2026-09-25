@@ -7,7 +7,7 @@ default:
   interruptible: true
 
 .go-job:
-  image: golang:1.23.6-bookworm
+  image: golang:1.25.10-bookworm
   variables:
     CGO_ENABLED: "0"
     GOCACHE: "$CI_PROJECT_DIR/.cache/go-build"
@@ -30,6 +30,19 @@ test:
   script:
     - go test ./...
 
+frontend-test:
+  image: node:22-bookworm
+  stage: test
+  rules:
+    - if: '$AISSH_LOCAL_RELEASE == "true"'
+      when: never
+    - when: on_success
+  script:
+    - cd frontend
+    - npm ci --no-audit --no-fund
+    - npm run format:check
+    - npm run build
+
 package:
   extends: .go-job
   stage: package
@@ -39,6 +52,7 @@ package:
     - when: on_success
   needs:
     - test
+    - frontend-test
   script:
     - |
       version="0.0.0-${CI_COMMIT_SHORT_SHA}"
