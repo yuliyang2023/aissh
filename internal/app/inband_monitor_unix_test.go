@@ -26,6 +26,7 @@ func TestRepeatedInBandMonitorsKeepInteractiveShellInPlace(t *testing.T) {
 	}
 	defer a.cancel()
 	a.setViewportSize(140, 30)
+	a.ensureSidebarVisible()
 	a.virtual = vt10x.New(vt10x.WithSize(a.mainCols, a.contentRows))
 	a.monitorViaPrimary = true
 	a.panels.ByID("system").Command = "printf 'HOST=server\\n'"

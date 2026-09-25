@@ -164,6 +164,7 @@ func TestMouseOpensAndSelectsAIHistoryConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	application.ensureSidebarVisible()
 	application.cols = 140
 	application.rows = 36
 	application.mainCols = 89
@@ -302,6 +303,7 @@ func mouseTestApp(t *testing.T) *App {
 	if err != nil {
 		t.Fatal(err)
 	}
+	application.ensureSidebarVisible()
 	application.cols = 140
 	application.rows = 36
 	application.mainCols = 89

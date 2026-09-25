@@ -235,6 +235,7 @@ func New(config Config) (*App, error) {
 		ctx:                   ctx,
 		cancel:                cancel,
 		events:                make(chan interface{}, 256),
+		sidebarCollapsed:      true,
 		panels:                panels,
 		monitorLast:           make(map[string]time.Time),
 		monitorActive:         make(map[string]bool),

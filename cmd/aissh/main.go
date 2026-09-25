@@ -340,6 +340,8 @@ Shortcuts:
   Esc     Return to the SSH terminal
 
 Local commands (available after SSH connects):
+  /sidebar               Toggle the monitoring and AI sidebar (hidden by default)
+  /sidebar show|hide     Show or hide the sidebar (at least 92 columns)
   /workspace             Show the current local AI workspace
   /workspace LOCAL_PATH  Change the workspace for subsequent AI requests
   /workspace off         Disable local workspace access
@@ -395,6 +397,8 @@ aissh选项:
   Esc     返回 SSH 主终端
 
 本地命令（SSH 连接后可在左侧提示符或右下 AI 输入框使用）:
+  /sidebar               收起或展开右侧监控与 AI 栏目（默认收起）
+  /sidebar show|hide     展开或收起右栏（终端至少 92 列）
   /workspace             查看当前本机 AI 工作区
   /workspace 本机路径     切换后续 AI 请求使用的工作区
   /workspace off         关闭本机工作区访问

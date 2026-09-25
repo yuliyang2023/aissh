@@ -302,6 +302,8 @@ receive access to the local code workspace.
 | --- | --- |
 | Chinese question / `/ai question` | Ask AI from the current SSH prompt |
 | `/workspace PATH` | Change the local AI code workspace |
+| `/sidebar` / `/sidebar toggle` | Hide or show the entire monitoring and AI sidebar |
+| `/sidebar show` / `/sidebar hide` | Show / hide the sidebar |
 | `yes` / `no` | Run or reject an AI command proposal |
 | `Ctrl+O` | Expand the currently folded command |
 | `Ctrl+Shift+-` | Hide or show the monitoring and AI sidebar |
@@ -312,6 +314,9 @@ receive access to the local code workspace.
 | `Ctrl+L` | Change the monitoring layout |
 | `Ctrl+N` | Add a monitoring tab |
 | `Esc` | Return to the main SSH terminal |
+
+The sidebar starts hidden. Type `/sidebar` or `/sidebar show` at the SSH prompt and press Enter to open it. It also works in the AI editor. aissh handles
+the command locally, so it is not executed by the remote shell. Pasted commands wait for Enter. Requires at least 92 columns.
 
 `rz` and `sz` file transfers continue to work. The workspace temporarily yields terminal control during a transfer and
 restores the full UI afterward.

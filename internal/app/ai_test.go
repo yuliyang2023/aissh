@@ -424,6 +424,7 @@ func TestHighRiskForegroundProposalAppearsRedOnLeftAndRight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	application.ensureSidebarVisible()
 	application.mainCols = 80
 	application.contentRows = 22
 	application.rows = 24

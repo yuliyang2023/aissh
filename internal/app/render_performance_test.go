@@ -15,6 +15,7 @@ func BenchmarkSSHInputWithAIHistory(b *testing.B) {
 	}
 	defer a.cancel()
 	a.setViewportSize(200, 58)
+	a.ensureSidebarVisible()
 	a.virtual = vt10x.New(vt10x.WithSize(a.mainCols, a.contentRows))
 	a.processSSHOutput([]byte("root@server:~# "))
 	a.screenOut = io.Discard

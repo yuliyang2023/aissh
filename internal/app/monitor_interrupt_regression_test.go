@@ -21,6 +21,7 @@ func TestMonitorTimeoutNeverInjectsInterruptAfterPromptReturns(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.cancel()
+	a.ensureSidebarVisible()
 	terminal := &interruptCapturePTY{}
 	a.sshPTY = terminal
 	a.monitorViaPrimary = true

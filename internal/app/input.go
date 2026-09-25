@@ -409,6 +409,20 @@ func (a *App) finishTerminalPaste(payload []byte) bool {
 	captured := a.aiLineCapture
 	line := string(a.lineInput) + value
 	if a.atPrompt && a.lineReliable && !a.sensitive {
+		// Keep a pasted sidebar command editable locally until Enter. Shell
+		// pastes otherwise lose line tracking and bypass local commands.
+		pastedLine := strings.TrimRight(line, "\n")
+		if _, ok := parseLocalSidebarCommand(pastedLine); ok && !strings.Contains(pastedLine, "\n") {
+			if !captured && len(a.lineInput) > 0 && a.sshPTY != nil {
+				_, _ = a.writeSSH([]byte{0x15})
+			}
+			a.lineInput = []byte(pastedLine)
+			a.lineCursor = len(a.lineInput)
+			a.aiLineCapture = true
+			a.terminalKeyCarry = nil
+			a.dirty = true
+			return false
+		}
 		if prompt, ok := trigger.IsAIInput(line); ok {
 			if !captured && len(a.lineInput) > 0 && a.sshPTY != nil {
 				_, _ = a.writeSSH([]byte{0x15})
@@ -453,6 +467,15 @@ func (a *App) submitTerminalLine(newline byte) {
 		a.debugInput("submit bytes=%d han=%t ai_syntax=%t prompt=%t reliable=%t captured=%t sensitive=%t", len(line), containsHanInput([]byte(line)), aiSyntax, a.atPrompt, reliable, captured, a.sensitive)
 	}
 	if a.atPrompt && reliable && !a.sensitive {
+		if _, ok := parseLocalSidebarCommand(line); ok {
+			if !captured && a.sshPTY != nil {
+				_, _ = a.writeSSH([]byte{0x15})
+			}
+			a.handleLocalSidebarCommand(line, true)
+			a.lineAnchored = false
+			a.pendingError = nil
+			return
+		}
 		if _, ok := parseLocalWorkspaceCommand(line); ok {
 			if !captured && a.sshPTY != nil {
 				_, _ = a.writeSSH([]byte{0x15})
@@ -736,7 +759,7 @@ func (a *App) handleAIInput(data []byte) {
 			}
 			prompt := strings.TrimSpace(string(a.editor))
 			if prompt != "" {
-				if a.handleLocalWorkspaceCommand(prompt, false) {
+				if a.handleLocalSidebarCommand(prompt, false) || a.handleLocalWorkspaceCommand(prompt, false) {
 					a.editor = nil
 					a.aiEditorCursor = 0
 					return

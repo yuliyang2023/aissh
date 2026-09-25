@@ -14,7 +14,7 @@ import (
 	"git.example.com/ai/wrd-ai-cli/internal/trigger"
 )
 
-func TestSidebarToggleExpandsTerminalAndRestoresLayout(t *testing.T) {
+func TestSidebarStartsCollapsedAndRestoresLayout(t *testing.T) {
 	application, err := New(Config{SSHArgs: []string{"server"}})
 	if err != nil {
 		t.Fatal(err)
@@ -23,9 +23,6 @@ func TestSidebarToggleExpandsTerminalAndRestoresLayout(t *testing.T) {
 	application.rows = 36
 	application.contentRows = 34
 	application.applyPaneLayout()
-	defaultMainCols := application.mainCols
-
-	application.toggleSidebar()
 	if !application.sidebarCollapsed || application.mainCols != 139 || application.sidebarVisible() {
 		t.Fatalf("collapsed=%v mainCols=%d visible=%v", application.sidebarCollapsed, application.mainCols, application.sidebarVisible())
 	}
@@ -34,8 +31,17 @@ func TestSidebarToggleExpandsTerminalAndRestoresLayout(t *testing.T) {
 	}
 
 	application.toggleSidebar()
-	if application.sidebarCollapsed || application.mainCols != defaultMainCols || !application.sidebarVisible() {
+	if application.sidebarCollapsed || application.mainCols >= 139 || !application.sidebarVisible() {
 		t.Fatalf("collapsed=%v mainCols=%d visible=%v", application.sidebarCollapsed, application.mainCols, application.sidebarVisible())
+	}
+	expandedMainCols := application.mainCols
+	application.toggleSidebar()
+	if !application.sidebarCollapsed || application.mainCols != 139 {
+		t.Fatalf("collapsed=%v mainCols=%d", application.sidebarCollapsed, application.mainCols)
+	}
+	application.toggleSidebar()
+	if application.mainCols != expandedMainCols {
+		t.Fatalf("restored width=%d want=%d", application.mainCols, expandedMainCols)
 	}
 }
 
@@ -56,7 +62,7 @@ func TestCtrlShiftMinusTogglesSidebarOnlyAtShellPrompt(t *testing.T) {
 
 	shortcut := []byte{0x1f}
 	application.handleKeyboardInput(shortcut)
-	if application.sidebarCollapsed {
+	if !application.sidebarCollapsed {
 		t.Fatal("Ctrl+Shift+- was intercepted away from a shell prompt")
 	}
 	if err := writer.Close(); err != nil {
@@ -76,13 +82,13 @@ func TestCtrlShiftMinusTogglesSidebarOnlyAtShellPrompt(t *testing.T) {
 
 	application.atPrompt = true
 	application.handleKeyboardInput(shortcut)
-	if !application.sidebarCollapsed || application.focus != focusTerminal {
+	if application.sidebarCollapsed || application.focus != focusTerminal {
 		t.Fatalf("collapsed=%v focus=%v", application.sidebarCollapsed, application.focus)
 	}
 
 	application.handleKeyboardInput(shortcut)
-	if application.sidebarCollapsed {
-		t.Fatal("Ctrl+Shift+- did not restore the sidebar")
+	if !application.sidebarCollapsed {
+		t.Fatal("Ctrl+Shift+- did not hide the sidebar")
 	}
 }
 
@@ -111,7 +117,6 @@ func TestOpeningSidebarWorkspaceExpandsCollapsedSidebar(t *testing.T) {
 	application.rows = 36
 	application.contentRows = 34
 	application.applyPaneLayout()
-	application.toggleSidebar()
 
 	application.openAIConversation()
 	if application.sidebarCollapsed || application.focus != focusAI || !application.sidebarVisible() {
@@ -125,7 +130,6 @@ func TestWideResizeShowsFocusedCompactWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	application.setViewportSize(140, 30)
-	application.toggleSidebar()
 	application.setViewportSize(80, 30)
 	application.focus = focusAI
 	application.setViewportSize(140, 30)
@@ -143,6 +147,7 @@ func sidebarReplyTestApp(t *testing.T) *App {
 	}
 	t.Cleanup(application.cancel)
 	application.setViewportSize(140, 30)
+	application.ensureSidebarVisible()
 	application.virtual = vt10x.New(vt10x.WithSize(application.mainCols, application.contentRows))
 	application.processSSHOutput([]byte("root@server:~# "))
 	return application

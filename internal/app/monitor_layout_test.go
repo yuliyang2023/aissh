@@ -226,6 +226,7 @@ func layoutTestApp(t *testing.T) *App {
 	if err != nil {
 		t.Fatal(err)
 	}
+	application.ensureSidebarVisible()
 	application.cols = 260
 	application.rows = 42
 	application.mainCols = 160

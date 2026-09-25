@@ -82,6 +82,7 @@ func TestScheduleInBandMonitorUsesPrimaryPTY(t *testing.T) {
 	defer reader.Close()
 	application.sshPTY = writer
 	application.monitorViaPrimary = true
+	application.ensureSidebarVisible()
 	application.atPrompt = true
 	application.lineReliable = true
 
@@ -113,6 +114,7 @@ func TestInBandMonitorDoesNotStartWhileAIRuns(t *testing.T) {
 	defer reader.Close()
 	application.sshPTY = writer
 	application.monitorViaPrimary = true
+	application.ensureSidebarVisible()
 	application.atPrompt = true
 	application.lineReliable = true
 	application.agentBusy = true
@@ -197,6 +199,7 @@ func TestInBandMonitorTimeoutDoesNotInterruptOrRetryAndPreservesInput(t *testing
 	defer reader.Close()
 	application.sshPTY = writer
 	application.monitorViaPrimary = true
+	application.ensureSidebarVisible()
 	application.monitor.Timeout = time.Second
 	application.monitorActive["system"] = true
 	application.inBandMonitor = &inBandMonitorState{
@@ -313,6 +316,7 @@ func newMonitorTestApp(t *testing.T) (*App, *monitorTestPTY) {
 	}
 	t.Cleanup(a.cancel)
 	a.setViewportSize(140, 30)
+	a.ensureSidebarVisible()
 	a.virtual = vt10x.New(vt10x.WithSize(a.mainCols, a.contentRows))
 	a.processSSHOutput([]byte("root@server:~# "))
 	terminal := &monitorTestPTY{}

@@ -286,6 +286,8 @@ bin/aissh --agent model production
 | --- | --- |
 | 中文问题 / `/ai 问题` | 在当前 SSH 提示符向 AI 提问 |
 | `/workspace 路径` | 切换本机 AI 代码工作区 |
+| `/sidebar` / `/sidebar toggle` | 收起或展开整个右侧监控与 AI 栏目 |
+| `/sidebar show` / `/sidebar hide` | 展开 / 收起右栏 |
 | `yes` / `no` | 执行或拒绝 AI 命令建议 |
 | `Ctrl+O` | 展开当前折叠的完整命令 |
 | `Ctrl+Shift+-` | 收起或展开右侧监控与 AI 栏目 |
@@ -296,6 +298,9 @@ bin/aissh --agent model production
 | `Ctrl+L` | 切换监控布局 |
 | `Ctrl+N` | 新增监控 Tab |
 | `Esc` | 返回 SSH 主终端 |
+
+右栏默认收起。在 SSH 提示符输入 `/sidebar` 或 `/sidebar show` 后回车即可展开，也可以在 AI 输入框使用。命令由 aissh 本地处理，
+不会作为远端 Shell 命令执行；粘贴后需要按 Enter 确认。终端宽度至少需要 92 列。
 
 `rz` / `sz` 文件传输也可以继续使用，传输期间界面会自动让出终端控制，结束后恢复工作区。
 
