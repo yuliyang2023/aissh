@@ -179,6 +179,7 @@ var englishCatalog = map[string]string{
 	"低风险":                    "Low risk",
 	"中风险":                    "Medium risk",
 	"高风险":                    "High risk",
+	"极高风险":                   "Critical risk",
 	"风险未知":                   "Unknown risk",
 	"本机 %s 正在分析":             "Local %s is analyzing",
 	"处理完成。":                  "Completed.",

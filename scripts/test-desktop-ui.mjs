@@ -5,6 +5,7 @@ import http from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { testCommandReview } from './test-command-review.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const browsers = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const engine = process.env.UI_BROWSER || 'chromium';
@@ -308,6 +309,11 @@ const openSettings = async (name = '主机') => {
 };
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}`);
+  if (process.env.COMMAND_REVIEW_ONLY) {
+    await page.locator('.session-select').first().waitFor();
+    await testCommandReview(page, out);
+    assert.deepEqual(errors, []);
+  } else {
   await page.locator('.session-select').first().waitFor();
   assert.equal(await page.locator('.session-select').count(), 3);
   assert.equal(await page.locator('.nav-item, .terminal-tabs, .workbench-list, .conversation-list').count(), 0);
@@ -597,6 +603,7 @@ try {
     assert.equal(await page.getByLabel('SSH 与 AI 会话列表').isVisible(), false);
     assert.deepEqual(errors, []);
     console.log('PASS: settings host/credential/resource/AI workflows, trust, terminal input, credential repair, reconnect, direct sessions, light/dark layout and persisted sidebar state');
+  }
   }
 } finally {
   await browser.close();

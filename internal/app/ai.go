@@ -576,7 +576,7 @@ func (a *App) proposalConversationContent(proposal agent.Proposal) string {
 		lines = append(lines, a.t("命令：%s", proposal.Command))
 	}
 	if strings.TrimSpace(proposal.Risk) != "" {
-		lines = append(lines, a.t("风险：%s", proposal.Risk))
+		lines = append(lines, a.t("风险：%s", a.riskDisplay(proposal.Risk)))
 	}
 	return strings.Join(lines, "\n")
 }

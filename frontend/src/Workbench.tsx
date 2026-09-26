@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDown, Send, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowDown, Send, Sparkles } from 'lucide-react';
 import { api, errorText, Session, sessionLive, WorkbenchCommand, WorkbenchState } from './api';
 import { Empty, ErrorBox } from './components';
 import { Terminal } from './Terminal';
 import { Monitor } from './Monitor';
 import { sessionAddress } from './api';
+import { CommandReview } from './CommandReview';
 
 const roles: Record<string, string> = {
   user: '你',
@@ -145,45 +146,19 @@ export function Workbench({
           </button>
         )}
         {state?.proposal && (
-          <section className={'native-approval ' + state.proposal.risk} aria-label="待审批命令">
-            <div>
-              <ShieldCheck size={15} />
-              <strong>命令执行确认</strong>
-              <span>
-                {(
-                  {
-                    low: '低风险',
-                    medium: '中风险',
-                    high: '高风险',
-                    critical: '极高风险',
-                  } as Record<string, string>
-                )[state.proposal.risk] || '风险未知'}
-              </span>
-            </div>
-            <p>{state.proposal.explanation}</p>
-            <pre>{state.proposal.command}</pre>
-            {state.proposal.expectedEffect && <p>预期效果：{state.proposal.expectedEffect}</p>}
-            <small>
-              {state.approvalStatus ||
-                (!state.canApprove ? '等待 SSH 回到空闲提示符后可执行' : '将在右侧 SSH 会话中执行')}
-            </small>
-            <div className="approval-actions">
-              <button
-                className="button small"
-                disabled={!online || pending || state.busy}
-                onClick={() => void action({ kind: 'reject', proposalId: state.proposal!.id })}
-              >
-                拒绝
-              </button>
-              <button
-                className="button primary small"
-                disabled={!online || pending || !state.canApprove}
-                onClick={() => void action({ kind: 'approve', proposalId: state.proposal!.id })}
-              >
-                批准执行
-              </button>
-            </div>
-          </section>
+          <CommandReview
+            key={JSON.stringify([session.id, state.proposal.id, state.proposal.command])}
+            proposal={state.proposal}
+            target={sessionAddress(session)}
+            active={active}
+            online={online}
+            pending={pending}
+            busy={state.busy}
+            canApprove={state.canApprove}
+            approvalStatus={state.approvalStatus}
+            error={error}
+            onAction={action}
+          />
         )}
         <form
           className="native-composer"

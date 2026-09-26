@@ -66,10 +66,18 @@ func TestShellDisplayTokensDistinguishesAmpersandRedirectsAndOperators(t *testin
 
 func TestRiskDisplayUsesReadableLabels(t *testing.T) {
 	for input, want := range map[string]string{
-		"read_only": "只读",
-		"medium":    "中风险",
-		"high":      "高风险",
-		"critical":  "高风险",
+		"read_only":   "只读",
+		"read-only":   "只读",
+		"readonly":    "只读",
+		"safe":        "只读",
+		" LOW ":       "低风险",
+		"medium":      "中风险",
+		"high":        "高风险",
+		"dangerous":   "高风险",
+		"destructive": "高风险",
+		"critical":    "极高风险",
+		"":            "风险未知",
+		"unexpected":  "风险未知",
 	} {
 		if got := riskDisplay(input); got != want {
 			t.Fatalf("risk %q=%q", input, got)

@@ -44,6 +44,15 @@ func TestEnglishUIUsesLocalizedPanelsConversationAndApproval(t *testing.T) {
 			t.Fatalf("English approval missing %q: %q", want, approval)
 		}
 	}
+	for risk, label := range map[string]string{"read-only": "Read-only", "critical": "Critical risk", "unexpected": "Unknown risk"} {
+		application.proposal.Risk = risk
+		if approval := application.renderApprovalCard(); !strings.Contains(approval, label) {
+			t.Fatalf("English approval missing %q: %q", label, approval)
+		}
+		if content := application.proposalConversationContent(*application.proposal); !strings.Contains(content, "Risk: "+label) {
+			t.Fatalf("English conversation missing risk %q: %q", label, content)
+		}
+	}
 }
 
 func TestEnglishLongCommandSummaryIsLocalized(t *testing.T) {

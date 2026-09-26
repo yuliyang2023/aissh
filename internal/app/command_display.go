@@ -6,6 +6,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"git.example.com/ai/wrd-ai-cli/internal/agent"
 	"git.example.com/ai/wrd-ai-cli/internal/terminalview"
 )
 
@@ -236,19 +237,20 @@ func isShellChainOperator(token string) bool {
 }
 
 func riskDisplay(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "read_only", "readonly", "safe":
+	risk, _ := agent.NormalizeRisk(value)
+	switch risk {
+	case "read_only":
 		return "只读"
 	case "low":
 		return "低风险"
 	case "medium":
 		return "中风险"
-	case "high", "critical", "destructive", "dangerous":
+	case "high":
 		return "高风险"
-	case "":
-		return "风险未知"
+	case "critical":
+		return "极高风险"
 	default:
-		return value
+		return "风险未知"
 	}
 }
 

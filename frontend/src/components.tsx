@@ -25,6 +25,7 @@ export function Modal({
   return (
     <dialog
       ref={ref}
+      aria-label={title}
       className={'modal ' + (wide ? 'wide ' : '') + className}
       onCancel={(e) => {
         e.preventDefault();

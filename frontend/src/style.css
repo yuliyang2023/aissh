@@ -1738,52 +1738,165 @@ tbody tr:last-child td {
 }
 .native-approval {
   margin: 0 12px 10px;
-  padding: 12px;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 12px;
   border: 1px solid var(--control-edge);
   background: var(--row-selection);
   border-radius: 9px;
-  overflow-y: auto;
-  max-height: 36%;
   flex-shrink: 0;
-  user-select: text;
-  -webkit-user-select: text;
 }
-.native-approval > div:first-child {
+.approval-summary {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 11px;
 }
-.native-approval > div:first-child span {
+.approval-risk {
   margin-left: auto;
   color: var(--secondary);
+  font-size: 10px;
 }
 .native-approval.high,
 .native-approval.critical {
   border-color: var(--danger);
 }
-.native-approval.high > div:first-child span,
-.native-approval.critical > div:first-child span {
+.native-approval.high .approval-risk,
+.native-approval.critical .approval-risk,
+.command-review.high .command-risk-badge,
+.command-review.critical .command-risk-badge {
   color: var(--danger);
 }
-.native-approval p,
-.native-approval small {
+.approval-preview {
+  grid-column: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
-  line-height: 1.6;
+  color: var(--secondary);
 }
-.native-approval pre {
-  white-space: pre-wrap;
+.native-approval > button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+.command-review[open] {
+  width: 960px;
+  height: min(760px, calc(100dvh - 64px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.command-review .modal-heading {
+  flex-shrink: 0;
+  padding-bottom: 16px;
+}
+.command-review .modal-heading > div {
+  min-width: 0;
   overflow-wrap: anywhere;
+}
+.command-review-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 28px 20px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.command-review-context {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.command-risk-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
   font-size: 11px;
   background: var(--control);
-  padding: 9px;
-  border-radius: 6px;
 }
-.approval-actions {
+.command-review-context p {
+  margin: 8px 0 0;
+}
+.command-review-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 8px 12px;
+  font-size: 12px;
+}
+.command-review-toolbar small {
+  color: var(--secondary);
+  margin-right: auto;
+}
+.command-review-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--secondary);
+}
+.command-review-code {
+  flex: 1;
+  min-height: 160px;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid var(--control-edge);
+  border-radius: 9px;
+  background: var(--control);
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre;
+  tab-size: 4;
+}
+.command-review-code.wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.command-review-footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--line);
+  padding: 14px 28px 20px;
+}
+.command-review-footer p {
+  margin: 0 0 12px;
+  color: var(--secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 4.5em;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.command-review-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 10px;
+}
+.command-review-actions > button:first-child {
+  margin-right: auto;
+}
+@media (max-width: 600px), (max-height: 560px) {
+  .command-review[open] {
+    max-width: calc(100vw - 20px);
+    max-height: calc(100dvh - 24px);
+    height: calc(100dvh - 24px);
+  }
+  .command-review .modal-heading {
+    padding: 16px;
+  }
+  .command-review-body {
+    padding: 0 16px 16px;
+  }
+  .command-review-footer {
+    padding: 12px 16px;
+  }
 }
 .native-ssh .terminal-pane {
   display: flex;
@@ -2012,9 +2125,6 @@ tbody tr:last-child td {
   .native-composer textarea {
     min-height: 48px;
     height: 48px;
-  }
-  .native-approval {
-    max-height: 42%;
   }
 }
 

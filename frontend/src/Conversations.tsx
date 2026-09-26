@@ -4,6 +4,7 @@ import { api, ChatMessage, Conversation, errorText, Host } from './api';
 import { Empty, ErrorBox } from './components';
 import { Monitor } from './Monitor';
 import { sessionAddress } from './api';
+import { commandRisk } from './risk';
 
 export const conversationKey = (c: Pick<Conversation, 'hostId' | 'id'>) => c.hostId + '/' + c.id;
 const roles: Record<string, string> = {
@@ -84,7 +85,7 @@ export function Conversations({
                   <div className="chat-content">{m.content}</div>
                   {m.proposal && (
                     <div className="chat-proposal">
-                      <small>历史记录 · {m.proposal.risk}</small>
+                      <small>历史记录 · {commandRisk(m.proposal.risk).label}</small>
                       <pre>{m.proposal.command}</pre>
                     </div>
                   )}
