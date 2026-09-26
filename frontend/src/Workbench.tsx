@@ -142,6 +142,7 @@ export function Workbench({
             <ChatEntry
               key={m.time + ':' + index}
               message={m}
+              active={active && monitorSize !== 'maximized'}
               pending={m.proposal?.id === state.proposal?.id && !!state.proposal}
             />
           ))}

@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Check, Copy, ShieldCheck } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 import { WorkbenchCommand, WorkbenchState } from './api';
-import { ErrorBox, Modal } from './components';
+import { Modal } from './components';
 import { commandRisk } from './risk';
+import { CommandContent } from './CommandContent';
 import { MarkdownContent } from './MarkdownContent';
 
 export function CommandReview({
@@ -29,24 +30,11 @@ export function CommandReview({
   onAction: (command: WorkbenchCommand) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(true);
-  const [wrap, setWrap] = useState(true);
-  const [copied, setCopied] = useState(false);
-  const [copyError, setCopyError] = useState('');
   const risk = commandRisk(proposal.risk);
   const hint = !online
     ? '工作台连接中断，恢复连接后可处理命令'
     : approvalStatus ||
       (!canApprove ? '等待 SSH 回到空闲提示符后可执行' : '将在当前 SSH 会话中执行');
-
-  async function copyCommand() {
-    setCopyError('');
-    try {
-      await navigator.clipboard.writeText(proposal.command);
-      setCopied(true);
-    } catch {
-      setCopyError('复制失败，请选中命令后手动复制');
-    }
-  }
 
   return (
     <>
@@ -78,26 +66,7 @@ export function CommandReview({
                 <MarkdownContent content={'预期效果：' + proposal.expectedEffect} />
               )}
             </div>
-            <div className="command-review-toolbar">
-              <strong>完整命令</strong>
-              <small>{Array.from(proposal.command).length.toLocaleString()} 字符</small>
-              <label>
-                <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} />
-                自动换行
-              </label>
-              <button className="button small" onClick={() => void copyCommand()}>
-                {copied ? <Check size={13} /> : <Copy size={13} />}
-                {copied ? '已复制' : '复制命令'}
-              </button>
-            </div>
-            <pre
-              className={'command-review-code' + (wrap ? ' wrap' : '')}
-              tabIndex={0}
-              aria-label="完整命令"
-            >
-              <code>{proposal.command}</code>
-            </pre>
-            <ErrorBox error={copyError || error} />
+            <CommandContent command={proposal.command} error={error} />
           </div>
           <div className="command-review-footer">
             <p role="status">{hint}</p>

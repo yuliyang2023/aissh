@@ -82,8 +82,8 @@ export async function testCommandReview(page, out) {
   assert.equal(await code.textContent(), 'uptime', 'changed commands must open a fresh review');
   await page.keyboard.press('Escape');
 
-  await page.getByLabel('SSH 与 AI 会话列表').getByRole('button', { name: /检查磁盘空间/ }).click();
-  await page.getByLabel('会话历史').waitFor();
+  await page.getByLabel('SSH 与 AI 会话列表').locator('.session-select').filter({ hasText: '检查磁盘空间' }).click();
+  await page.getByRole('region', { name: '会话历史', exact: true }).waitFor();
   await publish({ proposal: { ...proposal, id: 'background', command: 'whoami' } });
   assert.equal(await dialog.count(), 0, 'background sessions must not display a modal');
   await page.getByLabel('SSH 与 AI 会话列表').locator('.session-select').filter({ hasText: '排查 nginx 超时' }).click();

@@ -679,6 +679,15 @@ svg {
   background: var(--row-selection);
   border-radius: 10px;
 }
+.chat-command-approval {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.chat-command-approval .button {
+  flex-shrink: 0;
+}
 .chat-message.system {
   color: var(--secondary);
   font-size: 12px;

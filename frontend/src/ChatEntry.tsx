@@ -1,6 +1,7 @@
 import { Check, ChevronRight, CircleHelp, TerminalSquare, X } from 'lucide-react';
 import { ChatMessage } from './api';
 import { MarkdownContent } from './MarkdownContent';
+import { ChatContent } from './ChatContent';
 
 const statuses: Record<string, string> = {
   pending: '待确认',
@@ -16,9 +17,11 @@ const statuses: Record<string, string> = {
 export function ChatEntry({
   message: m,
   pending = false,
+  active = true,
 }: {
   message: ChatMessage;
   pending?: boolean;
+  active?: boolean;
 }) {
   const activity = m.activity;
   if (activity || m.proposal || m.role === 'system' || m.role === 'proposal') {
@@ -75,7 +78,7 @@ export function ChatEntry({
         {streaming && <span className="stream-label">正在回复</span>}
       </header>
       <div className="chat-content">
-        {m.role === 'assistant' || streaming ? <MarkdownContent content={m.content} /> : m.content}
+        <ChatContent message={m} active={active} />
       </div>
     </article>
   );
