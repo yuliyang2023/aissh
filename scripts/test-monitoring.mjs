@@ -105,7 +105,7 @@ export async function testMonitoring(page, out) {
   await page.evaluate(() => { window.__test.trusted = true; });
   await page.getByRole('button', { name: '连接并继续', exact: true }).click();
   await page.locator('.native-workbench:visible').waitFor();
-  await page.locator('.native-workbench:visible').getByRole('button', { name: 'AI 添加面板', exact: true }).click();
+  await page.locator('.native-workbench:visible').getByLabel('添加监控').selectOption('ai');
   await page.getByLabel('AI 实时面板需求').fill('展示 nginx 的进程数，每 5 秒刷新');
   await page.getByRole('button', { name: '让 AI 创建', exact: true }).click();
   await page.waitForFunction(() => window.__test.actions.some(a => a.kind === 'prompt' && a.text.includes('展示 nginx')));

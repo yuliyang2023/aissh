@@ -10,7 +10,6 @@ import {
   Maximize2,
   Minimize2,
   X,
-  Sparkles,
 } from 'lucide-react';
 import { MonitorPanel, WorkbenchCommand } from './api';
 import { useStoredFlag } from './layout';
@@ -161,17 +160,6 @@ export function Monitor({
                 panelId={current?.widget ? current.id : undefined}
               />
             )}
-            <button
-              className="button small"
-              disabled={!online || pending || !aiReady}
-              onClick={() => {
-                setExpanded(true);
-                setAIOpen(!aiOpen);
-              }}
-            >
-              <Sparkles size={13} />
-              AI 添加面板
-            </button>
             <select
               aria-label="添加监控"
               disabled={!online || pending}
@@ -179,7 +167,13 @@ export function Monitor({
               onChange={async (e) => {
                 const kind = e.target.value;
                 setExpanded(true);
+                if (kind === 'ai') {
+                  setCustom(false);
+                  setAIOpen(true);
+                  return;
+                }
                 if (kind === 'custom') {
+                  setAIOpen(false);
                   setCustom(true);
                   return;
                 }
@@ -188,6 +182,9 @@ export function Monitor({
               }}
             >
               <option value="">+ 添加监控</option>
+              <option value="ai" disabled={!aiReady}>
+                AI 添加面板
+              </option>
               {[
                 ['processes', '进程'],
                 ['disk', '磁盘'],
