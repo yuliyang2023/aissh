@@ -10,7 +10,6 @@ import {
   LoaderCircle,
   PanelLeft,
   Plus,
-  RefreshCw,
   Search,
   Server,
   ShieldCheck,
@@ -716,17 +715,6 @@ export function App() {
                 else setError('该会话已移除，请重新连接对应服务器');
               }}
             />
-            {!isManagement && page === 'terminal' && activeConversation && (
-              <button
-                className="button"
-                onClick={() => {
-                  setSelectedConversation(conversationKey(activeConversation));
-                  goto('conversations');
-                }}
-              >
-                历史记录
-              </button>
-            )}
             {isManagement ? (
               <button className="button" onClick={returnToWorkspace}>
                 返回工作区
@@ -791,14 +779,6 @@ export function App() {
                 </button>
               </>
             )}
-            <button
-              className="icon-button"
-              title={'刷新 · ' + primaryModifier + 'R'}
-              aria-label="刷新配置"
-              onClick={() => void reload()}
-            >
-              <RefreshCw size={17} />
-            </button>
           </div>
         </header>
         {(isSettings || page === 'resources') && (
