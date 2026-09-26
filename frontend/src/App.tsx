@@ -23,11 +23,14 @@ import {
   Pencil,
   Play,
   Globe,
+  MessageSquare,
 } from 'lucide-react';
 import {
   AIProfile,
+  allHosts,
   api,
   Catalog,
+  Conversation,
   connected,
   Credential,
   emptyCatalog,
@@ -48,9 +51,18 @@ import { AIEditor, CredentialEditor, HostEditor, ResourceEditor } from './forms'
 import { Empty, ErrorBox, Modal } from './components';
 import { Terminal } from './Terminal';
 import { Sessions } from './Sessions';
+import { Conversations, conversationKey } from './Conversations';
+import { NewConversation, NewConversationInput } from './NewConversation';
 import { primaryModifier } from './platform';
 
-type Page = 'hosts' | 'credentials' | 'resources' | 'ai' | 'sessions' | 'terminal';
+type Page =
+  | 'conversations'
+  | 'hosts'
+  | 'credentials'
+  | 'resources'
+  | 'ai'
+  | 'sessions'
+  | 'terminal';
 type Editor =
   | { kind: 'host'; value: Host }
   | { kind: 'resource'; value: Resource }
@@ -66,15 +78,30 @@ const kinds: Record<string, string> = {
   redis: 'Redis',
 };
 const navigation = [
-  { id: 'hosts' as Page, label: '主机', icon: Server },
-  { id: 'credentials' as Page, label: '凭据', icon: KeyRound },
-  { id: 'resources' as Page, label: '系统连接', icon: Database },
-  { id: 'ai' as Page, label: 'AI 配置', icon: Sparkles },
+  {
+    id: 'sessions',
+    label: '会话',
+    items: [
+      { id: 'conversations' as Page, label: 'AI 会话', icon: MessageSquare },
+      { id: 'sessions' as Page, label: 'SSH 会话', icon: TerminalSquare },
+    ],
+  },
+  {
+    id: 'configuration',
+    label: '配置',
+    items: [
+      { id: 'hosts' as Page, label: '主机', icon: Server },
+      { id: 'credentials' as Page, label: '凭据', icon: KeyRound },
+      { id: 'resources' as Page, label: '系统连接', icon: Database },
+      { id: 'ai' as Page, label: 'AI 配置', icon: Sparkles },
+    ],
+  },
 ];
 
 export function App() {
   const [data, setData] = useState<Catalog>(emptyCatalog);
-  const [page, setPage] = useState<Page>('hosts');
+  const connectionHosts = allHosts(data);
+  const [page, setPage] = useState<Page>('conversations');
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [selectedRow, setSelectedRow] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
@@ -102,6 +129,43 @@ export function App() {
   const [operation, setOperation] = useState<Resource | null>(null);
   const [operationText, setOperationText] = useState('');
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversationHost, setConversationHost] = useState('');
+  const [collapsedConversationHosts, setCollapsedConversationHosts] = useState<Set<string>>(
+    new Set(),
+  );
+  const [selectedConversation, setSelectedConversation] = useState('');
+  const [newConversationHost, setNewConversationHost] = useState<string | null>(null);
+  const [conversationError, setConversationError] = useState('');
+  const [newConversationError, setNewConversationError] = useState('');
+  useEffect(() => {
+    if (page === 'conversations' && search.trim()) setCollapsedConversationHosts(new Set());
+  }, [page, search]);
+  const conversationRequest = useRef(0);
+  async function refreshConversations() {
+    const request = ++conversationRequest.current;
+    try {
+      const items = await api.ListConversations();
+      if (request === conversationRequest.current) {
+        setConversations(items);
+        setConversationError('');
+      }
+    } catch (e) {
+      if (request === conversationRequest.current) setConversationError(errorText(e));
+    }
+  }
+  useEffect(() => {
+    if (page !== 'conversations') return;
+    void refreshConversations();
+    const timer = setInterval(() => {
+      if (!document.hidden) void refreshConversations();
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [page]);
+  useEffect(() => {
+    if (conversationHost && !allHosts(data).some((h) => h.id === conversationHost))
+      setConversationHost('');
+  }, [data.hosts, data.conversationHosts, conversationHost]);
   const sessionChanges = useRef(0);
   const [activeSession, setActiveSession] = useState('');
   useEffect(() => {
@@ -120,6 +184,7 @@ export function App() {
       // A delayed refresh must not restore a closed tab, discard a new one,
       // or overwrite a newer process-exit event.
       if (changes === sessionChanges.current) setSessions(opened);
+      await refreshConversations();
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -191,13 +256,15 @@ export function App() {
         await api.TestHost(host.id);
         setToast('已成功连接 ' + host.name);
       } else {
-        const session = await api.CreateSession(host.id);
+        const session = previous
+          ? await api.ReconnectSession(previous.id)
+          : await api.CreateSession(host.id);
         sessionChanges.current++;
-        setSessions((v) => [...v, session]);
+        setSessions((v) => [...v.filter((s) => s.id !== session.id), session]);
         setActiveSession(session.id);
         setPage('terminal');
         setSearch('');
-        if (previous) await removeSession(previous.id);
+        if (previous && previous.id !== session.id) await removeSession(previous.id);
         setData(await api.Snapshot());
       }
     } catch (e) {
@@ -206,8 +273,82 @@ export function App() {
       setBusy('');
     }
   }
+  function requestNewConversation(hostId = conversationHost) {
+    setNewConversationError('');
+    setNewConversationHost(hostId || connectionHosts[0]?.id || '');
+  }
+  async function createConversation(input: NewConversationInput) {
+    if (busy || (input.kind === 'existing' && !input.hostId)) return;
+    let created = false;
+    setBusy('new-conversation');
+    setNewConversationError('');
+    try {
+      let conversation: Conversation;
+      if (input.kind === 'direct') {
+        const result = await api.CreateDirectConversation(input.host, input.saveHost);
+        conversation = result.conversation;
+        setData((previous) =>
+          input.saveHost
+            ? { ...previous, hosts: [...previous.hosts, result.host] }
+            : {
+                ...previous,
+                conversationHosts: [...(previous.conversationHosts || []), result.host],
+              },
+        );
+      } else {
+        conversation = await api.CreateConversation(input.hostId);
+      }
+      created = true;
+      conversationRequest.current++;
+      setConversations((v) => [conversation, ...v]);
+      setSelectedConversation(conversationKey(conversation));
+      setCollapsedConversationHosts((previous) => {
+        const next = new Set(previous);
+        next.delete(conversation.hostId);
+        return next;
+      });
+      setConversationHost(conversation.hostId);
+      setNewConversationHost(null);
+      goto('conversations');
+      if (input.kind === 'direct') await openConversation(conversation);
+    } catch (e) {
+      if (created) setError(errorText(e));
+      else setNewConversationError(errorText(e));
+    } finally {
+      setBusy('');
+    }
+  }
+  async function continueConversation(conversation: Conversation) {
+    if (busy) return;
+    setBusy('open-conversation');
+    setError('');
+    try {
+      await openConversation(conversation);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy('');
+    }
+  }
+  async function openConversation(conversation: Conversation) {
+    const active = sessions.find(
+      (s) =>
+        s.hostId === conversation.hostId && s.conversationId === conversation.id && sessionLive(s),
+    );
+    if (active) {
+      openSession(active);
+      return;
+    }
+    if (!(await ensureTrust(conversation.hostId))) return;
+    const session = await api.OpenConversationSession(conversation.hostId, conversation.id);
+    sessionChanges.current++;
+    setSessions((v) => [...v.filter((s) => s.id !== session.id), session]);
+    openSession(session);
+    setData(await api.Snapshot());
+  }
   async function trustHost() {
     if (!trust) return;
+    const previousBusy = busy;
     setBusy('trust');
     try {
       await api.TrustHost(trust.check.token);
@@ -216,7 +357,7 @@ export function App() {
     } catch (e) {
       setTrustError(errorText(e));
     } finally {
-      setBusy('');
+      setBusy(previousBusy);
     }
   }
   async function deleteItem() {
@@ -279,7 +420,7 @@ export function App() {
   }
   const credentialName = (id: string) =>
     data.credentials.find((c) => c.id === id)?.name || '系统 SSH 配置';
-  const hostName = (id: string) => data.hosts.find((h) => h.id === id)?.name || '本机';
+  const hostName = (id: string) => connectionHosts.find((h) => h.id === id)?.name || '本机';
   const matches = (...values: string[]) =>
     values.join(' ').toLowerCase().includes(search.toLowerCase());
   const visibleHosts = data.hosts.filter(
@@ -289,15 +430,13 @@ export function App() {
       (routeFilter === 'all' || (routeFilter === 'jump' ? !!h.jumpHostId : !h.jumpHostId)),
   );
   const credentialUses = (id: string) =>
-    data.hosts.filter((h) => h.credentialId === id).length +
+    connectionHosts.filter((h) => h.credentialId === id).length +
     data.resources.filter((r) => r.credentialId === id).length +
     data.aiProfiles.filter((p) => p.credentialId === id).length;
   const title =
-    page === 'sessions'
-      ? '会话管理'
-      : page === 'terminal'
-        ? '连接工作台'
-        : navigation.find((n) => n.id === page)?.label;
+    page === 'terminal'
+      ? '连接工作台'
+      : navigation.flatMap((section) => section.items).find((n) => n.id === page)?.label;
   const add = () => {
     if (page === 'hosts') setEditor({ kind: 'host', value: newHost() });
     if (page === 'credentials') setCredentialEditor({ value: newCredential() });
@@ -351,10 +490,17 @@ export function App() {
       if (document.querySelector('dialog[open]') || busy) return;
       if (command.startsWith('page:')) {
         const destination = command.slice(5) as Page;
-        if (['hosts', 'credentials', 'resources', 'ai', 'sessions'].includes(destination)) {
+        if (
+          ['conversations', 'hosts', 'credentials', 'resources', 'ai', 'sessions'].includes(
+            destination,
+          )
+        ) {
           goto(destination);
           if (destination === 'hosts') setGroup('全部主机');
         }
+      } else if (command === 'new-conversation') {
+        goto('conversations');
+        requestNewConversation();
       } else if (command === 'new-host') {
         goto('hosts');
         setEditor({ kind: 'host', value: newHost() });
@@ -370,7 +516,7 @@ export function App() {
       } else if (command === 'sidebar') {
         setSidebarVisible((v) => !v);
       } else if (command === 'search') {
-        if (page === 'terminal') goto('sessions');
+        if (page === 'terminal') goto('conversations');
         requestAnimationFrame(() => searchRef.current?.focus());
       } else if (command === 'refresh') {
         void reload();
@@ -379,7 +525,7 @@ export function App() {
         void importHosts();
       }
     });
-  }, [busy, page]);
+  }, [busy, page, data.hosts, data.conversationHosts, conversationHost]);
   const itemCount =
     page === 'hosts'
       ? visibleHosts.length
@@ -389,7 +535,18 @@ export function App() {
           ? data.resources.filter((r) => matches(r.name, r.kind, r.endpoint)).length
           : page === 'ai'
             ? data.aiProfiles.filter((p) => matches(p.name, p.provider, p.model)).length
-            : sessions.length;
+            : page === 'conversations'
+              ? conversations.filter(
+                  (c) =>
+                    (!conversationHost || c.hostId === conversationHost) &&
+                    matches(
+                      c.title,
+                      c.preview,
+                      connectionHosts.find((h) => h.id === c.hostId)?.name || '',
+                      connectionHosts.find((h) => h.id === c.hostId)?.address || '',
+                    ),
+                ).length
+              : sessions.length;
   const needed = credentialRequests[0];
   const neededCredential = needed && data.credentials.find((c) => c.id === needed.credentialId);
   const resolveNeeded = (accepted: boolean) => {
@@ -425,27 +582,59 @@ export function App() {
           </div>
         </div>
         <div className="sidebar-scroll">
-          <div className="nav-caption">工作空间</div>
-          <nav aria-label="资料库">
-            {navigation.map((n) => (
-              <button
-                key={n.id}
-                className={
-                  'nav-item ' +
-                  (page === n.id && (n.id !== 'hosts' || group === '全部主机') ? 'selected' : '')
-                }
-                aria-current={page === n.id ? 'page' : undefined}
-                onClick={() => {
-                  goto(n.id);
-                  if (n.id === 'hosts') setGroup('全部主机');
-                }}
-              >
-                <n.icon size={17} />
-                <span>{n.label}</span>
-                {n.id === 'hosts' && <span className="nav-count">{data.hosts.length}</span>}
-              </button>
-            ))}
-          </nav>
+          {navigation.map((section, index) => (
+            <nav key={section.id} aria-label={section.label}>
+              <div className={'nav-caption' + (index > 0 ? ' section-caption' : '')}>
+                {section.label}
+              </div>
+              {section.items.map((n) => (
+                <button
+                  key={n.id}
+                  className={
+                    'nav-item ' +
+                    (page === n.id && (n.id !== 'hosts' || group === '全部主机') ? 'selected' : '')
+                  }
+                  aria-current={page === n.id ? 'page' : undefined}
+                  onClick={() => {
+                    goto(n.id);
+                    if (n.id === 'hosts') setGroup('全部主机');
+                  }}
+                >
+                  <n.icon size={17} />
+                  <span>{n.label}</span>
+                  {n.id === 'hosts' && <span className="nav-count">{data.hosts.length}</span>}
+                  {n.id === 'conversations' && (
+                    <span className="nav-count">{conversations.length}</span>
+                  )}
+                  {n.id === 'sessions' && sessions.length > 0 && (
+                    <span className="nav-count">{sessions.filter(sessionLive).length}</span>
+                  )}
+                </button>
+              ))}
+              {section.id === 'sessions' && sessions.length > 0 && (
+                <div className="session-shortcuts">
+                  {sessions.map((s) => (
+                    <button
+                      key={s.id}
+                      className={page === 'terminal' && activeSession === s.id ? 'active' : ''}
+                      title={s.name + ' · ' + sessionStatus[s.status]}
+                      onClick={() => {
+                        setActiveSession(s.id);
+                        goto('terminal');
+                      }}
+                    >
+                      <span className={'status-dot ' + s.status} />
+                      <span>
+                        {conversations.find(
+                          (c) => c.hostId === s.hostId && c.id === s.conversationId,
+                        )?.title || s.name}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </nav>
+          ))}
           {data.hosts.some((h) => h.group) && (
             <>
               <div className="nav-caption section-caption">主机分组</div>
@@ -468,35 +657,6 @@ export function App() {
                 </button>
               ))}
             </>
-          )}
-          <div className="nav-caption section-caption">连接</div>
-          <button
-            className={'nav-item ' + (page === 'sessions' ? 'selected' : '')}
-            onClick={() => goto('sessions')}
-          >
-            <TerminalSquare size={17} />
-            <span>会话管理</span>
-            {sessions.length > 0 && (
-              <span className="nav-count">{sessions.filter(sessionLive).length}</span>
-            )}
-          </button>
-          {sessions.length > 0 && (
-            <div className="session-shortcuts">
-              {sessions.map((s) => (
-                <button
-                  key={s.id}
-                  className={page === 'terminal' && activeSession === s.id ? 'active' : ''}
-                  title={s.name + ' · ' + sessionStatus[s.status]}
-                  onClick={() => {
-                    setActiveSession(s.id);
-                    goto('terminal');
-                  }}
-                >
-                  <span className={'status-dot ' + s.status} />
-                  <span>{s.name}</span>
-                </button>
-              ))}
-            </div>
           )}
         </div>
         <div className="sidebar-bottom">
@@ -524,23 +684,35 @@ export function App() {
           <div className="window-heading">
             <h1>{page === 'hosts' && group !== '全部主机' ? group : title}</h1>
             <span>
-              {page === 'hosts'
-                ? 'SSH 连接与访问路径'
-                : page === 'credentials'
-                  ? '在连接之间安全复用'
-                  : page === 'resources'
-                    ? 'API、数据库与内部服务'
-                    : page === 'ai'
-                      ? '本机助手与模型服务'
-                      : page === 'sessions'
-                        ? '当前会话与最近连接'
-                        : '终端与 AI 助手'}
+              {page === 'conversations'
+                ? '按服务器组织对话，延续每一次排查'
+                : page === 'hosts'
+                  ? 'SSH 连接与访问路径'
+                  : page === 'credentials'
+                    ? '在连接之间安全复用'
+                    : page === 'resources'
+                      ? 'API、数据库与内部服务'
+                      : page === 'ai'
+                        ? '本机助手与模型服务'
+                        : page === 'sessions'
+                          ? '当前 SSH 连接与最近访问'
+                          : '终端与 AI 助手'}
             </span>
           </div>
           <div className="toolbar-actions">
             {page === 'terminal' && (
-              <button className="button" onClick={() => goto('sessions')}>
-                管理会话
+              <button className="button" onClick={() => goto('conversations')}>
+                AI 会话
+              </button>
+            )}
+            {page === 'conversations' && (
+              <button
+                className="button primary"
+                disabled={!connected() || !!busy}
+                onClick={() => requestNewConversation()}
+              >
+                <Plus size={16} />
+                新建对话
               </button>
             )}
             {page === 'sessions' && (
@@ -570,7 +742,7 @@ export function App() {
                 导入
               </button>
             )}
-            {page !== 'sessions' && page !== 'terminal' && (
+            {page !== 'sessions' && page !== 'terminal' && page !== 'conversations' && (
               <button
                 className="button primary add-button"
                 onClick={add}
@@ -586,7 +758,7 @@ export function App() {
                 }
                 title={
                   page === 'hosts'
-                    ? '添加主机 · ' + primaryModifier + 'N'
+                    ? '添加主机'
                     : page === 'credentials'
                       ? '添加凭据'
                       : page === 'resources'
@@ -614,11 +786,13 @@ export function App() {
                 ref={searchRef}
                 aria-label="搜索"
                 placeholder={
-                  page === 'hosts'
-                    ? '搜索名称、地址或分组…'
-                    : page === 'sessions'
-                      ? '搜索会话或主机地址…'
-                      : '搜索配置…'
+                  page === 'conversations'
+                    ? '搜索对话、服务器或地址…'
+                    : page === 'hosts'
+                      ? '搜索名称、地址或分组…'
+                      : page === 'sessions'
+                        ? '搜索会话或主机地址…'
+                        : '搜索配置…'
                 }
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -653,7 +827,14 @@ export function App() {
               </div>
             )}
             <span className="collection-count">
-              {itemCount} {page === 'hosts' ? '台主机' : page === 'sessions' ? '个会话' : '项配置'}
+              {itemCount}{' '}
+              {page === 'hosts'
+                ? '台主机'
+                : page === 'sessions'
+                  ? '个 SSH 会话'
+                  : page === 'conversations'
+                    ? '段对话'
+                    : '项配置'}
             </span>
           </div>
         )}
@@ -665,7 +846,10 @@ export function App() {
             </button>
           </div>
         )}
-        <div className="page-content" style={{ display: page === 'terminal' ? 'none' : undefined }}>
+        <div
+          className={'page-content ' + (page === 'conversations' ? 'conversations-content' : '')}
+          style={{ display: page === 'terminal' ? 'none' : undefined }}
+        >
           {page === 'credentials' && !!data.pendingDeletes?.length && (
             <div className="info-box">
               <span>有 {data.pendingDeletes.length} 项已停用的秘密等待从系统凭据库清理。</span>
@@ -689,6 +873,40 @@ export function App() {
             </div>
           ) : (
             <>
+              {page === 'conversations' && (
+                <>
+                  <ErrorBox error={conversationError} />
+                  <Conversations
+                    hosts={connectionHosts}
+                    conversations={conversations}
+                    sessions={sessions}
+                    search={search}
+                    busy={!!busy}
+                    hostFilter={conversationHost}
+                    onHostFilter={(id) => {
+                      setConversationHost(id);
+                      setCollapsedConversationHosts((previous) => {
+                        const next = new Set(previous);
+                        next.delete(id);
+                        return next;
+                      });
+                    }}
+                    collapsedHosts={collapsedConversationHosts}
+                    onToggleHost={(id) =>
+                      setCollapsedConversationHosts((previous) => {
+                        const next = new Set(previous);
+                        if (next.has(id)) next.delete(id);
+                        else next.add(id);
+                        return next;
+                      })
+                    }
+                    selected={selectedConversation}
+                    onSelect={setSelectedConversation}
+                    onNew={requestNewConversation}
+                    onContinue={(c) => void continueConversation(c)}
+                  />
+                </>
+              )}
               {page === 'sessions' && (
                 <Sessions
                   data={data}
@@ -1141,7 +1359,8 @@ export function App() {
                   >
                     <button onClick={() => setActiveSession(s.id)}>
                       <span className={'status-dot ' + s.status} />
-                      {s.name}
+                      {conversations.find((c) => c.hostId === s.hostId && c.id === s.conversationId)
+                        ?.title || s.name}
                     </button>
                     <button
                       aria-label={'关闭连接 ' + s.name}
@@ -1162,10 +1381,10 @@ export function App() {
                   session={s}
                   active={page === 'terminal' && activeSession === s.id}
                   onReconnect={() => {
-                    const host = data.hosts.find((h) => h.id === s.hostId);
+                    const host = connectionHosts.find((h) => h.id === s.hostId);
                     if (host) void hostAction(host, false, s);
                   }}
-                  canReconnect={!busy && data.hosts.some((h) => h.id === s.hostId)}
+                  canReconnect={!busy && connectionHosts.some((h) => h.id === s.hostId)}
                 />
               ))}
             </>
@@ -1188,19 +1407,32 @@ export function App() {
               {itemCount} 个项目{search && ' · 已筛选'}
             </span>
             <span>
-              {page === 'hosts'
-                ? '双击主机连接'
-                : page === 'credentials'
-                  ? '秘密保存在系统凭据库'
-                  : page === 'resources'
-                    ? '按配置范围使用凭据'
-                    : page === 'sessions'
-                      ? '最近记录保存在本机'
-                      : '每台主机可单独选择 AI 配置'}
+              {page === 'conversations'
+                ? '先选对话，再进入服务器工作台'
+                : page === 'hosts'
+                  ? '双击主机连接'
+                  : page === 'credentials'
+                    ? '秘密保存在系统凭据库'
+                    : page === 'resources'
+                      ? '按配置范围使用凭据'
+                      : page === 'sessions'
+                        ? '最近记录保存在本机'
+                        : '每台主机可单独选择 AI 配置'}
             </span>
           </footer>
         )}
       </main>
+      {newConversationHost !== null && (
+        <NewConversation
+          data={data}
+          initialHostId={newConversationHost}
+          busy={!!busy}
+          error={newConversationError}
+          onClose={() => setNewConversationHost(null)}
+          onCreate={(input) => void createConversation(input)}
+          createCredential={createCredential}
+        />
+      )}
       {toast && (
         <div className="toast" role="status">
           <CheckCircle2 size={18} />

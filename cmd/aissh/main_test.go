@@ -87,6 +87,20 @@ func TestParseArgsSupportsHistoryConfiguration(t *testing.T) {
 	}
 }
 
+func TestParseArgsConversation(t *testing.T) {
+	for _, args := range [][]string{{"--conversation", "saved-id", "server"}, {"--conversation=saved-id", "server"}} {
+		config, _, _, err := parseArgs(args)
+		if err != nil || config.ConversationID != "saved-id" || !reflect.DeepEqual(config.SSHArgs, []string{"server"}) {
+			t.Fatalf("config=%+v err=%v", config, err)
+		}
+	}
+	for _, args := range [][]string{{"--conversation"}, {"--conversation=", "server"}, {"--conversation", "", "server"}} {
+		if _, _, _, err := parseArgs(args); err == nil {
+			t.Fatalf("accepted empty conversation: %q", args)
+		}
+	}
+}
+
 func TestParseArgsSupportsLocalWorkspace(t *testing.T) {
 	config, help, version, err := parseArgs([]string{"--workspace", "/tmp/project", "server"})
 	if err != nil || help || version || config.Workspace != "/tmp/project" {

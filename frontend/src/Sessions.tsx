@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowUpRight, Clock3, Plus, RotateCw, TerminalSquare, Trash2 } from 'lucide-react';
-import { Catalog, Host, Session, sessionLive, sessionStatus } from './api';
+import { allHosts, Catalog, Host, Session, sessionLive, sessionStatus } from './api';
 import { Empty } from './components';
 
 const timestamp = (value: string) =>
@@ -68,7 +68,7 @@ export function Sessions({
       (filter === 'all' || (filter === 'live' ? sessionLive(s) : !sessionLive(s))),
   );
   const recent = (data.recentConnections || []).flatMap((item) => {
-    const host = data.hosts.find((h) => h.id === item.hostId);
+    const host = allHosts(data).find((h) => h.id === item.hostId);
     return host && matches(host.name, host.address, host.user)
       ? [{ host, openedAt: item.openedAt }]
       : [];
@@ -138,7 +138,7 @@ export function Sessions({
               </thead>
               <tbody>
                 {visible.map((s) => {
-                  const host = data.hosts.find((h) => h.id === s.hostId);
+                  const host = allHosts(data).find((h) => h.id === s.hostId);
                   return (
                     <tr key={s.id} data-session-id={s.id}>
                       <td>

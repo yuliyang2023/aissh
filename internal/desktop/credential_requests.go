@@ -28,8 +28,33 @@ func (s *Service) credentialChannel(session *terminalSession) ([]string, func(),
 	token := catalog.NewID()
 	server := &http.Server{ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 3 * time.Minute, MaxHeaderBytes: 4096}
 	server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/credential" || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
+		if r.Method != http.MethodPost || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
 			http.Error(w, "denied", http.StatusForbidden)
+			return
+		}
+		if r.URL.Path == "/conversation" {
+			var input struct {
+				ConversationID string `json:"conversationId"`
+			}
+			if json.NewDecoder(io.LimitReader(r.Body, 2048)).Decode(&input) != nil || input.ConversationID == "" || len(input.ConversationID) > 256 {
+				http.Error(w, "invalid conversation", http.StatusBadRequest)
+				return
+			}
+			session.mu.Lock()
+			if session.closed {
+				session.mu.Unlock()
+				http.Error(w, "session closed", http.StatusGone)
+				return
+			}
+			session.info.ConversationID = input.ConversationID
+			info := session.info
+			session.mu.Unlock()
+			s.emit("session-updated", info)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.URL.Path != "/credential" {
+			http.NotFound(w, r)
 			return
 		}
 		var input struct {

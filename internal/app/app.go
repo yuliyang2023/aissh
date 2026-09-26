@@ -33,6 +33,8 @@ type Config struct {
 	AIProfileID         string
 	HostLabel           string
 	HistoryTarget       string
+	ConversationID      string
+	ConversationChanged func(string)
 	SSHEnvironment      []string
 	SecretFilter        *redact.Filter
 	Resources           *resources.Executor
@@ -271,6 +273,15 @@ func New(config Config) (*App, error) {
 		value.loadChatHistory()
 	}
 	value.appendAIReadyMessages()
+	if config.ConversationID != "" {
+		if err := value.resumeConversation(config.ConversationID); err != nil {
+			cancel()
+			return nil, err
+		}
+		value.sidebarCollapsed = false
+	} else {
+		value.notifyConversationChanged()
+	}
 	return value, nil
 }
 
@@ -736,6 +747,11 @@ func (a *App) handleOutput(data []byte) {
 		a.execution.Output.Append(plain)
 	}
 	a.sensitive = trigger.LooksSensitive(a.outputTail.String())
+	// Opening a saved AI conversation can focus its editor before SSH has
+	// authenticated. A password prompt must hand input back to the terminal.
+	if a.sensitive && a.focus == focusAI {
+		a.focus = focusTerminal
+	}
 	errorWindow := a.errorCarry + plain
 	if match := trigger.MatchError(errorWindow); match != nil {
 		a.pendingError = match

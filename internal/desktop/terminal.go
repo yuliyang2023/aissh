@@ -25,15 +25,16 @@ type terminalSession struct {
 	info         SessionInfo
 }
 type SessionInfo struct {
-	ID        string `json:"id"`
-	HostID    string `json:"hostId"`
-	Name      string `json:"name"`
-	Address   string `json:"address"`
-	Port      int    `json:"port"`
-	User      string `json:"user"`
-	CreatedAt string `json:"createdAt"`
-	EndedAt   string `json:"endedAt"`
-	Status    string `json:"status"` // starting, running (local workbench), ended, failed
+	ID             string `json:"id"`
+	HostID         string `json:"hostId"`
+	ConversationID string `json:"conversationId"`
+	Name           string `json:"name"`
+	Address        string `json:"address"`
+	Port           int    `json:"port"`
+	User           string `json:"user"`
+	CreatedAt      string `json:"createdAt"`
+	EndedAt        string `json:"endedAt"`
+	Status         string `json:"status"` // starting, running (local workbench), ended, failed
 }
 
 func (s *Service) ListSessions() []SessionInfo {
@@ -50,6 +51,10 @@ func (s *Service) ListSessions() []SessionInfo {
 }
 
 func (s *Service) CreateSession(hostID string) (SessionInfo, error) {
+	return s.createSession(hostID, "")
+}
+
+func (s *Service) createSession(hostID, conversationID string) (SessionInfo, error) {
 	d, err := s.store.Load()
 	if err != nil {
 		return SessionInfo{}, err
@@ -66,6 +71,11 @@ func (s *Service) CreateSession(hostID string) (SessionInfo, error) {
 	live := 0
 	for _, session := range s.sessions {
 		session.mu.Lock()
+		if conversationID != "" && !session.closed && session.hostID == hostID && session.info.ConversationID == conversationID {
+			info := session.info
+			session.mu.Unlock()
+			return info, nil
+		}
 		if !session.closed {
 			live++
 		}
@@ -81,7 +91,7 @@ func (s *Service) CreateSession(hostID string) (SessionInfo, error) {
 		return SessionInfo{}, err
 	}
 	id := catalog.NewID()
-	info := SessionInfo{ID: id, HostID: hostID, Name: h.Name, Address: h.Address, Port: h.Port, User: h.User, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Status: "starting"}
+	info := SessionInfo{ID: id, HostID: hostID, ConversationID: conversationID, Name: h.Name, Address: h.Address, Port: h.Port, User: h.User, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Status: "starting"}
 	s.sessions[id] = &terminalSession{id: id, hostID: hostID, info: info}
 	return info, nil
 }
@@ -136,7 +146,11 @@ func (s *Service) StartSession(id string, cols, rows int) (startErr error) {
 		return err
 	}
 	ctx, cancel := context.WithCancel(s.ctx)
-	cmd := exec.CommandContext(ctx, helper, "--no-workspace", "--profile", session.hostID)
+	args := []string{"--no-workspace", "--profile", session.hostID}
+	if session.info.ConversationID != "" {
+		args = append(args, "--history-dir", s.history.Dir, "--conversation", session.info.ConversationID)
+	}
+	cmd := exec.CommandContext(ctx, helper, args...)
 	cmd.Env = append(desktopEnvironment(), "TERM=xterm-256color", "AISSH_CONFIG_DIR="+s.store.Dir)
 	channelEnv, closeChannel, err := s.credentialChannel(session)
 	if err != nil {

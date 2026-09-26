@@ -167,9 +167,13 @@ Keyboard-first users can still access every core feature.
 
 ## Desktop client and saved credentials
 
-A native desktop client manages SSH hosts, passwords, key passphrases, system
-connections and AI profiles. It opens the existing aissh workspace in terminal
-tabs. Secrets live in the OS keyring; connection metadata stays on this device.
+The native desktop opens on AI conversations, grouped by server. Create separate
+topics, search and preview saved history, or continue with the original context.
+AI conversations and SSH sessions come first in the sidebar, followed by a
+Configuration group for hosts, credentials, system connections and AI profiles.
+SSH sessions manage current terminals and recent connections. Continuing a conversation opens the existing
+aissh workspace in a terminal tab. The client also manages credentials, system
+connections and AI profiles. Secrets live in the OS keyring.
 
 Build on macOS with Go 1.25+, Node.js 20+ and Xcode command-line tools:
 

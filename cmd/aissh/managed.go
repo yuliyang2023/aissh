@@ -10,12 +10,16 @@ import (
 
 	"git.example.com/ai/wrd-ai-cli/internal/app"
 	"git.example.com/ai/wrd-ai-cli/internal/catalog"
+	"git.example.com/ai/wrd-ai-cli/internal/credentialui"
 	"git.example.com/ai/wrd-ai-cli/internal/redact"
 	"git.example.com/ai/wrd-ai-cli/internal/resources"
 	"git.example.com/ai/wrd-ai-cli/internal/sshauth"
 )
 
 func prepareManaged(config *app.Config) (func(), error) {
+	if credentialui.Available() {
+		config.ConversationChanged = credentialui.NotifyConversation
+	}
 	store := catalog.Default()
 	filter := redact.New(config.ModelAPIKey, config.AgentToken)
 	config.SecretFilter = filter

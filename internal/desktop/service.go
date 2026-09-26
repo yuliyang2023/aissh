@@ -1,4 +1,5 @@
-// Package desktop exposes a deliberately small, metadata-only Wails API.
+// Package desktop exposes the local catalog, conversation history and terminal
+// bridge through Wails. Credential secrets remain in the backend.
 package desktop
 
 import (
@@ -7,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
 	"git.example.com/ai/wrd-ai-cli/internal/catalog"
+	"git.example.com/ai/wrd-ai-cli/internal/history"
 	"git.example.com/ai/wrd-ai-cli/internal/resources"
 	"git.example.com/ai/wrd-ai-cli/internal/sshauth"
 	wails "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -18,6 +21,7 @@ import (
 
 type Service struct {
 	store              *catalog.Store
+	history            *history.Store
 	ctx                context.Context
 	mu                 sync.Mutex
 	scans              map[string]pendingScan
@@ -32,7 +36,15 @@ type pendingScan struct {
 }
 
 func New(store *catalog.Store) *Service {
-	return &Service{store: store, ctx: context.Background(), scans: map[string]pendingScan{}, sessions: map[string]*terminalSession{}, credentialRequests: map[string]chan bool{}, executor: resources.New(store, "", "", nil), emit: func(string, ...any) {}}
+	dir := strings.TrimSpace(os.Getenv("AISSH_HISTORY_DIR"))
+	if dir == "" {
+		dir = history.DefaultDir()
+	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AISSH_HISTORY"))) {
+	case "0", "false", "off", "no":
+		dir = ""
+	}
+	return &Service{store: store, history: history.New(dir), ctx: context.Background(), scans: map[string]pendingScan{}, sessions: map[string]*terminalSession{}, credentialRequests: map[string]chan bool{}, executor: resources.New(store, "", "", nil), emit: func(string, ...any) {}}
 }
 func Startup(s *Service, ctx context.Context) {
 	s.ctx = ctx

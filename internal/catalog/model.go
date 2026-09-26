@@ -69,6 +69,7 @@ type Data struct {
 	Revision           uint64             `json:"revision"`
 	Credentials        []Credential       `json:"credentials"`
 	Hosts              []Host             `json:"hosts"`
+	ConversationHosts  []Host             `json:"conversationHosts,omitempty"`
 	Resources          []Resource         `json:"resources"`
 	AIProfiles         []AIProfile        `json:"aiProfiles"`
 	DefaultAIProfileID string             `json:"defaultAIProfileId"`
@@ -125,12 +126,20 @@ func (d Data) Credential(id string) (Credential, error) {
 	return Credential{}, errors.New("凭据不存在，请在桌面端配置")
 }
 func (d Data) Host(id string) (Host, error) {
-	for _, h := range d.Hosts {
+	for _, h := range d.AllHosts() {
 		if h.ID == id {
 			return h, nil
 		}
 	}
 	return Host{}, errors.New("主机配置不存在")
+}
+
+// AllHosts includes connection targets retained by conversations without
+// adding them to the user's saved host library.
+func (d Data) AllHosts() []Host {
+	result := make([]Host, 0, len(d.Hosts)+len(d.ConversationHosts))
+	result = append(result, d.Hosts...)
+	return append(result, d.ConversationHosts...)
 }
 func (d Data) Resource(id string) (Resource, error) {
 	for _, r := range d.Resources {
@@ -193,7 +202,7 @@ func (d Data) validate() error {
 			}
 		}
 	}
-	for _, h := range d.Hosts {
+	for _, h := range d.AllHosts() {
 		if err := check(h.ID, h.Name); err != nil {
 			return err
 		}

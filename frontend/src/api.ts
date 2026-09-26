@@ -46,6 +46,7 @@ export interface Catalog {
   revision: number;
   credentials: Credential[];
   hosts: Host[];
+  conversationHosts?: Host[];
   resources: Resource[];
   aiProfiles: AIProfile[];
   defaultAIProfileId: string;
@@ -55,6 +56,7 @@ export interface Catalog {
 export interface Session {
   id: string;
   hostId: string;
+  conversationId: string;
   name: string;
   address: string;
   port: number;
@@ -62,6 +64,21 @@ export interface Session {
   createdAt: string;
   endedAt: string;
   status: 'starting' | 'running' | 'ended' | 'failed';
+}
+export interface Conversation {
+  id: string;
+  hostId: string;
+  title: string;
+  preview: string;
+  startedAt: string;
+  updatedAt: string;
+  messageCount: number;
+}
+export interface ChatMessage {
+  role: string;
+  content: string;
+  time: string;
+  proposal?: { command: string; explanation: string; risk: string };
 }
 export const sessionLive = (s: Session) => s.status === 'starting' || s.status === 'running';
 export const sessionStatus = {
@@ -104,6 +121,15 @@ type Backend = {
   TrustHost(token: string): Promise<void>;
   TestHost(id: string): Promise<void>;
   CreateSession(id: string): Promise<Session>;
+  ListConversations(): Promise<Conversation[]>;
+  CreateConversation(hostId: string): Promise<Conversation>;
+  CreateDirectConversation(
+    host: Host,
+    saveHost: boolean,
+  ): Promise<{ host: Host; conversation: Conversation }>;
+  GetConversation(hostId: string, id: string): Promise<ChatMessage[]>;
+  OpenConversationSession(hostId: string, id: string): Promise<Session>;
+  ReconnectSession(id: string): Promise<Session>;
   ListSessions(): Promise<Session[]>;
   ClearRecentConnections(): Promise<void>;
   StartSession(id: string, cols: number, rows: number): Promise<void>;
@@ -142,6 +168,7 @@ export const emptyCatalog: Catalog = {
   aiProfiles: [],
   defaultAIProfileId: '',
 };
+export const allHosts = (data: Catalog) => [...data.hosts, ...(data.conversationHosts || [])];
 export const newHost = (): Host => ({
   id: '',
   name: '',

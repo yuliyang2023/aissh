@@ -170,6 +170,17 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 			return config, false, true, nil
 		case value == "--no-history":
 			config.HistoryDir = ""
+		case value == "--conversation":
+			if index+1 >= len(args) || strings.TrimSpace(args[index+1]) == "" {
+				return config, false, false, fmt.Errorf("--conversation requires an ID")
+			}
+			index++
+			config.ConversationID = args[index]
+		case strings.HasPrefix(value, "--conversation="):
+			config.ConversationID = strings.TrimPrefix(value, "--conversation=")
+			if strings.TrimSpace(config.ConversationID) == "" {
+				return config, false, false, fmt.Errorf("--conversation requires an ID")
+			}
 		case value == "--no-workspace":
 			config.Workspace = ""
 		case value == "--workspace-write":
@@ -355,6 +366,7 @@ aissh options:
   --ssh-path PATH     OpenSSH binary; defaults to ssh from PATH
   --lang LANG         UI language: zh-CN or en (auto-detected by default)
   --history-dir DIR   Local per-target AI history directory
+  --conversation ID   Continue a saved AI conversation for this server
   --no-history        Disable loading and saving AI history
   --workspace DIR     Local code workspace (default: current directory)
   --workspace-write   Allow Codex/Claude to modify files in the local workspace
@@ -415,6 +427,7 @@ aissh选项:
   --ssh-path PATH     系统 ssh 路径，默认使用 PATH 中的 ssh
   --lang LANG         界面语言：zh-CN 或 en，默认根据系统环境自动选择
   --history-dir DIR   按目标保存 AI 历史的本机目录
+  --conversation ID   继续当前服务器上保存的 AI 对话
   --no-history        禁用 AI 历史的读取和写入
   --workspace DIR     供 Codex/Claude 使用的本机代码工作区，默认当前目录
   --workspace-write   允许 Codex/Claude 修改本机工作区文件（默认只读）

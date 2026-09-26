@@ -80,8 +80,10 @@ await page.addInitScript(() => {
     resources: [],
     aiProfiles: [],
     defaultAIProfileId: '',
+    conversationHosts: JSON.parse(sessionStorage.getItem('test-conversation-hosts') || '[]'),
     recentConnections: JSON.parse(sessionStorage.getItem('recent-test-connections') || '[]'),
   };
+  data.hosts.push(...JSON.parse(sessionStorage.getItem('test-direct-saved-hosts') || '[]'));
   const listeners = {};
   let sequence = 1;
   const emit = (name, value) => (listeners[name] || []).forEach((fn) => fn(value));
@@ -101,6 +103,12 @@ await page.addInitScript(() => {
     return value;
   };
   const sessions = [];
+  const conversations = JSON.parse(sessionStorage.getItem('test-ai-conversations') || 'null') || [
+    { id: 'shared-id', hostId: 'host-one', title: '排查 nginx 超时', preview: '发现上游响应变慢', messageCount: 2, startedAt: '2026-09-25T08:00:00Z', updatedAt: '2026-09-25T08:10:00Z' },
+    { id: 'disk', hostId: 'host-one', title: '检查磁盘空间', preview: '日志占用了较多空间', messageCount: 2, startedAt: '2026-09-24T08:00:00Z', updatedAt: '2026-09-24T08:10:00Z' },
+    { id: 'shared-id', hostId: 'host-two', title: '开发服务启动失败', preview: '开发环境缺少配置', messageCount: 2, startedAt: '2026-09-23T08:00:00Z', updatedAt: '2026-09-23T08:10:00Z' },
+  ];
+  const persistConversations = () => sessionStorage.setItem('test-ai-conversations', JSON.stringify(conversations));
   const updateSession = (id, status) => {
     const session = sessions.find(s => s.id === id);
     if (!session) return;
@@ -109,7 +117,7 @@ await page.addInitScript(() => {
     emit('session-updated', { ...session });
     if (session.endedAt) emit('terminal-exit:' + id, '会话已结束');
   };
-  window.__test = { data, emit, sessions, updateSession, writes: [], starts: [], trusted: false, resolutions: [], failStart: false };
+  window.__test = { data, emit, sessions, conversations, updateSession, writes: [], starts: [], trusted: false, resolutions: [], failStart: false };
 
   window.go = {
     desktop: {
@@ -162,9 +170,45 @@ await page.addInitScript(() => {
           data.recentConnections = [];
           sessionStorage.removeItem('recent-test-connections');
         },
+        ListConversations: async () => structuredClone(conversations),
+        GetConversation: async (hostId, id) => {
+          const c = conversations.find(c => c.hostId === hostId && c.id === id);
+          if (!c) throw new Error('会话不存在');
+          return c.messageCount ? [{ role: 'user', content: c.title, time: c.startedAt }, { role: 'assistant', content: c.preview, time: c.updatedAt }] : [];
+        },
+        CreateConversation: async (hostId) => {
+          if (window.__test.failConversation) throw new Error('测试：无法写入历史');
+          const c = { id: 'conversation-' + sequence++, hostId, title: '新对话', preview: '', messageCount: 0, startedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+          conversations.unshift(c);
+          persistConversations();
+          return { ...c };
+        },
+        CreateDirectConversation: async (input, saveHost) => {
+          const host = { ...input, id: 'direct-' + Date.now() + '-' + sequence++, name: input.name || (input.user ? input.user + '@' : '') + input.address };
+          if (saveHost) {
+            data.hosts.push(host);
+            sessionStorage.setItem('test-direct-saved-hosts', JSON.stringify(data.hosts.filter(h => h.id.startsWith('direct-'))));
+          } else {
+            data.conversationHosts.push(host);
+            sessionStorage.setItem('test-conversation-hosts', JSON.stringify(data.conversationHosts));
+          }
+          return { host, conversation: await window.go.desktop.Service.CreateConversation(host.id) };
+        },
+        OpenConversationSession: async (hostId, id) => {
+          const existing = sessions.find(s => s.hostId === hostId && s.conversationId === id && (s.status === 'starting' || s.status === 'running'));
+          if (existing) return { ...existing };
+          const created = await window.go.desktop.Service.CreateSession(hostId);
+          const s = sessions.find(s => s.id === created.id);
+          s.conversationId = id;
+          return { ...s };
+        },
+        ReconnectSession: async (id) => {
+          const s = sessions.find(s => s.id === id);
+          return s.conversationId ? window.go.desktop.Service.OpenConversationSession(s.hostId, s.conversationId) : window.go.desktop.Service.CreateSession(s.hostId);
+        },
         CreateSession: async (hostId) => {
-          const host = data.hosts.find(h => h.id === hostId);
-          const session = { id: 'session-' + sequence++, hostId, name: host.name,
+          const host = [...data.hosts, ...data.conversationHosts].find(h => h.id === hostId);
+          const session = { id: 'session-' + sequence++, hostId, conversationId: '', name: host.name,
             address: host.address, port: host.port, user: host.user, createdAt: new Date().toISOString(), endedAt: '', status: 'starting' };
           sessions.push(session);
           data.recentConnections = [{ hostId, openedAt: session.createdAt }, ...data.recentConnections.filter(r => r.hostId !== hostId)].slice(0, 50);
@@ -206,6 +250,31 @@ const out = path.join(root, '.cache/desktop-ui');
 await mkdir(out, { recursive: true });
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.getByRole('heading', { name: 'AI 会话', exact: true }).waitFor();
+  await page.locator('.conversation-item').first().waitFor();
+  assert.equal(await page.locator('.conversation-group').count(), 2);
+  assert.equal(await page.locator('.conversation-item').count(), 3);
+  assert.equal(await page.locator('.nav-item').first().innerText(), 'AI 会话\n3');
+  await page.getByText('发现上游响应变慢', { exact: true }).last().waitFor();
+  assert.equal(await page.evaluate(() => window.__test.starts.length), 0);
+  await page.screenshot({ path: path.join(out, 'ai-conversations.png') });
+  await page.getByLabel('按服务器筛选 AI 会话').selectOption('host-two');
+  assert.equal(await page.locator('.conversation-item').count(), 1);
+  await page.locator('.chat-content').filter({ hasText: '开发环境缺少配置' }).waitFor();
+  assert.equal(await page.locator('.chat-content').filter({ hasText: '上游响应变慢' }).count(), 0);
+  await page.getByLabel('按服务器筛选 AI 会话').selectOption('');
+  await page.getByRole('textbox', { name: '搜索', exact: true }).fill('磁盘');
+  assert.equal(await page.locator('.conversation-item').count(), 1);
+  await page.getByRole('textbox', { name: '搜索', exact: true }).fill('没有这个话题');
+  await page.getByRole('heading', { name: '没有匹配的对话', exact: true }).waitFor();
+  await page.getByRole('button', { name: '清除搜索', exact: true }).click();
+  await page.setViewportSize({ width: 940, height: 650 });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: path.join(out, 'ai-conversations-compact-dark.png') });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.setViewportSize({ width: 1280, height: 840 });
+  await page.locator('.nav-item').filter({ hasText: /^主机/ }).click();
   await page.locator('.identity strong').filter({ hasText: '生产应用服务器' }).waitFor();
   await page.screenshot({ path: path.join(out, 'hosts.png') });
   await page.getByRole('button', { name: '通过跳板', exact: true }).click();
@@ -292,19 +361,19 @@ try {
   // Session management keeps terminal instances alive across navigation and
   // recovers from both remote exit and local startup failure.
   const firstSession = await page.evaluate(() => window.__test.sessions[0].id);
-  await page.getByRole('button', { name: '管理会话', exact: true }).click();
-  await page.getByRole('heading', { name: '会话管理', exact: true }).waitFor();
+  await page.locator('.nav-item').filter({ hasText: 'SSH 会话' }).click();
+  await page.getByRole('heading', { name: 'SSH 会话', exact: true }).waitFor();
   await page.locator('.session-state.running').waitFor();
   await page.getByRole('button', { name: '查看终端', exact: true }).click();
   assert.equal(await page.evaluate(() => window.__test.starts.length), 1);
-  await page.getByRole('button', { name: '管理会话', exact: true }).click();
+  await page.locator('.nav-item').filter({ hasText: 'SSH 会话' }).click();
   await page.getByRole('button', { name: '断开会话 生产应用服务器', exact: true }).click();
   await page.getByRole('button', { name: '保持连接', exact: true }).click();
   assert.equal(await page.evaluate(() => window.__test.sessions[0].status), 'running');
   await page.getByRole('button', { name: '新建连接', exact: true }).click();
   await page.locator('tbody tr').filter({ hasText: '开发环境' }).getByRole('button', { name: '连接', exact: true }).click();
   await page.waitForFunction(() => window.__test.starts.length === 2);
-  await page.getByRole('button', { name: '管理会话', exact: true }).click();
+  await page.locator('.nav-item').filter({ hasText: 'SSH 会话' }).click();
   await page.evaluate(() => { window.__test.holdList = true; });
   await page.getByRole('button', { name: '刷新配置', exact: true }).click();
   await page.waitForFunction(() => !!window.__test.releaseList);
@@ -320,7 +389,7 @@ try {
   await page.getByRole('button', { name: '重连', exact: true }).click();
   await page.waitForFunction(() => window.__test.starts.length === 3);
   assert.equal(await page.evaluate(id => window.__test.sessions.some(s => s.id === id), firstSession), false);
-  await page.getByRole('button', { name: '管理会话', exact: true }).click();
+  await page.locator('.nav-item').filter({ hasText: 'SSH 会话' }).click();
   await page.getByLabel('会话状态', { exact: true }).selectOption('all');
   assert.equal(await page.locator('.session-state.running').count(), 2);
   await page.screenshot({ path: path.join(out, 'sessions.png') });
@@ -342,7 +411,7 @@ try {
   assert.equal(await page.evaluate(() => window.__test.writes.length), writesBefore);
   await page.getByRole('button', { name: '重新连接', exact: true }).click();
   await page.waitForFunction(() => window.__test.starts.length === 5);
-  await page.getByRole('button', { name: '管理会话', exact: true }).click();
+  await page.locator('.nav-item').filter({ hasText: 'SSH 会话' }).click();
   await page.getByRole('button', { name: '断开会话 开发环境', exact: true }).click();
   await page.getByRole('button', { name: '断开连接', exact: true }).click();
   await page.waitForFunction(() => window.__test.sessions.length === 1);
@@ -354,12 +423,53 @@ try {
   assert.equal(await page.locator('.sessions-table tbody tr').count(), 2);
   await page.screenshot({ path: path.join(out, 'recent-connections.png') });
   await page.reload();
-  await page.locator('.nav-item').filter({ hasText: '会话管理' }).click();
+  await page.locator('.nav-item').filter({ hasText: 'SSH 会话' }).click();
   await page.getByRole('button', { name: '最近连接', exact: true }).click();
   await page.locator('.sessions-table tbody tr').first().waitFor();
   assert.equal(await page.locator('.sessions-table tbody tr').count(), 2);
   await page.getByRole('button', { name: '清空最近记录', exact: true }).click();
   await page.getByText('还没有最近连接', { exact: true }).waitFor();
+  await page.locator('.nav-item').filter({ hasText: 'AI 会话' }).click();
+  await page.getByRole('button', { name: '为 生产应用服务器 新建对话', exact: true }).click();
+  await page.getByRole('dialog').waitFor();
+  assert.equal(await page.getByLabel('服务器', { exact: true }).inputValue(), 'host-one');
+  await page.evaluate(() => { window.__test.failConversation = true; });
+  await page.getByRole('button', { name: '创建对话', exact: true }).click();
+  await page.getByRole('alert').getByText('测试：无法写入历史').waitFor();
+  await page.evaluate(() => { window.__test.failConversation = false; });
+  await page.getByRole('button', { name: '创建对话', exact: true }).click();
+  await page.locator('dialog[open]').waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(() => window.__test.sessions.length), 0);
+  await page.getByRole('button', { name: '开始对话', exact: true }).waitFor();
+  const conversationID = await page.evaluate(() => window.__test.conversations[0].id);
+  await page.getByRole('button', { name: '开始对话', exact: true }).click();
+  await page.getByRole('button', { name: '已核对，信任并继续', exact: true }).click();
+  await page.waitForFunction(() => window.__test.starts.length === 1);
+  assert.equal(await page.evaluate(() => window.__test.sessions[0].conversationId), conversationID);
+  await page.locator('.nav-item').filter({ hasText: 'AI 会话' }).click();
+  await page.getByRole('button', { name: '返回对话', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.__test.starts.length), 1);
+  await page.evaluate(() => window.__test.updateSession(window.__test.sessions[0].id, 'ended'));
+  await page.getByRole('button', { name: '重新连接', exact: true }).click();
+  await page.waitForFunction(() => window.__test.starts.length === 2);
+  assert.equal(await page.evaluate(() => window.__test.sessions[0].conversationId), conversationID);
+  // A CLI conversation switch must change the desktop association as well.
+  await page.evaluate(() => {
+    const s = window.__test.sessions[0];
+    s.conversationId = 'disk';
+    window.__test.emit('session-updated', { ...s });
+  });
+  await page.locator('.nav-item').filter({ hasText: 'AI 会话' }).click();
+  await page.locator('.conversation-item').filter({ hasText: '检查磁盘空间' }).click();
+  await page.getByRole('button', { name: '返回对话', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.__test.starts.length), 2);
+  await page.reload();
+  await page.getByRole('heading', { name: 'AI 会话', exact: true }).waitFor();
+  await page.locator('.conversation-item').filter({ hasText: '新对话' }).waitFor();
+  assert.equal(await page.evaluate(() => window.__test.sessions.length), 0);
+  await page.evaluate(() => window.__test.emit('desktop-command', 'new-conversation'));
+  await page.getByRole('heading', { name: '新建 AI 对话', exact: true }).waitFor();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
   await page.setViewportSize({ width: 960, height: 700 });
   await page.locator('.nav-item').filter({ hasText: /^主机/ }).click();
   await page.screenshot({ path: path.join(out, 'compact.png') });
@@ -394,6 +504,7 @@ try {
     Object.defineProperty(navigator, 'platform', { value: 'Win32', configurable: true });
   });
   await page.reload();
+  await page.locator('.nav-item').filter({ hasText: /^主机/ }).click();
   await page.locator('.identity strong').filter({ hasText: '生产应用服务器' }).waitFor();
   assert.equal(await page.locator('html').getAttribute('data-platform'), 'other');
   assert.equal(
@@ -403,6 +514,53 @@ try {
   await page.setViewportSize({ width: 940, height: 650 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.screenshot({ path: path.join(out, 'hosts-other-platform.png') });
+  // Direct connection can retain a conversation without adding a saved host.
+  await page.locator('.nav-item').filter({ hasText: 'AI 会话' }).click();
+  await page.getByRole('button', { name: '新建对话', exact: true }).first().click();
+  await page.getByRole('dialog').getByRole('button', { name: '直接连接', exact: true }).click();
+  await page.getByLabel('主机地址', { exact: true }).fill('192.0.2.44');
+  await page.getByLabel('SSH 用户名', { exact: true }).fill('deploy');
+  await page.getByLabel('端口', { exact: true }).fill('2222');
+  assert.equal(await page.getByLabel('同时加入主机列表').isChecked(), false);
+  await page.screenshot({ path: path.join(out, 'direct-conversation.png') });
+  await page.getByRole('button', { name: '连接并新建对话', exact: true }).click();
+  await page.getByText('核对 SSH 主机指纹', { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => window.__test.sessions.length), 0);
+  await page.getByRole('button', { name: '已核对，信任并继续', exact: true }).click();
+  await page.waitForFunction(() => window.__test.sessions.some(s => s.address === '192.0.2.44' && s.status === 'running'));
+  const directHost = await page.evaluate(() => window.__test.data.conversationHosts[0].id);
+  assert.equal(await page.evaluate(() => window.__test.data.hosts.some(h => h.address === '192.0.2.44')), false);
+  assert.equal(await page.evaluate(() => window.__test.sessions[0].port), 2222);
+  await page.evaluate(() => window.__test.updateSession(window.__test.sessions[0].id, 'ended'));
+  await page.getByRole('button', { name: '重新连接', exact: true }).click();
+  await page.waitForFunction(() => window.__test.starts.length === 2);
+  assert.equal(await page.evaluate(() => window.__test.sessions[0].hostId), directHost);
+  await page.reload();
+  await page.getByLabel('按服务器筛选 AI 会话').selectOption(directHost);
+  await page.getByRole('button', { name: '开始对话', exact: true }).waitFor();
+  await page.locator('.nav-item').filter({ hasText: /^主机/ }).click();
+  assert.equal(await page.locator('tbody tr').filter({ hasText: '192.0.2.44' }).count(), 0);
+  await page.locator('.nav-item').filter({ hasText: 'AI 会话' }).click();
+  await page.getByRole('button', { name: '新建对话', exact: true }).first().click();
+  await page.getByRole('dialog').getByRole('button', { name: '直接连接', exact: true }).click();
+  await page.getByLabel('主机地址', { exact: true }).fill('192.0.2.55');
+  await page.getByLabel('同时加入主机列表').check();
+  await page.getByLabel('主机名称').fill('直连保存的主机');
+  await page.screenshot({ path: path.join(out, 'direct-conversation-save.png') });
+  await page.getByRole('button', { name: '连接并新建对话', exact: true }).click();
+  await page.getByRole('button', { name: '已核对，信任并继续', exact: true }).click();
+  await page.waitForFunction(() => window.__test.sessions.some(s => s.address === '192.0.2.55' && s.status === 'running'));
+  await page.locator('.nav-item').filter({ hasText: /^主机/ }).click();
+  await page.locator('tbody tr').filter({ hasText: '直连保存的主机' }).waitFor();
+  // First-time users can start directly with no preconfigured host.
+  await page.evaluate(() => { window.__test.data.hosts = []; window.__test.data.conversationHosts = []; });
+  await page.getByRole('button', { name: '刷新配置', exact: true }).click();
+  await page.locator('.nav-item').filter({ hasText: 'AI 会话' }).click();
+  await page.getByRole('heading', { name: '从一台服务器开始对话', exact: true }).waitFor();
+  await page.getByRole('button', { name: '新建对话', exact: true }).last().click();
+  await page.getByLabel('主机地址', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('dialog').getByRole('button', { name: '已有连接', exact: true }).isDisabled(), true);
+  await page.getByRole('button', { name: '取消', exact: true }).click();
   assert.deepEqual(errors, []);
   console.log(
     'PASS: host/credential nested creation, password masking, references, combined search/route filters, resources, AI profiles, host trust, terminal input, credential repair, session switching/filtering/reconnect/close/startup failure/history, native menu actions, sidebar, light/dark appearance, non-macOS layout/shortcuts',

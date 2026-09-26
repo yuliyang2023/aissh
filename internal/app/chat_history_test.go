@@ -97,6 +97,48 @@ func TestPersistentChatIsAvailableToNextSession(t *testing.T) {
 	}
 }
 
+func TestStartupResumesOnlyRequestedConversation(t *testing.T) {
+	dir := t.TempDir()
+	store := chat_history.New(dir)
+	for _, message := range []chat_history.Message{
+		{ConversationID: "selected", Role: "user", Content: "检查磁盘", Time: time.Now().Format(time.RFC3339Nano)},
+		{ConversationID: "selected", Role: "proposal", Content: "建议检查", Proposal: &agent.Proposal{Command: "df -h"}},
+		{ConversationID: "other", Role: "user", Content: "另一个问题"},
+	} {
+		if err := store.Append("profile:host", message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var changed []string
+	config := Config{SSHArgs: []string{"server"}, HistoryDir: dir, HistoryTarget: "profile:host", ConversationID: "selected", ConversationChanged: func(id string) { changed = append(changed, id) }}
+	a, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.cancel()
+	if a.historyConversationID != "selected" || !strings.Contains(a.agentSeedContext, "检查磁盘") || strings.Contains(a.agentSeedContext, "另一个问题") {
+		t.Fatalf("wrong context: %q", a.agentSeedContext)
+	}
+	if a.proposal != nil || a.focus != focusAI || a.sidebarCollapsed {
+		t.Fatal("history became actionable or AI entry was not focused")
+	}
+	if len(changed) == 0 || changed[len(changed)-1] != "selected" {
+		t.Fatal("desktop association was not announced")
+	}
+	a.startNewAIConversation()
+	if a.agentSeedContext != "" || a.historyConversationID == "selected" || changed[len(changed)-1] != a.historyConversationID {
+		t.Fatal("new conversation retained context or stale desktop association")
+	}
+	config.HistoryTarget = "profile:other-host"
+	if _, err := New(config); err == nil {
+		t.Fatal("startup silently resumed a different server")
+	}
+	config.HistoryDir = ""
+	if _, err := New(config); err == nil {
+		t.Fatal("startup accepted resume with disabled history")
+	}
+}
+
 func TestSelectedHistoryConversationSeedsNextAgentRequest(t *testing.T) {
 	directory := t.TempDir()
 	store := chat_history.New(directory)

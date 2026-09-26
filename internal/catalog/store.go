@@ -176,6 +176,33 @@ func (s *Store) SaveHost(h Host) (Host, error) {
 		} else {
 			d.Hosts[i] = h
 		}
+		d.ConversationHosts = slices.DeleteFunc(d.ConversationHosts, func(v Host) bool { return v.ID == h.ID })
+		return nil
+	})
+	return h, err
+}
+
+// CreateConversationHost always creates a new target. Frontend-supplied IDs
+// cannot overwrite a saved host or redirect an existing conversation.
+func (s *Store) CreateConversationHost(h Host, saveHost bool) (Host, error) {
+	h.ID = NewID()
+	h.Address = strings.TrimSpace(h.Address)
+	h.User = strings.TrimSpace(h.User)
+	h.Name = strings.TrimSpace(h.Name)
+	if h.Name == "" {
+		h.Name = h.Address
+		if h.User != "" {
+			h.Name = h.User + "@" + h.Address
+		}
+	}
+	if h.Port == 0 {
+		h.Port = 22
+	}
+	if saveHost {
+		return s.SaveHost(h)
+	}
+	err := s.mutate(func(d *Data) error {
+		d.ConversationHosts = append(d.ConversationHosts, h)
 		return nil
 	})
 	return h, err
@@ -231,7 +258,7 @@ func (s *Store) Delete(kind, id string) error {
 				return err
 			}
 			secretRef = c.SecretRef
-			for _, h := range d.Hosts {
+			for _, h := range d.AllHosts() {
 				if h.CredentialID == id {
 					return fmt.Errorf("凭据仍被主机「%s」使用", h.Name)
 				}
@@ -251,7 +278,7 @@ func (s *Store) Delete(kind, id string) error {
 			}
 			d.Credentials = slices.DeleteFunc(d.Credentials, func(v Credential) bool { return v.ID == id })
 		case "host":
-			for _, h := range d.Hosts {
+			for _, h := range d.AllHosts() {
 				if h.JumpHostID == id {
 					return fmt.Errorf("主机仍是「%s」的跳板机", h.Name)
 				}
@@ -262,11 +289,12 @@ func (s *Store) Delete(kind, id string) error {
 				}
 			}
 			d.Hosts = slices.DeleteFunc(d.Hosts, func(v Host) bool { return v.ID == id })
+			d.ConversationHosts = slices.DeleteFunc(d.ConversationHosts, func(v Host) bool { return v.ID == id })
 			d.RecentConnections = slices.DeleteFunc(d.RecentConnections, func(v RecentConnection) bool { return v.HostID == id })
 		case "resource":
 			d.Resources = slices.DeleteFunc(d.Resources, func(v Resource) bool { return v.ID == id })
 		case "ai":
-			for _, h := range d.Hosts {
+			for _, h := range d.AllHosts() {
 				if h.AIProfileID == id {
 					return fmt.Errorf("AI 配置仍被「%s」使用", h.Name)
 				}

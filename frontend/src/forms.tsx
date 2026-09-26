@@ -213,7 +213,7 @@ export function CredentialEditor({
 }
 
 type CredentialChooser = (done: (c: Credential) => void) => void;
-function CredentialField({
+export function CredentialField({
   data,
   value,
   onChange,

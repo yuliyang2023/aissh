@@ -85,3 +85,28 @@ func TestSensitiveTypedInputPassesThroughWithoutCommandTracking(t *testing.T) {
 		t.Fatalf("typed password replaced last command: %q", application.lastCommand)
 	}
 }
+
+func TestPasswordPromptTakesFocusFromResumedConversation(t *testing.T) {
+	a, err := New(Config{SSHArgs: []string{"server"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.cancel()
+	a.focus = focusAI
+	a.handleOutput([]byte("ops@server's password: "))
+	if !a.sensitive || a.focus != focusTerminal {
+		t.Fatal("password prompt left AI editor focused")
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	a.sshPTY = writer
+	a.handleInput([]byte("login-password\r"))
+	writer.Close()
+	input, err := io.ReadAll(reader)
+	if err != nil || string(input) != "login-password\r" || len(a.editor) != 0 || a.agentBusy {
+		t.Fatal("password was not routed exclusively to SSH")
+	}
+}

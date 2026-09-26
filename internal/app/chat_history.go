@@ -8,6 +8,30 @@ import (
 	"git.example.com/ai/wrd-ai-cli/internal/history"
 )
 
+func (a *App) resumeConversation(id string) error {
+	if a.historyStore == nil {
+		return fmt.Errorf("AI history is disabled")
+	}
+	// Fail explicitly instead of silently continuing with an unrelated context.
+	conversations, err := a.historyStore.LoadConversations(a.historyTarget)
+	if err != nil {
+		return err
+	}
+	a.historyConversations = conversations
+	for index, conversation := range conversations {
+		if conversation.ID == id && a.selectHistoryConversation(index+1) {
+			return nil
+		}
+	}
+	return fmt.Errorf("AI conversation %q was not found for this server", id)
+}
+
+func (a *App) notifyConversationChanged() {
+	if a.config.ConversationChanged != nil {
+		a.config.ConversationChanged(a.historyConversationID)
+	}
+}
+
 func (a *App) loadChatHistory() {
 	if a.historyStore == nil {
 		return
@@ -141,6 +165,7 @@ func (a *App) selectHistoryConversation(index int) bool {
 		Content: a.t("已切换到历史会话：%s；后续提问会延续该会话上下文。", conversation.Title),
 		Time:    time.Now(),
 	})
+	a.notifyConversationChanged()
 	return true
 }
 
@@ -160,6 +185,7 @@ func (a *App) startNewAIConversation() {
 	a.chat = append(a.chat, chatMessage{Role: "system", Content: a.t("已新建 AI 会话。"), Time: time.Now()})
 	a.focus = focusAI
 	a.aiExpanded = true
+	a.notifyConversationChanged()
 }
 
 func historyConversationContext(messages []history.Message) string {
