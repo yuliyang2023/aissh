@@ -97,6 +97,7 @@ export function Workbench({
       style={{ display: active ? 'grid' : 'none' }}
     >
       <Monitor
+        active={active}
         panels={state?.panels || []}
         online={online}
         pending={pending}

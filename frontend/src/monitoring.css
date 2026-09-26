@@ -623,18 +623,50 @@ html[data-pet='true'] #root {
   }
 }
 
-.realtime-collector-details {
-  margin: 8px 12px;
-  font-size: 12px;
-  color: var(--muted);
+.collector-config[open] {
+  display: flex;
+  flex-direction: column;
+  width: 900px;
+  overflow: hidden;
 }
-.realtime-collector-details summary {
-  cursor: pointer;
+.collector-config .modal-heading {
+  flex-shrink: 0;
+  padding-bottom: 18px;
 }
-.realtime-collector-details .shell-code {
-  max-height: 120px;
+.collector-config .modal-heading > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.collector-config-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 0 28px 24px;
   overflow: auto;
-  margin-top: 8px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.collector-config-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 8px;
+  font-size: 12px;
+}
+.collector-config-toolbar small {
+  margin-right: auto;
+  color: var(--secondary);
+}
+.collector-config .command-review-code {
+  min-height: 100px;
+  max-height: 60vh;
+}
+.collector-config-empty {
+  margin: 0;
+  color: var(--secondary);
+  font-size: 12px;
 }
 .monitor-inventory-item footer {
   flex-wrap: wrap;

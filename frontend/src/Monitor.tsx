@@ -1,9 +1,18 @@
 import { useId, useRef, useState } from 'react';
-import { Activity, ChevronDown, Maximize2, Minimize2, RefreshCw, X, Sparkles } from 'lucide-react';
+import {
+  Activity,
+  ChevronDown,
+  FileCode2,
+  Maximize2,
+  Minimize2,
+  RefreshCw,
+  X,
+  Sparkles,
+} from 'lucide-react';
 import { MonitorPanel, WorkbenchCommand } from './api';
 import { useStoredFlag } from './layout';
 import { realtimePrompt } from './monitoring-api';
-import { ShellCode } from './ShellCode';
+import { CollectorConfig } from './CollectorConfig';
 
 export type MonitorSize = 'normal' | 'large' | 'maximized';
 
@@ -37,6 +46,7 @@ function Metric({ label, value, percent }: { label: string; value?: string; perc
 
 export function Monitor({
   panels,
+  active = true,
   online,
   pending,
   now,
@@ -46,6 +56,7 @@ export function Monitor({
   aiReady = true,
 }: {
   panels: MonitorPanel[];
+  active?: boolean;
   online: boolean;
   pending: boolean;
   now: number;
@@ -57,6 +68,7 @@ export function Monitor({
   const detailsId = useId();
   const [expanded, setExpanded] = useStoredFlag('aissh.monitor.expanded', true);
   const sizeButton = useRef<HTMLButtonElement>(null);
+  const collectorButton = useRef<HTMLButtonElement>(null);
   const enlarged = size !== 'normal';
   const showDetails = expanded || enlarged;
   const [selected, setSelected] = useState('system');
@@ -64,6 +76,7 @@ export function Monitor({
   const [command, setCommand] = useState('');
   const [aiOpen, setAIOpen] = useState(false);
   const [aiPrompt, setAIPrompt] = useState('');
+  const [collectorOpen, setCollectorOpen] = useState(false);
   const current = panels.find((p) => p.id === selected) || panels[0];
   const overview = panels.find((p) => p.id === 'system');
   const metrics = overviewValues(overview?.content);
@@ -86,6 +99,7 @@ export function Monitor({
         if (
           event.key === 'Escape' &&
           enlarged &&
+          !(event.target as HTMLElement).closest('dialog') &&
           !event.defaultPrevented &&
           !event.nativeEvent.isComposing
         ) {
@@ -278,18 +292,6 @@ export function Monitor({
               </button>
             </form>
           )}
-          {current && (
-            <details className="realtime-collector-details" key={current.id}>
-              <summary>
-                采集配置 · 每 {Math.max(1, current.intervalMs / 1000)} 秒刷新 · 仅展示数据
-              </summary>
-              {current.command ? (
-                <ShellCode command={current.command} wrap />
-              ) : (
-                <p>尚未收到采集命令</p>
-              )}
-            </details>
-          )}
           {current?.error && (
             <p className="monitor-warning" role="status">
               采集失败：{current.error} {current.content && '· 下方保留上次数据'}
@@ -323,6 +325,17 @@ export function Monitor({
             {current && (
               <>
                 <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="采集配置"
+                  aria-haspopup="dialog"
+                  title="采集配置"
+                  ref={collectorButton}
+                  onClick={() => setCollectorOpen(true)}
+                >
+                  <FileCode2 size={13} />
+                </button>
+                <button
                   className="icon-button"
                   aria-label="刷新当前监控"
                   disabled={!online || pending}
@@ -344,6 +357,16 @@ export function Monitor({
             )}
           </div>
         </div>
+      )}
+      {active && collectorOpen && current && (
+        <CollectorConfig
+          key={current.id + ':' + current.command}
+          panel={current}
+          onClose={() => {
+            setCollectorOpen(false);
+            requestAnimationFrame(() => collectorButton.current?.focus());
+          }}
+        />
       )}
     </section>
   );
