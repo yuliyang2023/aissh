@@ -2850,6 +2850,51 @@ tbody tr:last-child td {
 .history-workbench {
   display: grid;
 }
+.disconnected-workspace {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--content);
+}
+.workspace-connection-target {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-width: 100%;
+  margin-bottom: 22px;
+  overflow-wrap: anywhere;
+}
+.workspace-connection-target span {
+  color: var(--secondary);
+  font-size: 12px;
+}
+.workspace-connection-banner {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--row-selection);
+  border-bottom: 1px solid var(--line);
+}
+.workspace-connection-banner > svg {
+  color: var(--accent);
+}
+.workspace-connection-banner > div {
+  flex: 1;
+  min-width: min(240px, 100%);
+}
+.workspace-connection-banner p {
+  margin: 5px 0 0;
+  color: var(--secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.workspace-connection-banner .button {
+  flex-shrink: 0;
+}
 .history-footer {
   display: flex;
   align-items: center;
@@ -2868,7 +2913,7 @@ tbody tr:last-child td {
   min-height: 140px;
   background: #101923;
 }
-.disconnected-terminal .empty h2 {
+.disconnected-terminal .empty h3 {
   color: #dce4ed;
 }
 .disconnected-terminal .empty p,
