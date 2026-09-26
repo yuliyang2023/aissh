@@ -68,9 +68,17 @@ export function ErrorBox({ error }: { error: string }) {
     </div>
   ) : null;
 }
-export function Submit({ busy, label = '保存' }: { busy: boolean; label?: string }) {
+export function Submit({
+  busy,
+  label = '保存',
+  disabled = false,
+}: {
+  busy: boolean;
+  label?: string;
+  disabled?: boolean;
+}) {
   return (
-    <button className="button primary" type="submit" disabled={busy}>
+    <button className="button primary" type="submit" disabled={busy || disabled}>
       {busy && <LoaderCircle size={15} className="spin" />}
       {busy ? '正在处理…' : label}
     </button>

@@ -440,25 +440,17 @@ h1 {
 .new-conversation-mode {
   margin-bottom: 20px;
 }
-.new-conversation-modal[open],
-.new-conversation-modal form,
-.new-conversation-modal fieldset {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
+.existing-connection-search {
+  width: 100%;
+  margin-bottom: 16px;
+}
+.new-conversation-modal[open] {
+  display: block;
   overflow: hidden;
 }
-.new-conversation-modal .modal-heading,
-.new-conversation-modal .form-actions {
-  flex-shrink: 0;
-}
-.new-conversation-modal form,
-.new-conversation-modal fieldset {
-  flex: 1;
-}
 .new-conversation-fields {
+  max-height: calc(100vh - 290px);
   overflow-y: auto;
-  min-height: 0;
   padding: 4px;
   margin: 0 -4px;
 }

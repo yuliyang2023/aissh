@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Search, X } from 'lucide-react';
 import { allHosts, Catalog, Credential, Host, newHost } from './api';
 import { ErrorBox, Field, Modal, Submit } from './components';
 import { CredentialField } from './forms';
@@ -27,6 +28,23 @@ export function NewConversation({
   const hosts = allHosts(data);
   const [mode, setMode] = useState<'existing' | 'direct'>(hosts.length ? 'existing' : 'direct');
   const [hostId, setHostId] = useState(initialHostId || hosts[0]?.id || '');
+  const [hostSearch, setHostSearch] = useState('');
+  const query = hostSearch.trim().toLowerCase();
+  const matchingHosts = hosts.filter((h) =>
+    [
+      h.name,
+      h.address,
+      h.user,
+      h.group,
+      data.credentials.find((c) => c.id === h.credentialId)?.username || '',
+    ]
+      .join(' ')
+      .toLowerCase()
+      .includes(query),
+  );
+  const selectedHostId = matchingHosts.some((h) => h.id === hostId)
+    ? hostId
+    : matchingHosts[0]?.id || '';
   const [host, setHost] = useState<Host>(newHost);
   const [saveHost, setSaveHost] = useState(false);
   const field = (key: keyof Host, value: string | number) =>
@@ -41,13 +59,16 @@ export function NewConversation({
       <form
         onSubmit={(event) => {
           event.preventDefault();
+          if (mode === 'existing' && !selectedHostId) return;
           onCreate(
-            mode === 'existing' ? { kind: 'existing', hostId } : { kind: 'direct', host, saveHost },
+            mode === 'existing'
+              ? { kind: 'existing', hostId: selectedHostId }
+              : { kind: 'direct', host, saveHost },
           );
         }}
       >
-        <fieldset disabled={busy}>
-          <div className="new-conversation-fields">
+        <div className="new-conversation-fields">
+          <fieldset disabled={busy}>
             <div className="filter-tabs new-conversation-mode" role="group" aria-label="连接来源">
               <button
                 type="button"
@@ -66,21 +87,50 @@ export function NewConversation({
               </button>
             </div>
             {mode === 'existing' ? (
-              <Field label="服务器">
-                <select
-                  aria-label="服务器"
-                  required
-                  value={hostId}
-                  onChange={(e) => setHostId(e.target.value)}
-                >
-                  {hosts.map((h) => (
-                    <option key={h.id} value={h.id}>
-                      {h.name} · {h.address}
-                      {data.hosts.some((saved) => saved.id === h.id) ? '' : '（未加入主机）'}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+              <>
+                <div className="search existing-connection-search">
+                  <Search size={15} />
+                  <input
+                    autoFocus
+                    type="search"
+                    aria-label="搜索已有连接"
+                    placeholder="搜索主机名称、地址、用户名或分组…"
+                    value={hostSearch}
+                    onChange={(e) => setHostSearch(e.target.value)}
+                  />
+                  {hostSearch && (
+                    <button
+                      className="icon-button"
+                      type="button"
+                      aria-label="清除连接搜索"
+                      onClick={() => setHostSearch('')}
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+                <Field label="服务器">
+                  <select
+                    aria-label="服务器"
+                    required
+                    value={selectedHostId}
+                    onChange={(e) => setHostId(e.target.value)}
+                  >
+                    {!matchingHosts.length && <option value="">没有匹配的连接</option>}
+                    {matchingHosts.map((h) => (
+                      <option key={h.id} value={h.id}>
+                        {h.name} · {h.address}
+                        {data.hosts.some((saved) => saved.id === h.id) ? '' : '（未加入主机）'}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {!matchingHosts.length && (
+                  <p className="field-note" role="status">
+                    试试其他关键词，或切换到“直接连接”。
+                  </p>
+                )}
+              </>
             ) : (
               <>
                 <div className="form-row address-row">
@@ -184,14 +234,18 @@ export function NewConversation({
               </>
             )}
             <ErrorBox error={error} />
-          </div>
-          <div className="form-actions">
-            <button className="button" type="button" onClick={onClose}>
-              取消
-            </button>
-            <Submit busy={busy} label={mode === 'direct' ? '连接并新建对话' : '创建对话'} />
-          </div>
-        </fieldset>
+          </fieldset>
+        </div>
+        <div className="form-actions">
+          <button className="button" type="button" disabled={busy} onClick={onClose}>
+            取消
+          </button>
+          <Submit
+            busy={busy}
+            disabled={mode === 'existing' && !selectedHostId}
+            label={mode === 'direct' ? '连接并新建对话' : '创建对话'}
+          />
+        </div>
       </form>
     </Modal>
   );

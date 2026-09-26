@@ -6,7 +6,8 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const browsers = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const engine = process.env.UI_BROWSER || 'chromium';
 const server = http.createServer(async (req, res) => {
   try {
     const requested = decodeURIComponent(new URL(req.url, 'http://local').pathname);
@@ -24,10 +25,11 @@ const server = http.createServer(async (req, res) => {
   }
 });
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-const browser = await chromium.launch({
+const browser = await browsers[engine].launch({
   headless: true,
+  timeout: 20000,
   executablePath:
-    process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    process.env.UI_BROWSER_PATH || (engine === 'chromium' ? process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined),
 });
 const context = await browser.newContext({
   viewport: { width: 1280, height: 840 },
@@ -250,6 +252,40 @@ const out = path.join(root, '.cache/desktop-ui');
 await mkdir(out, { recursive: true });
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}`);
+  if (process.env.DIALOG_ONLY) {
+    for (const viewport of [{ width: 1180, height: 760 }, { width: 940, height: 650 }]) {
+      await page.setViewportSize(viewport);
+      await page.getByRole('heading', { name: 'AI 会话', exact: true }).waitFor();
+      await page.locator('.topbar').getByRole('button', { name: '新建对话', exact: true }).click();
+      const dialog = page.getByRole('dialog');
+      await dialog.waitFor();
+      await page.screenshot({ path: path.join(out, `new-dialog-${engine}-${viewport.width}-existing.png`) });
+      const visibleBounds = async (locator) => locator.evaluate(el => {
+        const r = el.getBoundingClientRect();
+        const d = el.closest('dialog').getBoundingClientRect();
+        let top = d.top, bottom = d.bottom;
+        for (let parent = el.parentElement; parent && parent.tagName !== 'DIALOG'; parent = parent.parentElement) {
+          if (['hidden', 'auto', 'scroll'].includes(getComputedStyle(parent).overflowY)) {
+            const p = parent.getBoundingClientRect();
+            top = Math.max(top, p.top); bottom = Math.min(bottom, p.bottom);
+          }
+        }
+        return { height: r.height, inView: r.height > 0 && r.top >= top && r.bottom <= bottom };
+      });
+      for (const control of [dialog.getByRole('button', { name: '已有连接', exact: true }), dialog.getByRole('button', { name: '直接连接', exact: true }), dialog.getByLabel('服务器', { exact: true }), dialog.getByRole('button', { name: '创建对话', exact: true })]) {
+        const bounds = await visibleBounds(control);
+        assert.equal(bounds.inView, true, `${engine}: new-dialog control clipped: ${JSON.stringify(bounds)}`);
+      }
+      await dialog.getByRole('button', { name: '直接连接', exact: true }).click();
+      await dialog.getByLabel('主机地址', { exact: true }).fill('192.0.2.88');
+      await dialog.getByLabel('同时加入主机列表').check();
+      await dialog.getByLabel('主机名称').fill('布局验证');
+      await page.screenshot({ path: path.join(out, `new-dialog-${engine}-${viewport.width}-direct.png`) });
+      assert.equal((await visibleBounds(dialog.getByRole('button', { name: '连接并新建对话', exact: true }))).inView, true);
+      await dialog.getByRole('button', { name: '取消', exact: true }).click();
+    }
+    console.log(`PASS: ${engine} top-right new conversation controls visible and usable in both modes and window sizes`);
+  } else {
   await page.getByRole('heading', { name: 'AI 会话', exact: true }).waitFor();
   await page.locator('.conversation-item').first().waitFor();
   assert.equal(await page.locator('.conversation-group').count(), 2);
@@ -546,6 +582,11 @@ try {
   await page.getByLabel('主机地址', { exact: true }).fill('192.0.2.55');
   await page.getByLabel('同时加入主机列表').check();
   await page.getByLabel('主机名称').fill('直连保存的主机');
+  assert.equal(await page.getByRole('button', { name: '连接并新建对话', exact: true }).evaluate(el => {
+    const button = el.getBoundingClientRect();
+    const modal = el.closest('dialog').getBoundingClientRect();
+    return button.top >= modal.top && button.bottom <= modal.bottom && button.bottom <= innerHeight;
+  }), true, 'Direct connection action must remain visible in a narrow window');
   await page.screenshot({ path: path.join(out, 'direct-conversation-save.png') });
   await page.getByRole('button', { name: '连接并新建对话', exact: true }).click();
   await page.getByRole('button', { name: '已核对，信任并继续', exact: true }).click();
@@ -565,6 +606,7 @@ try {
   console.log(
     'PASS: host/credential nested creation, password masking, references, combined search/route filters, resources, AI profiles, host trust, terminal input, credential repair, session switching/filtering/reconnect/close/startup failure/history, native menu actions, sidebar, light/dark appearance, non-macOS layout/shortcuts',
   );
+  }
 } finally {
   await browser.close();
   await new Promise((resolve) => server.close(resolve));
