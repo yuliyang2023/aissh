@@ -1,5 +1,7 @@
-import { ReactNode, useEffect, useRef } from 'react';
+import { ReactNode, useLayoutEffect, useRef } from 'react';
 import { X, LoaderCircle } from 'lucide-react';
+
+const openModals: HTMLDialogElement[] = [];
 
 export function Modal({
   title,
@@ -17,11 +19,34 @@ export function Modal({
   className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current!;
     el.showModal();
-    return () => el.close();
+    openModals.push(el);
+    return () => {
+      openModals.splice(openModals.indexOf(el), 1);
+      // Close while connected to allow the browser to restore focus.
+      el.close();
+    };
   }, []);
+  useLayoutEffect(() => {
+    const el = ref.current!;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (
+        event.key !== 'Escape' ||
+        event.isComposing ||
+        event.defaultPrevented ||
+        openModals[openModals.length - 1] !== el
+      )
+        return;
+      // Capture even when focus has left the dialog, before native window actions.
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!event.repeat) onClose();
+    };
+    window.addEventListener('keydown', handleEscape, true);
+    return () => window.removeEventListener('keydown', handleEscape, true);
+  }, [onClose]);
   return (
     <dialog
       ref={ref}
@@ -29,6 +54,7 @@ export function Modal({
       className={'modal ' + (wide ? 'wide ' : '') + className}
       onCancel={(e) => {
         e.preventDefault();
+        e.stopPropagation();
         onClose();
       }}
     >

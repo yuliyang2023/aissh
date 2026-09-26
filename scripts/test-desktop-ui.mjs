@@ -9,18 +9,20 @@ import { testCommandReview } from './test-command-review.mjs';
 import { testTerminalScroll } from './test-terminal-scroll.mjs';
 import { testWidgets } from './test-widgets.mjs';
 import { testMonitorResize } from './test-monitor-resize.mjs';
+import { testModalEscape } from './test-modal-escape.mjs';
 import { testStreamingChat } from './test-streaming-chat.mjs';
 import { testMarkdownChat } from './test-markdown-chat.mjs';
 import { testIMEComposer, testWorkbenchIME } from './test-ime-composer.mjs';
 import { installMonitoringMock, testMonitoring, testPet, testPetSessionReads } from './test-monitoring.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const assets = path.resolve(root, process.env.UI_DIST || 'frontend/dist');
 const browsers = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const engine = process.env.UI_BROWSER || 'chromium';
 const server = http.createServer(async (req, res) => {
   try {
     const requested = decodeURIComponent(new URL(req.url, 'http://local').pathname);
-    const file = path.join(root, 'frontend/dist', requested === '/' ? 'index.html' : requested);
-    if (!file.startsWith(path.join(root, 'frontend/dist') + path.sep)) throw new Error('path');
+    const file = path.join(assets, requested === '/' ? 'index.html' : requested);
+    if (!file.startsWith(assets + path.sep)) throw new Error('path');
     const body = await readFile(file);
     res.setHeader(
       'Content-Type',
@@ -318,7 +320,10 @@ const openSettings = async (name = '主机') => {
 };
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  if (process.env.WIDGETS_ONLY) {
+  if (process.env.MODAL_ESCAPE_ONLY) {
+    await testModalEscape(page);
+    assert.deepEqual(errors, []);
+  } else if (process.env.WIDGETS_ONLY) {
     await testWidgets(page, out);
     assert.deepEqual(errors, []);
   } else if (process.env.MONITOR_RESIZE_ONLY) {
