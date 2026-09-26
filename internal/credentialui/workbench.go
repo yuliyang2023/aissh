@@ -3,6 +3,7 @@ package credentialui
 import (
 	"context"
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
+	"git.example.com/ai/wrd-ai-cli/internal/widgets"
 
 	"encoding/json"
 	"errors"
@@ -17,6 +18,9 @@ import (
 // Workbench data travels over the per-session authenticated loopback channel,
 // never through terminal escape sequences or the remote SSH environment.
 type WorkbenchState struct {
+	WidgetCandidates []widgets.Candidate `json:"widgetCandidates,omitempty"`
+	WidgetTransfer   widgets.Transfer    `json:"-"`
+
 	ConversationID string             `json:"conversationId"`
 	Messages       []WorkbenchMessage `json:"messages"`
 	Busy           bool               `json:"busy"`
@@ -47,6 +51,8 @@ type WorkbenchProposal struct {
 }
 
 type MonitorPanel struct {
+	Widget *widgets.Meta `json:"widget,omitempty"`
+
 	Command        string                `json:"command"`
 	Origin         string                `json:"origin"`
 	Collecting     bool                  `json:"collecting"`
@@ -65,6 +71,9 @@ type MonitorPanel struct {
 }
 
 type WorkbenchCommand struct {
+	CandidateID      string              `json:"candidateId,omitempty"`
+	WidgetDefinition *widgets.Definition `json:"widgetDefinition,omitempty"`
+
 	ID         string `json:"id"`
 	Kind       string `json:"kind"`
 	Text       string `json:"text"`
@@ -79,6 +88,8 @@ type CommandResult struct {
 }
 
 type WorkbenchExchange struct {
+	Widgets widgets.Transfer `json:"widgets,omitempty"`
+
 	State   WorkbenchState  `json:"state"`
 	Results []CommandResult `json:"results"`
 }
@@ -89,7 +100,7 @@ func ExchangeWorkbench(ctx context.Context, state WorkbenchState, results []Comm
 	if err != nil || host != "127.0.0.1" || len(token) != 32 {
 		return nil, errors.New("invalid desktop channel")
 	}
-	body, err := json.Marshal(WorkbenchExchange{State: state, Results: results})
+	body, err := json.Marshal(WorkbenchExchange{State: state, Results: results, Widgets: state.WidgetTransfer})
 	if err != nil {
 		return nil, err
 	}

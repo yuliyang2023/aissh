@@ -104,6 +104,7 @@ type App struct {
 	compact          bool
 	sidebarCollapsed bool
 
+	widgetCandidates        map[string]*widgetCandidate
 	panels                  *panel.Manager
 	monitorViaPrimary       bool
 	monitorPrimaryFallback  bool
@@ -693,6 +694,8 @@ func (a *App) ensureSidebarVisible() {
 
 func (a *App) handleEvent(event interface{}) {
 	switch value := event.(type) {
+	case widgetCompiledEvent:
+		a.widgetCompiled(value)
 	case desktopCommandEvent:
 		value.reply <- a.handleDesktopCommand(value.command)
 	case sshWriteEvent:
@@ -837,6 +840,7 @@ func (a *App) handleOutput(data []byte) {
 
 func (a *App) scheduleMonitors() {
 	now := time.Now()
+	a.expireWidgetCandidates(now)
 	if a.monitorViaPrimary {
 		a.scheduleInBandMonitor(now)
 		return
@@ -861,17 +865,24 @@ func (a *App) scheduleMonitors() {
 			continue
 		}
 		a.monitorActive[item.ID] = true
-		panelID, command := item.ID, item.Command
+		item.RunID++
+		panelID, command, binding, revision, runID := item.ID, item.Command, item.BindingID, item.SourceRevision, item.RunID
 		go func() {
 			content, err := a.monitor.Run(a.ctx, command)
-			a.events <- monitorResultEvent{panelID: panelID, command: command, content: content, err: err}
+			a.events <- monitorResultEvent{panelID: panelID, command: command, content: content, err: err, binding: binding, revision: revision, runID: runID}
 		}()
 	}
 }
 
 func (a *App) applyMonitorResult(value monitorResultEvent) {
-	a.monitorActive[value.panelID] = false
 	item := a.panels.ByID(value.panelID)
+	if value.binding != "" && (item == nil || item.BindingID != value.binding || item.SourceRevision != value.revision || item.RunID != value.runID) {
+		if item != nil && item.BindingID == value.binding && item.RunID == value.runID {
+			a.monitorActive[value.panelID] = false
+		}
+		return
+	}
+	a.monitorActive[value.panelID] = false
 	if item == nil || (value.command != "" && item.Command != value.command) {
 		// A panel may be reconfigured while its previous query is still running.
 		// Release the running slot without publishing the old query's result.

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
+	"git.example.com/ai/wrd-ai-cli/internal/widgets"
 )
 
 type Target struct {
@@ -54,6 +55,10 @@ type Turn struct {
 }
 
 type PanelSpec struct {
+	View             *widgets.View     `json:"view,omitempty"`
+	Data             *widgets.Contract `json:"data,omitempty"`
+	ExpectedRevision uint64            `json:"expectedRevision,omitempty"`
+
 	Purpose     string                `json:"purpose,omitempty"`
 	Alert       *panel.AlertCondition `json:"alert,omitempty"`
 	ID          string                `json:"id,omitempty"`

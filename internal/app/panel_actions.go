@@ -3,6 +3,8 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"git.example.com/ai/wrd-ai-cli/internal/widgets"
+	"reflect"
 	"strings"
 	"time"
 
@@ -116,9 +118,41 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 		if created || configUpdate {
 			candidate.AllowAIRead = spec.AllowAIRead
 		}
+
+		if item != nil && (item.Widget != nil || spec.View != nil && spec.View.Kind == "custom") && spec.ExpectedRevision != item.DefinitionRevision {
+			return nil, "", fmt.Errorf("组件版本已变化，请读取最新 definitionRevision=%d 后重试", item.DefinitionRevision)
+		}
+		if spec.Data != nil {
+			if err := spec.Data.Validate(); err != nil {
+				return nil, "", err
+			}
+			copy := *spec.Data
+			copy.Fields = append([]widgets.Field(nil), copy.Fields...)
+			candidate.DataContract = &copy
+		}
+		if spec.View != nil {
+			if a.safeText(spec.View.Source) != spec.View.Source {
+				return nil, "", fmt.Errorf("组件源码中不能包含凭据，请从采集数据读取指标")
+			}
+			if err := spec.View.Validate(); err != nil {
+				return nil, "", err
+			}
+			if spec.View.Kind == "text" {
+				candidate.Widget = nil
+				candidate.DataContract = nil
+			} else if !a.config.DesktopUI || purpose == "alert" {
+				return nil, "", fmt.Errorf("自定义组件仅用于桌面实时面板")
+			}
+		}
+		needsWidget := spec.View != nil && spec.View.Kind == "custom" || candidate.Widget != nil
+		if needsWidget && candidate.DataContract == nil {
+			return nil, "", fmt.Errorf("自定义组件需要 data 契约")
+		}
+		contractChanged := item != nil && !reflect.DeepEqual(item.DataContract, candidate.DataContract)
 		commandChanged := candidate.Command != command
 		candidate.Command = command
-		if commandChanged {
+		if commandChanged || contractChanged {
+			candidate.WidgetData = widgets.Data{}
 			candidate.SourceRevision++
 			candidate.SampleContent = ""
 			candidate.Content, candidate.Status, candidate.LastError = "", "", ""
@@ -129,6 +163,13 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 			candidate.Content = spec.Content
 		}
 		candidate.Unread = true
+		candidate.DefinitionRevision++
+		if candidate.DefinitionRevision == 0 {
+			candidate.DefinitionRevision = 1
+		}
+		if needsWidget {
+			return a.prepareWidget(candidate, spec.View)
+		}
 		if item == nil {
 			item = a.panels.Open(candidate)
 		} else {
@@ -153,6 +194,9 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 		}
 		return item, status, nil
 	case "append":
+		if item != nil && item.Widget != nil {
+			return nil, "", fmt.Errorf("自定义组件请通过 view 更新，不能 append")
+		}
 		if item == nil {
 			return nil, "", fmt.Errorf("%s", a.t("监控面板不存在：%s；请使用 create 或提供完整的 update 配置", spec.ID))
 		}
@@ -160,6 +204,8 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 		item.Status, item.Unread = a.t("AI 更新"), true
 		return item, a.t("监控面板内容已追加：%s（%s）", item.Title, item.ID), nil
 	case "close":
+		a.cancelWidgetCandidate(spec.ID)
+		delete(a.monitorActive, spec.ID)
 		if err := a.panels.Close(spec.ID, panel.OriginAI); err != nil {
 			return nil, "", err
 		}
@@ -176,6 +222,9 @@ func (a *App) addPanelContext(request *agent.Request) {
 	if request.SystemContext == nil {
 		request.SystemContext = make(map[string]string)
 	}
+	if a.config.DesktopUI {
+		request.SystemContext["monitorWidgetV1"] = agent.WidgetGuidance
+	}
 	request.SystemContext["monitor_panel_rules"] = "面板操作是否成功，以 monitor_panel_result 和 monitor_panel_state 为准；创建成功不代表采集成功。自定义 command 优先于 collector；使用自定义命令时 collector 留空。update 可修改采集配置，面板不存在时需提供 command 或有效 collector 才能创建。"
 	for index, result := range a.panelActionResults {
 		request.SystemContext[fmt.Sprintf("monitor_panel_result_%d", index)] = a.safeText(result)
@@ -187,6 +236,11 @@ func (a *App) addPanelContext(request *agent.Request) {
 		state := map[string]any{"id": item.ID, "purpose": item.Purpose, "title": item.Title, "origin": item.Origin,
 			"intervalMs": item.Interval.Milliseconds(), "refreshCount": item.RefreshCount}
 		state["alert"] = item.Alert
+		state["definitionRevision"] = item.DefinitionRevision
+		if item.Widget != nil {
+			state["view"] = item.Widget.View
+			state["data"] = item.DataContract
+		}
 		if item.AllowAIRead {
 			state["command"] = agent.LimitOutputContext(a.safeText(item.Command), 500)
 			state["lastError"] = agent.LimitOutputContext(a.safeText(item.LastError), 200)

@@ -1,3 +1,4 @@
+import { WidgetPreviews } from './widgets/WidgetHost';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, Send, Sparkles } from 'lucide-react';
 import { api, errorText, Session, sessionLive, WorkbenchCommand, WorkbenchState } from './api';
@@ -96,8 +97,11 @@ export function Workbench({
       }
       style={{ display: active ? 'grid' : 'none' }}
     >
+      <WidgetPreviews sessionId={session.id} candidates={state?.widgetCandidates} />
       <Monitor
+        sessionId={session.id}
         active={active}
+        candidates={state?.widgetCandidates}
         panels={state?.panels || []}
         online={online}
         pending={pending}

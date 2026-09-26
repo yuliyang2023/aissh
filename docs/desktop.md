@@ -163,6 +163,8 @@ AI 请求、aissh 聊天记录和适配器返回值会过滤当前已读取的�
 
 ## 构建与验证
 
+AI 自定义实时看板的使用、保存/版本回退及测试说明见 [自定义监控组件](custom-monitor-components.md)。
+
 需要 Go 1.25+、Node.js 20+、npm。首个构建下载 Go 和 npm 依赖。
 
 ```bash

@@ -22,6 +22,19 @@ func (s *Service) exchangeWorkbench(session *terminalSession, w http.ResponseWri
 		http.Error(w, "session closed", http.StatusGone)
 		return
 	}
+	if err := acceptWidgets(session, input); err != nil {
+		session.mu.Unlock()
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	for i := range input.State.Panels {
+		p := &input.State.Panels[i]
+		if p.Widget != nil {
+			if p.Widget.SaveError == "" {
+				p.Widget.SaveError = session.widgetSaveErrors[p.ID]
+			}
+		}
+	}
 	input.State.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	session.workbench = &input.State
 	changed := input.State.ConversationID != "" && session.info.ConversationID != input.State.ConversationID
@@ -46,6 +59,9 @@ func (s *Service) exchangeWorkbench(session *terminalSession, w http.ResponseWri
 	}
 	session.workbenchCommands = nil
 	session.mu.Unlock()
+	if len(input.Widgets.Definitions) > 0 {
+		s.saveWidgetDefinitions(session, input.Widgets.Definitions)
+	}
 	if changed {
 		s.emit("session-updated", info)
 	}
@@ -67,9 +83,15 @@ func (s *Service) GetWorkbench(id string) (*credentialui.WorkbenchState, error) 
 // Commands use their own structured channel. No AI text is pasted into a shell.
 func (s *Service) WorkbenchAction(id string, command credentialui.WorkbenchCommand) error {
 	switch command.Kind {
-	case "prompt", "approve", "reject", "monitor-open", "monitor-close", "monitor-refresh", "alert-close", "alert-refresh":
+	case "widget-cancel", "widget-ready", "widget-failed", "widget-restore", "prompt", "approve", "reject", "monitor-open", "monitor-close", "monitor-refresh", "alert-close", "alert-refresh":
 	default:
 		return errors.New("不支持的工作台操作")
+	}
+	if command.Kind == "widget-failed" && command.Text == "" {
+		return errors.New("缺少组件错误信息")
+	}
+	if command.Kind == "widget-ready" && command.Text != "" {
+		return errors.New("无效组件预检回执")
 	}
 	if len(command.Text) > 64*1024 {
 		return errors.New("输入内容过长")

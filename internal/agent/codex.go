@@ -24,27 +24,56 @@ const codexResponseSchema = `{
   "properties": {
     "type": {
       "type": "string",
-      "enum": ["finished", "command_proposal", "ask_user", "failed"]
+      "enum": [
+        "finished",
+        "command_proposal",
+        "ask_user",
+        "failed"
+      ]
     },
-    "message": {"type": "string"},
+    "message": {
+      "type": "string"
+    },
     "proposal": {
       "anyOf": [
         {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "id": {"type": "string"},
-            "command": {"type": "string"},
-            "explanation": {"type": "string"},
-            "expectedEffect": {"type": "string"},
+            "id": {
+              "type": "string"
+            },
+            "command": {
+              "type": "string"
+            },
+            "explanation": {
+              "type": "string"
+            },
+            "expectedEffect": {
+              "type": "string"
+            },
             "risk": {
               "type": "string",
-              "enum": ["read_only", "low", "medium", "high", "critical"]
+              "enum": [
+                "read_only",
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ]
             }
           },
-          "required": ["id", "command", "explanation", "expectedEffect", "risk"]
+          "required": [
+            "id",
+            "command",
+            "explanation",
+            "expectedEffect",
+            "risk"
+          ]
         },
-        {"type": "null"}
+        {
+          "type": "null"
+        }
       ]
     },
     "panelActions": {
@@ -53,42 +82,252 @@ const codexResponseSchema = `{
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "action": {"type": "string", "enum": ["open", "create", "update", "append", "close"]},
+          "action": {
+            "type": "string",
+            "enum": [
+              "open",
+              "create",
+              "update",
+              "append",
+              "close"
+            ]
+          },
           "panel": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "id": {"type": "string"},
-              "purpose": {"type": "string", "enum": ["realtime", "alert"], "description": "realtime 为实时展示面板，alert 为独立告警任务；两者不可共用 ID"},
-              "type": {"type": "string", "enum": ["monitor", "log"]},
-              "title": {"type": "string"},
-              "collector": {"type": "string", "description": "内置采集器名称；使用自定义 command 时留空"},
-              "command": {"type": "string", "description": "自定义只读采集命令，非空时优先于 collector；使用内置采集器时留空"},
-              "intervalMs": {"type": "integer", "minimum": 0},
-              "content": {"type": "string"},
-              "allowAIRead": {"type": "boolean"},
-              "alert": {"anyOf": [
-                {"type":"null"},
-                {"type":"object", "additionalProperties":false, "properties": {
-                  "enabled":{"type":"boolean"},
-                  "kind":{"type":"string","enum":["match","not_match","above","below"]},
-                  "pattern":{"type":"string"},
-                  "threshold":{"type":"number"},
-                  "recoveryThreshold":{"type":"number"},
-                  "severity":{"type":"string","enum":["warning","critical"]},
-                  "forSeconds":{"type":"integer","minimum":0,"maximum":3600},
-                  "recoverySeconds":{"type":"integer","minimum":0,"maximum":3600}
-                }, "required":["enabled","kind","pattern","threshold","recoveryThreshold","severity","forSeconds","recoverySeconds"]}
-              ]}
+              "id": {
+                "type": "string"
+              },
+              "purpose": {
+                "type": "string",
+                "enum": [
+                  "realtime",
+                  "alert"
+                ],
+                "description": "realtime 为实时展示面板，alert 为独立告警任务；两者不可共用 ID"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "monitor",
+                  "log"
+                ]
+              },
+              "title": {
+                "type": "string"
+              },
+              "collector": {
+                "type": "string",
+                "description": "内置采集器名称；使用自定义 command 时留空"
+              },
+              "command": {
+                "type": "string",
+                "description": "自定义只读采集命令，非空时优先于 collector；使用内置采集器时留空"
+              },
+              "intervalMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "content": {
+                "type": "string"
+              },
+              "allowAIRead": {
+                "type": "boolean"
+              },
+              "alert": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "match",
+                          "not_match",
+                          "above",
+                          "below"
+                        ]
+                      },
+                      "pattern": {
+                        "type": "string"
+                      },
+                      "threshold": {
+                        "type": "number"
+                      },
+                      "recoveryThreshold": {
+                        "type": "number"
+                      },
+                      "severity": {
+                        "type": "string",
+                        "enum": [
+                          "warning",
+                          "critical"
+                        ]
+                      },
+                      "forSeconds": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 3600
+                      },
+                      "recoverySeconds": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 3600
+                      }
+                    },
+                    "required": [
+                      "enabled",
+                      "kind",
+                      "pattern",
+                      "threshold",
+                      "recoveryThreshold",
+                      "severity",
+                      "forSeconds",
+                      "recoverySeconds"
+                    ]
+                  }
+                ]
+              },
+              "data": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "format": {
+                        "type": "string",
+                        "enum": [
+                          "json",
+                          "kv",
+                          "text"
+                        ]
+                      },
+                      "fields": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "number",
+                                "string",
+                                "boolean",
+                                "table"
+                              ]
+                            },
+                            "unit": {
+                              "type": "string"
+                            },
+                            "nullable": {
+                              "type": "boolean"
+                            },
+                            "history": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "type",
+                            "unit",
+                            "nullable",
+                            "history"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "format",
+                      "fields"
+                    ]
+                  }
+                ]
+              },
+              "view": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "custom",
+                          "text"
+                        ]
+                      },
+                      "sdkVersion": {
+                        "type": "integer"
+                      },
+                      "stateVersion": {
+                        "type": "integer"
+                      },
+                      "source": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sdkVersion",
+                      "stateVersion",
+                      "source"
+                    ]
+                  }
+                ]
+              },
+              "expectedRevision": {
+                "type": "integer",
+                "minimum": 0
+              }
             },
-            "required": ["id", "purpose", "type", "title", "collector", "command", "intervalMs", "content", "allowAIRead", "alert"]
+            "required": [
+              "id",
+              "purpose",
+              "type",
+              "title",
+              "collector",
+              "command",
+              "intervalMs",
+              "content",
+              "allowAIRead",
+              "alert",
+              "data",
+              "view",
+              "expectedRevision"
+            ]
           }
         },
-        "required": ["action", "panel"]
+        "required": [
+          "action",
+          "panel"
+        ]
       }
     }
   },
-  "required": ["type", "message", "proposal", "panelActions"]
+  "required": [
+    "type",
+    "message",
+    "proposal",
+    "panelActions"
+  ]
 }`
 
 type codexResponse struct {
@@ -689,7 +928,7 @@ func buildCodexPrompt(request Request, history []codexHistory, input string) str
 			if key == "conversation_history" {
 				continue
 			}
-			value.WriteString(key + "=" + trimText(item, 1000) + "\n")
+			value.WriteString(key + "=" + promptContextValue(key, item) + "\n")
 		}
 	}
 	if len(history) > 0 {
@@ -715,11 +954,20 @@ func buildCodexContinuationPrompt(request Request, input string) string {
 			if key == "conversation_history" || key == "local_workspace" {
 				continue
 			}
-			value.WriteString(key + "=" + trimText(item, 1000) + "\n")
+			value.WriteString(key + "=" + promptContextValue(key, item) + "\n")
 		}
 	}
 	value.WriteString("\n本轮事件：" + request.Event + "\n" + input)
 	return value.String()
+}
+
+// Capability protocols are instructions, not log tails. Trimming this one
+// removed the imports and entry point while leaving only the UI restrictions.
+func promptContextValue(key, value string) string {
+	if key == "monitorWidgetV1" {
+		return value
+	}
+	return trimText(value, 1000)
 }
 
 func cloneContext(source map[string]string) map[string]string {

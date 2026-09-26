@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/charmbracelet/x/conpty v0.1.0
 	github.com/creack/pty v1.1.24
+	github.com/evanw/esbuild v0.25.10
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/gofrs/flock v0.12.1
 	github.com/hinshun/vt10x v0.0.0-20220301184237-5011da428d02

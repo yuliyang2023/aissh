@@ -12,6 +12,9 @@ type inputEvent struct{ data []byte }
 type resizeEvent struct{}
 type sshExitEvent struct{ err error }
 type monitorResultEvent struct {
+	binding         string
+	revision, runID uint64
+
 	panelID string
 	command string
 	content string

@@ -21,6 +21,8 @@ import (
 )
 
 type Service struct {
+	widgetMu sync.Mutex
+
 	store              *catalog.Store
 	history            *history.Store
 	ctx                context.Context

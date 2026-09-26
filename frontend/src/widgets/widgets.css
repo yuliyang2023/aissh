@@ -1,0 +1,229 @@
+.widget-host {
+  --widget-accent: #477bf5;
+  min-width: 0;
+  padding: 12px;
+}
+.widget-canvas {
+  contain: layout paint;
+  isolation: isolate;
+  min-width: 0;
+  max-height: 800px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.widget-canvas * {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+.widget-canvas button,
+.widget-canvas select,
+.widget-canvas input {
+  font: inherit;
+  color: inherit;
+  border: 1px solid #8884;
+  border-radius: 6px;
+  background: transparent;
+  padding: 5px 9px;
+}
+.widget-canvas button {
+  cursor: pointer;
+}
+.widget-canvas svg {
+  display: block;
+  width: 100%;
+}
+.widget-metric {
+  padding: 6px 10px;
+  border-radius: 7px;
+}
+.widget-host[data-size='small'] .widget-metric > small {
+  font-size: 10px;
+  margin-bottom: 3px;
+}
+.widget-host[data-size='small'] .widget-metric > strong {
+  font-size: 18px;
+}
+.widget-host[data-size='small'] .widget-data-time,
+.native-monitor[data-size='small'] .widget-raw {
+  display: none;
+}
+.widget-host[data-size='medium'] {
+  padding: 4px 12px 8px;
+}
+.widget-host[data-size='medium'] .widget-metric {
+  padding: 8px 12px;
+}
+.widget-host[data-size='medium'] .widget-metric > small {
+  margin-bottom: 4px;
+}
+.widget-host[data-size='medium'] .widget-metric > strong {
+  font-size: 22px;
+}
+.widget-host > .monitor-warning {
+  max-height: 60px;
+  overflow: auto;
+  flex-shrink: 0;
+  margin: 4px 0 0;
+}
+.widget-data-time {
+  flex-shrink: 0;
+}
+.widget-metric {
+  border: 1px solid #8883;
+  border-radius: 12px;
+  padding: 16px;
+  background: #8881;
+  min-width: 0;
+}
+.widget-metric > small {
+  display: block;
+  opacity: 0.7;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.widget-metric > strong {
+  display: block;
+  font-size: 28px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+.widget-metric > strong > span {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.65;
+}
+.widget-meter {
+  height: 4px;
+  border-radius: 4px;
+  background: #8882;
+  margin-top: 12px;
+  overflow: hidden;
+}
+.widget-meter i {
+  display: block;
+  height: 100%;
+  background: var(--widget-accent);
+}
+.widget-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #8883;
+  border-radius: 20px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.widget-metric.warning,
+.widget-badge.warning {
+  color: #c17b12;
+  border-color: #d9933355;
+}
+.widget-metric.danger,
+.widget-badge.danger {
+  color: #d54c60;
+  border-color: #d54c6055;
+}
+.widget-metric.success,
+.widget-badge.success {
+  color: #269d77;
+  border-color: #269d7755;
+}
+.widget-chart {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid #8883;
+  border-radius: 12px;
+}
+.widget-chart figcaption {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.widget-chart figcaption small {
+  opacity: 0.6;
+  font-weight: 400;
+}
+.widget-axis {
+  font-size: 10px;
+  fill: currentColor;
+  opacity: 0.55;
+}
+.widget-empty,
+.widget-data-time {
+  font-size: 12px;
+  opacity: 0.65;
+}
+.widget-data-time {
+  display: block;
+  padding-top: 9px;
+}
+.widget-failure {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  flex-direction: column;
+  padding: 16px;
+  border: 1px solid #d9933355;
+  border-radius: 10px;
+  font-size: 12px;
+}
+.widget-progress {
+  padding: 4px 12px;
+  font-size: 12px;
+  color: #477bf5;
+}
+.widget-table-scroll {
+  overflow: auto;
+  max-height: 380px;
+}
+.widget-table table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+.widget-table th,
+.widget-table td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid #8882;
+  max-width: 240px;
+  overflow-wrap: anywhere;
+}
+.widget-pagination {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  padding: 8px 0;
+}
+.widget-pagination span {
+  margin-right: auto;
+}
+.widget-raw {
+  margin: 0 12px 10px;
+  font-size: 12px;
+}
+.widget-raw summary {
+  cursor: pointer;
+  opacity: 0.65;
+}
+.widget-library {
+  padding: 20px;
+  max-height: 65vh;
+  overflow: auto;
+}
+.widget-library article {
+  padding: 12px 0;
+  border-bottom: 1px solid #8883;
+}
+.widget-library article div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.widget-library article span {
+  flex: 1;
+}

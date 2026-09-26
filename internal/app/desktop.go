@@ -6,9 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"git.example.com/ai/wrd-ai-cli/internal/agent"
 	"git.example.com/ai/wrd-ai-cli/internal/credentialui"
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
 	"git.example.com/ai/wrd-ai-cli/internal/policy"
+	"git.example.com/ai/wrd-ai-cli/internal/widgets"
 )
 
 type desktopCommandEvent struct {
@@ -84,11 +86,36 @@ func (a *App) desktopState() credentialui.WorkbenchState {
 				Status: a.safeText(p.Status), Error: a.safeText(p.LastError), UpdatedAt: p.LastUpdated.UTC().Format(time.RFC3339Nano),
 				IntervalMS: p.Interval.Milliseconds(), Pinned: p.Pinned,
 			}
+			if p.Widget != nil {
+				entry.Widget = &widgets.Meta{Hash: p.Widget.Hash, Revision: p.DefinitionRevision, BindingID: p.BindingID, Sequence: p.WidgetData.Sequence}
+				if a.safeText(p.Command) != p.Command {
+					entry.Widget.SaveError = "采集命令包含凭据，本次会话运行但不保存该定义"
+				}
+			}
 			if p.IsAlert() {
 				state.AlertMonitors = append(state.AlertMonitors, entry)
 			} else {
 				state.Panels = append(state.Panels, entry)
 			}
+		}
+	}
+
+	state.WidgetTransfer = widgets.Transfer{Data: map[string]widgets.Data{}, Definitions: map[string]widgets.Definition{}}
+	if a.panels != nil {
+		for _, p := range a.panels.Panels() {
+			if p.Widget != nil && p.DataContract != nil {
+				state.WidgetTransfer.Artifacts = append(state.WidgetTransfer.Artifacts, *p.Widget)
+				state.WidgetTransfer.Data[p.ID] = widgets.Redact(p.WidgetData, a.safeText)
+				if a.safeText(p.Command) == p.Command {
+					state.WidgetTransfer.Definitions[p.ID] = widgets.Definition{ID: p.ID, Title: p.Title, Command: p.Command, IntervalMS: p.Interval.Milliseconds(), Contract: *p.DataContract, View: p.Widget.View, Revision: p.DefinitionRevision, AllowAIRead: p.AllowAIRead}
+				}
+			}
+		}
+	}
+	for _, c := range a.widgetCandidates {
+		if c.artifact != nil {
+			state.WidgetCandidates = append(state.WidgetCandidates, widgets.Candidate{Contract: c.panel.DataContract, ID: c.id, PanelID: c.panel.ID, Title: c.panel.Title, Hash: c.artifact.Hash, ExpiresAt: c.expires.UTC().Format(time.RFC3339Nano)})
+			state.WidgetTransfer.Artifacts = append(state.WidgetTransfer.Artifacts, *c.artifact)
 		}
 	}
 	return state
@@ -104,6 +131,9 @@ func desktopText(s string) string {
 
 func (a *App) runDesktopBridge() {
 	var results []credentialui.CommandResult
+	sentArtifacts := map[string]bool{}
+	sentData := map[string]string{}
+	sentDefinitions := map[string]string{}
 	for {
 		var state credentialui.WorkbenchState
 		select {
@@ -111,9 +141,54 @@ func (a *App) runDesktopBridge() {
 			return
 		case state = <-a.desktopStates:
 		}
+		transfer := state.WidgetTransfer
+		filtered := widgets.Transfer{Data: map[string]widgets.Data{}, Definitions: map[string]widgets.Definition{}}
+		for _, v := range transfer.Artifacts {
+			if !sentArtifacts[v.Hash] {
+				filtered.Artifacts = append(filtered.Artifacts, v)
+			}
+		}
+		for id, v := range transfer.Data {
+			key := fmt.Sprintf("%s:%d:%d", v.BindingID, v.SourceRevision, v.Sequence)
+			if sentData[id] != key {
+				filtered.Data[id] = v
+			}
+		}
+		for id, v := range transfer.Definitions {
+			if sentDefinitions[id] != fmt.Sprintf("%s:%d", transfer.Data[id].BindingID, v.Revision) {
+				filtered.Definitions[id] = v
+			}
+		}
+		state.WidgetTransfer = filtered
 		commands, err := credentialui.ExchangeWorkbench(a.ctx, state, results)
 		if err != nil {
 			continue
+		}
+
+		for _, v := range filtered.Artifacts {
+			sentArtifacts[v.Hash] = true
+		}
+		for id, v := range filtered.Data {
+			sentData[id] = fmt.Sprintf("%s:%d:%d", v.BindingID, v.SourceRevision, v.Sequence)
+		}
+		for id, v := range filtered.Definitions {
+			sentDefinitions[id] = fmt.Sprintf("%s:%d", transfer.Data[id].BindingID, v.Revision)
+		}
+		// Keep de-duplication bounded to this snapshot's live/candidate references.
+		current := map[string]bool{}
+		for _, v := range transfer.Artifacts {
+			current[v.Hash] = true
+		}
+		for hash := range sentArtifacts {
+			if !current[hash] {
+				delete(sentArtifacts, hash)
+			}
+		}
+		for id := range sentDefinitions {
+			if _, ok := transfer.Definitions[id]; !ok {
+				delete(sentDefinitions, id)
+				delete(sentData, id)
+			}
 		}
 		results = nil
 		for _, command := range commands {
@@ -147,6 +222,35 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 		return errors.New("操作已过期或连接已结束")
 	}
 	switch command.Kind {
+	case "widget-cancel":
+		c := a.widgetCandidates[command.PanelID]
+		if c == nil || c.id != command.CandidateID {
+			return errors.New("组件候选已过期")
+		}
+		a.cancelWidgetCandidate(command.PanelID)
+		a.widgetNotice("已取消组件修改，原版本保持运行")
+		return nil
+	case "widget-ready", "widget-failed":
+		if len(command.Text) > 1000 {
+			return errors.New("组件诊断过长")
+		}
+		return a.finishWidget(command.PanelID, command.CandidateID, command.Text)
+	case "widget-restore":
+		d := command.WidgetDefinition
+		if d == nil {
+			return errors.New("缺少已保存的组件")
+		}
+		spec := agent.PanelSpec{ID: d.ID, ExpectedRevision: d.Revision, Type: "monitor", Purpose: "realtime", Title: d.Title, Command: d.Command, IntervalMS: int(d.IntervalMS), AllowAIRead: d.AllowAIRead, Data: &d.Contract, View: &d.View}
+		operation := "create"
+		if d.ID != "" {
+			operation = "update"
+		}
+		_, message, err := a.executePanelAction(agent.PanelAction{Action: operation, Panel: spec})
+		if err == nil {
+			a.widgetNotice(message)
+		}
+		return err
+
 	case "prompt":
 		prompt := strings.TrimSpace(command.Text)
 		if prompt == "" || len(prompt) > 64*1024 {
@@ -207,6 +311,8 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 			if err := a.panels.Close(command.PanelID, panel.OriginUser); err != nil {
 				return err
 			}
+			a.cancelWidgetCandidate(command.PanelID)
+			delete(a.monitorActive, command.PanelID)
 			delete(a.monitorLast, command.PanelID)
 		} else {
 			a.monitorLast[command.PanelID] = time.Time{}

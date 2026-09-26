@@ -1,7 +1,10 @@
 package panel
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"git.example.com/ai/wrd-ai-cli/internal/widgets"
 	"strings"
 	"time"
 )
@@ -26,6 +29,13 @@ const (
 )
 
 type Panel struct {
+	Widget             *widgets.Artifact
+	DataContract       *widgets.Contract
+	WidgetData         widgets.Data
+	DefinitionRevision uint64
+	BindingID          string
+	RunID              uint64
+
 	// Purpose separates display collectors from independently managed alert tasks.
 	Purpose string
 	Alert   *AlertCondition
@@ -131,6 +141,14 @@ func (m *Manager) Open(item Panel) *Panel {
 	if item.Interval <= 0 && (item.Kind == KindMonitor || item.Kind == KindTable) {
 		item.Interval = 2 * time.Second
 	}
+	if item.BindingID == "" {
+		var token [16]byte
+		_, _ = rand.Read(token[:])
+		item.BindingID = hex.EncodeToString(token[:])
+	}
+	if item.DefinitionRevision == 0 {
+		item.DefinitionRevision = 1
+	}
 	copy := item
 	m.panels = append(m.panels, &copy)
 	return &copy
@@ -179,6 +197,12 @@ func (m *Manager) UpdateContent(id, content, status string, foreground bool) {
 	item.LastUpdated = time.Now()
 	item.RefreshCount++
 	item.LastError = ""
+	if item.DataContract != nil {
+		item.WidgetData.BindingID = item.BindingID
+		item.WidgetData.SourceRevision = item.SourceRevision
+		item.WidgetData.IntervalMS = item.Interval.Milliseconds()
+		item.WidgetData = widgets.Record(item.WidgetData, *item.DataContract, item.SampleContent, nil, item.LastUpdated)
+	}
 	if !foreground && m.Active() != item {
 		item.Unread = true
 	}
@@ -192,6 +216,12 @@ func (m *Manager) SetError(id string, err error) {
 	item.LastError = err.Error()
 	item.Status = "采集失败"
 	item.LastUpdated = time.Now()
+	if item.DataContract != nil {
+		item.WidgetData.BindingID = item.BindingID
+		item.WidgetData.SourceRevision = item.SourceRevision
+		item.WidgetData.IntervalMS = item.Interval.Milliseconds()
+		item.WidgetData = widgets.Record(item.WidgetData, *item.DataContract, "", err, item.LastUpdated)
+	}
 	if m.Active() != item {
 		item.Unread = true
 	}

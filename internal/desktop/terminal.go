@@ -12,9 +12,15 @@ import (
 
 	"git.example.com/ai/wrd-ai-cli/internal/catalog"
 	"git.example.com/ai/wrd-ai-cli/internal/credentialui"
+	"git.example.com/ai/wrd-ai-cli/internal/widgets"
 )
 
 type terminalSession struct {
+	widgetArtifacts   map[string]widgets.Artifact
+	widgetData        map[string]widgets.Data
+	widgetDefinitions map[string]widgets.Definition
+	widgetSaveErrors  map[string]string
+
 	mu                sync.Mutex
 	id, hostID        string
 	cmd               *exec.Cmd

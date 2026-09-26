@@ -1,3 +1,5 @@
+import type { WidgetArtifact, WidgetData, WidgetMeta, WidgetCandidate } from './widgets/protocol';
+import type { SavedWidget } from './widgets/WidgetLibrary';
 import type { AlertPolicy, MonitoringState, PetBackend, MonitorCondition } from './monitoring-api';
 
 export interface Credential {
@@ -126,6 +128,7 @@ export interface ChatMessage {
   activity?: { id: string; kind: string; title: string; status: string; detail?: string };
 }
 export interface MonitorPanel {
+  widget?: WidgetMeta;
   command?: string;
   collecting?: boolean;
   alert?: MonitorCondition;
@@ -140,6 +143,7 @@ export interface MonitorPanel {
   pinned: boolean;
 }
 export interface WorkbenchState {
+  widgetCandidates?: WidgetCandidate[];
   conversationId: string;
   messages: ChatMessage[];
   busy: boolean;
@@ -167,7 +171,11 @@ export interface WorkbenchCommand {
     | 'monitor-close'
     | 'monitor-refresh'
     | 'alert-close'
-    | 'alert-refresh';
+    | 'alert-refresh'
+    | 'widget-cancel'
+    | 'widget-ready'
+    | 'widget-failed';
+  candidateId?: string;
   text?: string;
   proposalId?: string;
   panelId?: string;
@@ -260,6 +268,11 @@ type Backend = {
   StartSession(id: string, cols: number, rows: number): Promise<void>;
   WriteTerminal(id: string, data: string): Promise<void>;
   ResizeTerminal(id: string, cols: number, rows: number): Promise<void>;
+  GetWidgetArtifact(id: string, hash: string): Promise<WidgetArtifact>;
+  GetWidgetData(id: string, panelId: string, bindingId: string): Promise<WidgetData>;
+  GetSavedWidgets(id: string): Promise<SavedWidget[]>;
+  RestoreSavedWidget(id: string, key: string, version: number, panelId: string): Promise<void>;
+  RetryWidgetSave(id: string, panelId: string): Promise<void>;
   GetWorkbench(id: string): Promise<WorkbenchState | null>;
   WorkbenchAction(id: string, command: WorkbenchCommand): Promise<void>;
   CloseSession(id: string): Promise<void>;

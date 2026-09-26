@@ -14,6 +14,7 @@ import (
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
 	"git.example.com/ai/wrd-ai-cli/internal/sshwrap"
 	"git.example.com/ai/wrd-ai-cli/internal/terminalview"
+	"git.example.com/ai/wrd-ai-cli/internal/widgets"
 )
 
 type Runner struct {
@@ -94,7 +95,19 @@ func (r Runner) Run(ctx context.Context, command string) (string, error) {
 	cmd := exec.CommandContext(queryContext, r.SSHPath, args...)
 	configureMonitorProcess(cmd)
 	cmd.WaitDelay = time.Second
-	data, err := cmd.CombinedOutput()
+	var stdout, stderr monitorBuffer
+	stdout.cancel = cancel
+	stderr.cancel = cancel
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if stdout.exceeded || stderr.exceeded {
+		return "", fmt.Errorf("监控输出超过 256 KiB")
+	}
+	data := stdout.Bytes()
+	if err != nil {
+		data = append(data, stderr.Bytes()...)
+	}
 	startMarker := []byte("\x1e" + marker + "\x1f")
 	started := bytes.Contains(data, startMarker)
 	data = bytes.Replace(data, startMarker, nil, 1)
@@ -187,4 +200,20 @@ func cellWidth(s string) int {
 		cells += terminalview.CellWidth(r)
 	}
 	return cells
+}
+
+// Bounds the process pipes during collection, before formatting or parsing.
+type monitorBuffer struct {
+	bytes.Buffer
+	exceeded bool
+	cancel   context.CancelFunc
+}
+
+func (b *monitorBuffer) Write(p []byte) (int, error) {
+	if b.Len()+len(p) > widgets.MaxOutput {
+		b.exceeded = true
+		b.cancel()
+		return 0, fmt.Errorf("output limit")
+	}
+	return b.Buffer.Write(p)
 }

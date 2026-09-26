@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { testCommandReview } from './test-command-review.mjs';
 import { testTerminalScroll } from './test-terminal-scroll.mjs';
+import { testWidgets } from './test-widgets.mjs';
 import { testMonitorResize } from './test-monitor-resize.mjs';
 import { testStreamingChat } from './test-streaming-chat.mjs';
 import { testMarkdownChat } from './test-markdown-chat.mjs';
@@ -23,7 +24,7 @@ const server = http.createServer(async (req, res) => {
     const body = await readFile(file);
     res.setHeader(
       'Content-Type',
-      file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html',
+      file.endsWith('.wasm') ? 'application/wasm' : file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html',
     );
     res.end(body);
   } catch {
@@ -317,7 +318,10 @@ const openSettings = async (name = '主机') => {
 };
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  if (process.env.MONITOR_RESIZE_ONLY) {
+  if (process.env.WIDGETS_ONLY) {
+    await testWidgets(page, out);
+    assert.deepEqual(errors, []);
+  } else if (process.env.MONITOR_RESIZE_ONLY) {
     await testMonitorResize(page, out);
     assert.deepEqual(errors, []);
   } else if (process.env.MONITORING_ONLY) {

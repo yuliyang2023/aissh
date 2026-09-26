@@ -11,6 +11,7 @@ import (
 	"git.example.com/ai/wrd-ai-cli/internal/history"
 	"git.example.com/ai/wrd-ai-cli/internal/i18n"
 	"git.example.com/ai/wrd-ai-cli/internal/sshauth"
+	"git.example.com/ai/wrd-ai-cli/internal/widgets"
 )
 
 var (
@@ -19,6 +20,14 @@ var (
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--widget-compile" {
+		if err := widgets.RunCompiler(os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if os.Getenv("AISSH_ASKPASS_MODE") == "1" {
 		if len(os.Args) != 2 || sshauth.RunHelper(os.Args[1], os.Stdout) != nil {
 			os.Exit(1)

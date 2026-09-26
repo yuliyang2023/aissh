@@ -9,11 +9,15 @@ import (
 
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
 	"git.example.com/ai/wrd-ai-cli/internal/policy"
+	"git.example.com/ai/wrd-ai-cli/internal/widgets"
 )
 
 var inBandMonitorScreenRestore = []byte("\x1b[2K\r")
 
 type inBandMonitorState struct {
+	binding         string
+	revision, runID uint64
+
 	panelID      string
 	command      string
 	marker       string
@@ -60,9 +64,11 @@ func (a *App) canStartInBandMonitor() bool {
 
 func (a *App) startInBandMonitor(item *panel.Panel, now time.Time) {
 	a.monitorSequence++
+	item.RunID++
 	marker := fmt.Sprintf("__AISSH_MONITOR_%d_", a.monitorSequence)
 	state := &inBandMonitorState{
-		panelID:   item.ID,
+		panelID: item.ID,
+		binding: item.BindingID, revision: item.SourceRevision, runID: item.RunID,
 		command:   item.Command,
 		marker:    marker,
 		startedAt: now,
@@ -108,6 +114,10 @@ func (a *App) processInBandMonitorOutput(data []byte) bool {
 	if state == nil {
 		return false
 	}
+	if len(state.buffer)+len(data) > widgets.MaxOutput {
+		a.pauseInBandMonitor(fmt.Errorf("监控输出超过 256 KiB，主通道采集已暂停"))
+		return true
+	}
 	visible, complete, content, err := state.consume(data)
 	if !complete {
 		return true
@@ -119,7 +129,7 @@ func (a *App) processInBandMonitorOutput(data []byte) bool {
 	if err == nil {
 		content = a.monitor.Format(state.command, content)
 	}
-	a.applyMonitorResult(monitorResultEvent{panelID: state.panelID, command: state.command, content: content, err: err})
+	a.applyMonitorResult(monitorResultEvent{panelID: state.panelID, command: state.command, binding: state.binding, revision: state.revision, runID: state.runID, content: content, err: err})
 	a.monitorPrompt = &monitorPromptState{}
 	if len(visible) > 0 {
 		a.processSSHOutput(visible)
@@ -129,6 +139,9 @@ func (a *App) processInBandMonitorOutput(data []byte) bool {
 }
 
 func (state *inBandMonitorState) consume(data []byte) (visible []byte, complete bool, content string, err error) {
+	if len(state.buffer)+len(data) > widgets.MaxOutput {
+		return nil, true, "", fmt.Errorf("监控输出超过 256 KiB")
+	}
 	state.buffer = append(state.buffer, data...)
 	output := decodeMonitorOutput(state.buffer)
 	beginMarker := []byte(state.marker + "BEGIN__")
@@ -235,7 +248,7 @@ func (a *App) pauseInBandMonitor(err error) {
 	a.monitorDeferredInput = append(a.monitorDeferredInput, state.pendingInput...)
 	a.atPrompt = false
 	a.outputTail.value = ""
-	a.applyMonitorResult(monitorResultEvent{panelID: state.panelID, command: state.command, err: err})
+	a.applyMonitorResult(monitorResultEvent{panelID: state.panelID, command: state.command, binding: state.binding, revision: state.revision, runID: state.runID, err: err})
 	a.dirty = true
 }
 

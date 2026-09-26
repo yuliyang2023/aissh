@@ -1,3 +1,6 @@
+import type { WidgetCandidate } from './widgets/protocol';
+import { WidgetHost } from './widgets/WidgetHost';
+import { WidgetLibrary } from './widgets/WidgetLibrary';
 import { useId, useRef, useState } from 'react';
 import {
   Activity,
@@ -46,7 +49,9 @@ function Metric({ label, value, percent }: { label: string; value?: string; perc
 
 export function Monitor({
   panels,
+  sessionId = '',
   active = true,
+  candidates = [],
   online,
   pending,
   now,
@@ -58,7 +63,9 @@ export function Monitor({
   alertCount = 0,
 }: {
   panels: MonitorPanel[];
+  sessionId?: string;
   active?: boolean;
+  candidates?: WidgetCandidate[];
   online: boolean;
   pending: boolean;
   now: number;
@@ -147,6 +154,13 @@ export function Monitor({
         </button>
         <div className="monitor-actions" role="group" aria-label="监控操作">
           <div className="monitor-action-group">
+            {sessionId && (
+              <WidgetLibrary
+                compact
+                sessionId={sessionId}
+                panelId={current?.widget ? current.id : undefined}
+              />
+            )}
             <button
               className="button small"
               disabled={!online || pending || !aiReady}
@@ -285,6 +299,20 @@ export function Monitor({
               ))}
             </div>
           </div>
+          {candidates.map((c) => (
+            <div key={c.id} className="widget-progress" role="status">
+              正在预检 · {c.title}{' '}
+              <button
+                type="button"
+                className="button small"
+                onClick={() =>
+                  void onAction({ kind: 'widget-cancel', panelId: c.panelId, candidateId: c.id })
+                }
+              >
+                取消修改
+              </button>
+            </div>
+          ))}
           {aiOpen && (
             <form
               className="monitor-ai-form"
@@ -364,7 +392,20 @@ export function Monitor({
               数据已停止更新，下方为上次采集结果。
             </p>
           )}
-          {!current || current.id === 'system' ? (
+          {current?.widget ? (
+            <>
+              <WidgetHost
+                sessionId={sessionId}
+                panelId={current.id}
+                meta={current.widget}
+                visible={active}
+              />
+              <details className="widget-raw">
+                <summary>查看原始输出</summary>
+                <pre className="monitor-output">{current.content || '正在等待采集结果…'}</pre>
+              </details>
+            </>
+          ) : !current || current.id === 'system' ? (
             <div className="monitor-metrics">
               <Metric label="系统负载 · 1 / 5 / 15 分钟" value={metrics.LOAD} />
               <Metric label="内存" value={metrics.MEM} percent />
