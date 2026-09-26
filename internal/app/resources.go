@@ -64,6 +64,8 @@ func (a *App) executeResource(command, proposalID, sessionID string, approved bo
 		a.inlineAI.Done = false
 	}
 	language := a.agentLanguage
+	panelContext := agent.Request{}
+	a.addPanelContext(&panelContext)
 	go func() {
 		if !approved {
 			// Saved grants authorize this operation locally. Notify stateful
@@ -90,6 +92,9 @@ func (a *App) executeResource(command, proposalID, sessionID string, approved bo
 			a.sendAgentEvent(sshActivityEvent{proposalID, status, a.safeText(result)})
 		}
 		request := agent.Request{Event: "result", SessionID: sessionID, ProposalID: proposalID, Output: result, Completion: completion, SystemContext: map[string]string{"response_language": language}}
+		for key, value := range panelContext.SystemContext {
+			request.SystemContext[key] = value
+		}
 		a.prepareAgentRequest(&request)
 		turn, streamErr := a.agent.Stream(a.ctx, request, agent.Callbacks{
 			OnStatus:   func(s string) { a.sendAgentEvent(agentStatusEvent{status: a.safeText(s)}) },

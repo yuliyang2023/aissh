@@ -157,6 +157,7 @@ type App struct {
 	aiNotice              string
 	agentLanguage         string
 	agentSeedContext      string
+	panelActionResults    []string
 	promptIdleSince       time.Time
 	chat                  []chatMessage
 	proposal              *agent.Proposal
@@ -854,8 +855,8 @@ func (a *App) scheduleMonitors() {
 		if last := a.monitorLast[item.ID]; !last.IsZero() && now.Sub(last) < interval {
 			continue
 		}
-		if !policy.IsReadOnlyMonitorCommand(item.Command) {
-			a.panels.SetError(item.ID, fmt.Errorf("%s", a.t("监控命令被只读策略拒绝")))
+		if err := policy.ValidateReadOnlyMonitorCommand(item.Command); err != nil {
+			a.panels.SetError(item.ID, fmt.Errorf("%s", a.t("监控命令被只读策略拒绝：%s", err.Error())))
 			a.monitorLast[item.ID] = now
 			continue
 		}
@@ -863,13 +864,23 @@ func (a *App) scheduleMonitors() {
 		panelID, command := item.ID, item.Command
 		go func() {
 			content, err := a.monitor.Run(a.ctx, command)
-			a.events <- monitorResultEvent{panelID: panelID, content: content, err: err}
+			a.events <- monitorResultEvent{panelID: panelID, command: command, content: content, err: err}
 		}()
 	}
 }
 
 func (a *App) applyMonitorResult(value monitorResultEvent) {
 	a.monitorActive[value.panelID] = false
+	item := a.panels.ByID(value.panelID)
+	if item == nil || (value.command != "" && item.Command != value.command) {
+		// A panel may be reconfigured while its previous query is still running.
+		// Release the running slot without publishing the old query's result.
+		delete(a.monitorLast, value.panelID)
+		if a.monitorWorkspaceVisible() {
+			a.dirty = true
+		}
+		return
+	}
 	if value.err != nil && a.monitorPrimaryFallback && !a.monitorPrimaryPaused && monitor.CanRetryViaPrimary(value.err) {
 		a.monitorViaPrimary = true
 		// Retry connection/authentication failures through the authenticated shell,

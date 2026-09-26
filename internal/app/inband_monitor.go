@@ -41,8 +41,8 @@ func (a *App) scheduleInBandMonitor(now time.Time) {
 		if last := a.monitorLast[item.ID]; !last.IsZero() && now.Sub(last) < interval {
 			continue
 		}
-		if !policy.IsReadOnlyMonitorCommand(item.Command) {
-			a.panels.SetError(item.ID, fmt.Errorf("%s", a.t("监控命令被只读策略拒绝")))
+		if err := policy.ValidateReadOnlyMonitorCommand(item.Command); err != nil {
+			a.panels.SetError(item.ID, fmt.Errorf("%s", a.t("监控命令被只读策略拒绝：%s", err.Error())))
 			a.monitorLast[item.ID] = now
 			continue
 		}
@@ -119,7 +119,7 @@ func (a *App) processInBandMonitorOutput(data []byte) bool {
 	if err == nil {
 		content = a.monitor.Format(state.command, content)
 	}
-	a.applyMonitorResult(monitorResultEvent{panelID: state.panelID, content: content, err: err})
+	a.applyMonitorResult(monitorResultEvent{panelID: state.panelID, command: state.command, content: content, err: err})
 	a.monitorPrompt = &monitorPromptState{}
 	if len(visible) > 0 {
 		a.processSSHOutput(visible)
@@ -235,7 +235,7 @@ func (a *App) pauseInBandMonitor(err error) {
 	a.monitorDeferredInput = append(a.monitorDeferredInput, state.pendingInput...)
 	a.atPrompt = false
 	a.outputTail.value = ""
-	a.applyMonitorResult(monitorResultEvent{panelID: state.panelID, err: err})
+	a.applyMonitorResult(monitorResultEvent{panelID: state.panelID, command: state.command, err: err})
 	a.dirty = true
 }
 

@@ -61,8 +61,8 @@ const codexResponseSchema = `{
               "id": {"type": "string"},
               "type": {"type": "string", "enum": ["monitor", "log"]},
               "title": {"type": "string"},
-              "collector": {"type": "string"},
-              "command": {"type": "string"},
+              "collector": {"type": "string", "description": "内置采集器名称；使用自定义 command 时留空"},
+              "command": {"type": "string", "description": "自定义只读采集命令，非空时优先于 collector；使用内置采集器时留空"},
               "intervalMs": {"type": "integer", "minimum": 0},
               "content": {"type": "string"},
               "allowAIRead": {"type": "boolean"}
@@ -647,7 +647,7 @@ func buildCodexPrompt(request Request, history []codexHistory, input string) str
 3. 不得使用 exit、logout，也不得用 exec 替换 Shell；前置条件失败时应输出诊断并用 false 或自然返回结束命令，绝不能主动结束 SSH 登录 Shell。
 4. 命令必须适合在目标服务器的当前交互式 Shell 中执行，不得包含交互式全屏程序。
 5. 有破坏性、重启、删除、覆盖、权限或网络策略变更风险时，risk 必须如实标为 high 或 critical，并在 explanation 中说明。
-6. 可用 panelActions 创建 monitor 或 log Tab，command 必须严格只读；分析结论和报告内容统一写入 message，不创建报告面板；不需要监控面板时返回空数组。
+6. 可用 panelActions 创建 monitor 或 log Tab，command 必须严格只读；自定义 command 与内置 collector 二选一，另一项留空，非空 command 优先。update 会更新命令、标题和刷新间隔；目标不存在时，只有提供完整采集配置才能创建。面板操作是否成功以 monitor_panel_result / monitor_panel_state 上下文为准；未确认前不要声称已经成功，创建成功不代表采集成功。分析结论和报告内容统一写入 message，不创建报告面板；不需要监控面板时返回空数组。
 7. 如果信息不足，返回 ask_user 并在 message 中提出一个简短问题；能直接回答时返回 finished。
 8. 只返回符合 JSON Schema 的对象，不要 Markdown 代码围栏。
 

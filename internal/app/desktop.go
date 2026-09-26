@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -172,8 +173,8 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 			title, collector, interval = "服务", panel.BuiltinServiceCommand, 10*time.Second
 		case "custom":
 			title, collector, interval = "自定义监控", strings.TrimSpace(command.Text), 5*time.Second
-			if collector == "" || !policy.IsReadOnlyMonitorCommand(collector) {
-				return errors.New("请输入符合只读策略的监控命令")
+			if err := policy.ValidateReadOnlyMonitorCommand(collector); err != nil {
+				return fmt.Errorf("监控命令被只读策略拒绝：%w", err)
 			}
 		default:
 			return errors.New("未知的监控类型")

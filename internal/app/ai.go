@@ -8,7 +8,6 @@ import (
 	"git.example.com/ai/wrd-ai-cli/internal/agent"
 	app_i18n "git.example.com/ai/wrd-ai-cli/internal/i18n"
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
-	"git.example.com/ai/wrd-ai-cli/internal/policy"
 	"git.example.com/ai/wrd-ai-cli/internal/resources"
 )
 
@@ -111,6 +110,7 @@ func (a *App) startAI(prompt string, foreground bool) {
 	if a.agentSessionID == "" && strings.TrimSpace(a.agentSeedContext) != "" {
 		request.SystemContext["conversation_history"] = a.agentSeedContext
 	}
+	a.addPanelContext(&request)
 	go a.runAgentStream(request, true)
 }
 
@@ -618,6 +618,7 @@ func (a *App) submitExecutionResult() {
 			"response_language": firstText(a.agentLanguage, a.localizer.Language()),
 		},
 	}
+	a.addPanelContext(&request)
 	a.prepareAgentRequest(&request)
 	go func() {
 		callbacks := agent.Callbacks{
@@ -660,54 +661,6 @@ func (a *App) finishExecutionResult(event executionResultEvent) {
 	a.finishAgentTurn(event.turn, event.err)
 }
 
-func (a *App) applyPanelAction(action agent.PanelAction) {
-	spec := action.Panel
-	switch strings.ToLower(action.Action) {
-	case "open", "create":
-		kind := panelKind(spec.Type)
-		if kind == panel.KindReport {
-			return
-		}
-		command := collectorCommand(spec.Collector)
-		if command == "" {
-			command = strings.TrimSpace(spec.Command)
-		}
-		if command != "" && !policy.IsReadOnlyMonitorCommand(command) {
-			a.appendPersistentChat(chatMessage{Role: "error", Content: a.t("AI 请求的监控命令被只读策略拒绝。"), Time: time.Now()})
-			return
-		}
-		interval := time.Duration(spec.IntervalMS) * time.Millisecond
-		if interval < time.Second {
-			interval = 2 * time.Second
-		}
-		a.panels.Open(panel.Panel{
-			ID:          spec.ID,
-			Kind:        kind,
-			Origin:      panel.OriginAI,
-			Title:       firstText(spec.Title, a.t("AI 面板")),
-			Command:     command,
-			Interval:    interval,
-			Content:     spec.Content,
-			AllowAIRead: spec.AllowAIRead,
-			Target:      a.parsed.Target,
-			Unread:      true,
-		})
-	case "update", "append":
-		item := a.panels.ByID(spec.ID)
-		if item == nil || item.Kind == panel.KindReport {
-			return
-		}
-		content := spec.Content
-		if strings.ToLower(action.Action) == "append" {
-			content = strings.TrimSpace(item.Content + "\n\n" + spec.Content)
-		}
-		a.panels.UpdateContent(item.ID, content, a.t("AI 更新"), false)
-	case "close":
-		_ = a.panels.Close(spec.ID, panel.OriginAI)
-	}
-	a.dirty = true
-}
-
 func panelKind(value string) panel.Kind {
 	switch strings.ToLower(value) {
 	case "log":
@@ -731,7 +684,7 @@ func collectorCommand(value string) string {
 		return panel.BuiltinProcessCommand
 	case "disk", "disk.usage", "disk.io":
 		return panel.BuiltinDiskCommand
-	case "network", "network.traffic", "network.connections":
+	case "network", "network.traffic", "network.connections", "network.sockets":
 		return panel.BuiltinNetworkCommand
 	case "service", "service.status":
 		return panel.BuiltinServiceCommand

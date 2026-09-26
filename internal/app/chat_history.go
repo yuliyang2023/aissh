@@ -149,6 +149,7 @@ func (a *App) selectHistoryConversation(index int) bool {
 		a.agentSeedContext = ""
 	} else {
 		a.agentSessionID = ""
+		a.panelActionResults = nil
 		a.agentSeedContext = historyConversationContext(conversation.Messages)
 	}
 	a.proposal = nil
@@ -173,6 +174,7 @@ func (a *App) startNewAIConversation() {
 	a.historyConversationID = history.NewConversationID()
 	a.agentSessionID = ""
 	a.agentSeedContext = ""
+	a.panelActionResults = nil
 	a.proposal = nil
 	a.approvalCommandExpanded = false
 	a.execution = nil

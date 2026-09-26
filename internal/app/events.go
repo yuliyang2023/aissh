@@ -13,6 +13,7 @@ type resizeEvent struct{}
 type sshExitEvent struct{ err error }
 type monitorResultEvent struct {
 	panelID string
+	command string
 	content string
 	err     error
 }
