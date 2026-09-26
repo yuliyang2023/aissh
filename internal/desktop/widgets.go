@@ -28,6 +28,15 @@ func acceptWidgets(session *terminalSession, input credentialui.WorkbenchExchang
 		return errors.New("组件候选过多")
 	}
 	for _, c := range input.State.WidgetCandidates {
+		if c.ProtocolVersion == 2 {
+			if c.Sample == nil || c.Sample.Sequence == 0 || c.Sample.Data == nil {
+				return errors.New("候选缺少真实映射数据")
+			}
+			raw, _ := json.Marshal(c.Sample)
+			if len(raw) > 512<<10 {
+				return errors.New("候选样本超过限制")
+			}
+		}
 		hashes[c.Hash] = true
 	}
 	// Validate everything before changing cache state.
@@ -48,7 +57,7 @@ func acceptWidgets(session *terminalSession, input credentialui.WorkbenchExchang
 	}
 	for id, d := range t.Definitions {
 		p, ok := active[id]
-		if !ok || d.Revision != p.Widget.Revision || d.View.Validate() != nil || d.Contract.Validate() != nil {
+		if !ok || d.Revision != p.Widget.Revision || d.View.Validate() != nil || d.ValidateData() != nil {
 			return errors.New("组件定义无效")
 		}
 	}
@@ -121,6 +130,7 @@ func (s *Service) GetSavedWidgets(id string) ([]widgets.Saved, error) {
 			d.View.Source = ""
 			d.Command = ""
 			d.Contract = widgets.Contract{}
+			d.Pipeline = nil
 		}
 	}
 	return items, err

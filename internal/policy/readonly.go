@@ -24,6 +24,7 @@ func ValidateReadOnlyMonitorCommand(command string) error {
 	if normalized == "" {
 		return fmt.Errorf("监控命令不能为空")
 	}
+	normalized = maskMonitorAWKComparisons(normalized, 0)
 	normalized = stripHarmlessRedirects(normalized)
 	if match := mutatingPattern.FindString(normalized); match != "" {
 		return fmt.Errorf("检测到可能修改状态的命令或文件重定向：%q", strings.TrimSpace(match))

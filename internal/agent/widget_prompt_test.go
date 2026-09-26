@@ -22,3 +22,21 @@ func TestWidgetProtocolSurvivesInitialAndContinuationPrompts(t *testing.T) {
 		}
 	}
 }
+
+func TestPipelineInstructionsReceiptsAndStrictSchemaAreComplete(t *testing.T) {
+	receipt := "captureId=first-source\n" + strings.Repeat("raw sample\n", 3000) + "mapId=verified"
+	if promptContextValue("monitor_pipeline_receipt", receipt) != receipt {
+		t.Fatal("native receipts truncated")
+	}
+	if promptContextValue("monitorWidgetV2", WidgetV2Guidance) != WidgetV2Guidance {
+		t.Fatal("v2 protocol truncated")
+	}
+	for _, key := range []string{"probe", "map", "pipeline", "protocolVersion", "dataPlan", "captureId", "mapId", "bindings"} {
+		if !strings.Contains(codexResponseSchema, "\""+key+"\"") {
+			t.Fatalf("schema omitted %s", key)
+		}
+	}
+	if strings.Contains(WidgetV2Guidance, "value={data?.connections ?? null}") {
+		t.Fatal("v1 scalar example leaked into v2 instructions")
+	}
+}

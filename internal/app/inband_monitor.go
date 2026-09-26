@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"git.example.com/ai/wrd-ai-cli/internal/monitorplan"
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
 	"git.example.com/ai/wrd-ai-cli/internal/policy"
 	"git.example.com/ai/wrd-ai-cli/internal/widgets"
@@ -15,6 +16,11 @@ import (
 var inBandMonitorScreenRestore = []byte("\x1b[2K\r")
 
 type inBandMonitorState struct {
+	pipelineID      string
+	timeout         time.Duration
+	exitCode        *int
+	rawContent      string
+	failureStatus   string
 	binding         string
 	revision, runID uint64
 
@@ -35,7 +41,7 @@ func (a *App) scheduleInBandMonitor(now time.Time) {
 		if item.Kind != panel.KindMonitor && item.Kind != panel.KindTable && item.Kind != panel.KindLog {
 			continue
 		}
-		if item.Command == "" || a.monitorActive[item.ID] {
+		if item.Pipeline != nil || item.Command == "" || a.monitorActive[item.ID] {
 			continue
 		}
 		interval := item.Interval
@@ -63,10 +69,13 @@ func (a *App) canStartInBandMonitor() bool {
 }
 
 func (a *App) startInBandMonitor(item *panel.Panel, now time.Time) {
+	a.startInBandCollection(item, now, "", 0)
+}
+func (a *App) startInBandCollection(item *panel.Panel, now time.Time, pipelineID string, timeout time.Duration) {
 	a.monitorSequence++
 	item.RunID++
 	marker := fmt.Sprintf("__AISSH_MONITOR_%d_", a.monitorSequence)
-	state := &inBandMonitorState{
+	state := &inBandMonitorState{pipelineID: pipelineID, timeout: timeout,
 		panelID: item.ID,
 		binding: item.BindingID, revision: item.SourceRevision, runID: item.RunID,
 		command:   item.Command,
@@ -115,6 +124,7 @@ func (a *App) processInBandMonitorOutput(data []byte) bool {
 		return false
 	}
 	if len(state.buffer)+len(data) > widgets.MaxOutput {
+		state.failureStatus = "too_large"
 		a.pauseInBandMonitor(fmt.Errorf("监控输出超过 256 KiB，主通道采集已暂停"))
 		return true
 	}
@@ -129,7 +139,10 @@ func (a *App) processInBandMonitorOutput(data []byte) bool {
 	if err == nil {
 		content = a.monitor.Format(state.command, content)
 	}
-	a.applyMonitorResult(monitorResultEvent{panelID: state.panelID, command: state.command, binding: state.binding, revision: state.revision, runID: state.runID, content: content, err: err})
+	a.applyMonitorResult(monitorResultEvent{pipelineID: state.pipelineID, capture: state.capture(err), panelID: state.panelID, command: state.command, binding: state.binding, revision: state.revision, runID: state.runID, content: content, err: err})
+	if state.pipelineID != "" {
+		delete(a.monitorActive, state.panelID)
+	}
 	a.monitorPrompt = &monitorPromptState{}
 	if len(visible) > 0 {
 		a.processSSHOutput(visible)
@@ -183,6 +196,8 @@ func (state *inBandMonitorState) consume(data []byte) (visible []byte, complete 
 	if parseErr != nil {
 		return visible, true, "", fmt.Errorf("invalid monitor exit status %q", statusText)
 	}
+	state.exitCode = &status
+	state.rawContent = string(rawContent)
 	if status != 0 {
 		message := strings.TrimSpace(string(rawContent))
 		if message == "" {
@@ -224,7 +239,10 @@ func (a *App) checkInBandMonitorTimeout(now time.Time) {
 	if state == nil {
 		return
 	}
-	timeout := a.monitor.Timeout
+	timeout := state.timeout
+	if timeout <= 0 {
+		timeout = a.monitor.Timeout
+	}
 	if timeout <= 0 {
 		timeout = 8 * time.Second
 	}
@@ -232,6 +250,7 @@ func (a *App) checkInBandMonitorTimeout(now time.Time) {
 		return
 	}
 	a.debugInput("primary_monitor timeout panel=%s begin_seen=%t buffered_bytes=%d pending_bytes=%d", state.panelID, state.sawBegin, len(state.buffer), len(state.pendingInput))
+	state.failureStatus = "timeout"
 	a.pauseInBandMonitor(fmt.Errorf("%s", a.t("监控查询超时，主会话监控已暂停")))
 }
 
@@ -248,7 +267,10 @@ func (a *App) pauseInBandMonitor(err error) {
 	a.monitorDeferredInput = append(a.monitorDeferredInput, state.pendingInput...)
 	a.atPrompt = false
 	a.outputTail.value = ""
-	a.applyMonitorResult(monitorResultEvent{panelID: state.panelID, command: state.command, binding: state.binding, revision: state.revision, runID: state.runID, err: err})
+	a.applyMonitorResult(monitorResultEvent{pipelineID: state.pipelineID, capture: state.capture(err), panelID: state.panelID, command: state.command, binding: state.binding, revision: state.revision, runID: state.runID, err: err})
+	if state.pipelineID != "" {
+		delete(a.monitorActive, state.panelID)
+	}
 	a.dirty = true
 }
 
@@ -286,4 +308,21 @@ func (a *App) flushDeferredMonitorInput() {
 	if a.focus == focusTerminal {
 		a.focus = focus
 	}
+}
+
+func (s *inBandMonitorState) capture(err error) *monitorplan.Capture {
+	now := time.Now()
+	c := &monitorplan.Capture{StartedAt: s.startedAt, FinishedAt: now, DurationMS: now.Sub(s.startedAt).Milliseconds(), Transport: "ssh-primary", Streams: "merged", Stdout: s.rawContent, ExitCode: s.exitCode, Status: "disconnected"}
+	if s.exitCode != nil {
+		c.Complete = true
+		c.Status = "exit_error"
+		if *s.exitCode == 0 && err == nil {
+			c.Status = "ok"
+		}
+	}
+	if s.failureStatus != "" {
+		c.Status = s.failureStatus
+		c.Complete = false
+	}
+	return c
 }

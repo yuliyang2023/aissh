@@ -78,6 +78,8 @@ func (a *App) startAI(prompt string, foreground bool) {
 	} else {
 		a.agentInline = a.inlineAI
 	}
+	a.pipelineContinuations = 0
+	a.pipelineFeedback = nil
 	a.appendPersistentChat(chatMessage{Role: "user", Content: prompt, Time: time.Now()})
 	a.aiScroll = 0
 	a.agentBusy = true

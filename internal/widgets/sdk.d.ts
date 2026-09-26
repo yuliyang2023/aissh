@@ -1,6 +1,9 @@
-/** Author API, v1. TSX uses @wrd/monitor-ui/jsx-runtime, not React DOM. */
+/** Author API, v1 and v2. TSX uses @wrd/monitor-ui/jsx-runtime, not React DOM. */
 declare module '@wrd/monitor-ui' {
   export type Node = unknown;
+  export type Quality = 'ok' | 'partial' | 'unknown' | 'stale';
+  export interface Metric {value: number | string | boolean | null; unit: string; quality: Quality; observedAt: string | null; sourceIds: string[]; reason?: string}
+  export interface Table {columns: {id: string; type: string; unit?: string}[]; rows: Record<string, unknown>[] | null; quality: Quality; observedAt: string | null; sourceIds: string[]; totalRows: number | null; shownRows: number; omittedRows: number | null; reason?: string}
   export type Point = {time: string; value: number | null};
   export type Tone = 'normal' | 'success' | 'warning' | 'danger';
   export interface Context<T, S> {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"git.example.com/ai/wrd-ai-cli/internal/monitorplan"
 	"regexp"
 	"strings"
 )
@@ -49,7 +50,9 @@ type Meta struct {
 	Sequence  uint64 `json:"sequence"`
 }
 type Candidate struct {
-	Contract *Contract `json:"data,omitempty"`
+	Sample          *Data     `json:"sample,omitempty"`
+	ProtocolVersion int       `json:"protocolVersion,omitempty"`
+	Contract        *Contract `json:"data,omitempty"`
 
 	ID        string `json:"id"`
 	PanelID   string `json:"panelId"`
@@ -81,14 +84,15 @@ type Transfer struct {
 	Definitions map[string]Definition `json:"definitions,omitempty"`
 }
 type Definition struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	Command     string   `json:"command"`
-	IntervalMS  int64    `json:"intervalMs"`
-	Contract    Contract `json:"data"`
-	View        View     `json:"view"`
-	Revision    uint64   `json:"revision"`
-	AllowAIRead bool     `json:"allowAIRead"`
+	Pipeline    *monitorplan.Definition `json:"pipeline,omitempty"`
+	ID          string                  `json:"id"`
+	Title       string                  `json:"title"`
+	Command     string                  `json:"command"`
+	IntervalMS  int64                   `json:"intervalMs"`
+	Contract    Contract                `json:"data"`
+	View        View                    `json:"view"`
+	Revision    uint64                  `json:"revision"`
+	AllowAIRead bool                    `json:"allowAIRead"`
 }
 
 var fieldName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
@@ -134,8 +138,8 @@ func (v View) Validate() error {
 	if v.Kind == "text" {
 		return nil
 	}
-	if v.Kind != "custom" || v.SDKVersion != SDKVersion {
-		return errors.New("不支持的组件 SDK，请使用 custom / sdkVersion=1")
+	if v.Kind != "custom" || (v.SDKVersion != SDKVersion && v.SDKVersion != 2) {
+		return errors.New("不支持的组件 SDK，请使用 custom / sdkVersion=1 或 2")
 	}
 	if strings.TrimSpace(v.Source) == "" || len(v.Source) > MaxSource {
 		return errors.New("组件源码不能为空且不能超过 128 KiB")
@@ -161,4 +165,17 @@ func (a Artifact) Validate() error {
 		return errors.New("组件制品校验失败")
 	}
 	return nil
+}
+
+func (d Definition) ValidateData() error {
+	if d.Pipeline != nil {
+		if d.View.SDKVersion != 2 {
+			return errors.New("管线组件需要 SDK v2")
+		}
+		return d.Pipeline.Validate()
+	}
+	if d.View.SDKVersion == 2 {
+		return errors.New("SDK v2 需要数据管线")
+	}
+	return d.Contract.Validate()
 }

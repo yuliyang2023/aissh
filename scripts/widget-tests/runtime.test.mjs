@@ -244,3 +244,21 @@ test("renderer rejects code, URLs, CSS, bridge attrs and forged events", () => {
     }
   }
 });
+
+test("v2 native SSH capture and declarative mapping render without remote Python", () => {
+ const fixture=JSON.parse(readFileSync(new URL('../../.cache/widget-v2-fixture.json',import.meta.url),'utf8'));
+ assert.equal(fixture.artifact.view.sdkVersion,2);
+ const vm=new WidgetVM(QuickJS,fixture.artifact.bundle);
+ try {
+  const tree=vm.render(fixture.sample);
+  assert.equal(tree[0].children[1].props.value,2);
+  assert.equal(tree[0].children[2].props.value,30);
+  assert.equal(tree[0].children[4].props.rows.length,2);
+  assert.equal(tree[0].children[3].props.series[0].value,30);
+  const absent=vm.render({...fixture.sample,data:null,error:'SSH disconnected'});
+  assert.equal(absent[0].children[1].props.value,null);
+  const failed=structuredClone(fixture.sample);
+  failed.data.memory.value=null;failed.data.memory.quality='unknown';
+  assert.equal(vm.render(failed)[0].children[2].props.value,null);
+ } finally {vm.dispose()}
+});

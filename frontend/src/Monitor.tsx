@@ -384,7 +384,7 @@ export function Monitor({
           )}
           {current?.error && (
             <p className="monitor-warning" role="status">
-              采集失败：{current.error} {current.content && '· 下方保留上次数据'}
+              {current.widget ? '数据状态：' : '采集失败：'}{current.error} {!current.widget && current.content && '· 下方保留上次数据'}
             </p>
           )}
           {current && !current.error && (stalePanel(current, now) || !online) && (

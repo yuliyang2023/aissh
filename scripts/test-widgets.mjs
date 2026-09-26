@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
+import {testWidgetsV2} from "./test-widgets-v2.mjs";
 const source = `import {defineWidget,MetricCard,StatusBadge,LineChart,DataTable} from '@wrd/monitor-ui';
 function Cards({data}){return <div style={{display:'grid',gridTemplateColumns:'repeat(3, minmax(0, 1fr))',gap:12}}><MetricCard label="活跃连接" value={data?.connections??null} unit="个"/><MetricCard label="请求速率" value={data?.rps??null} unit="req/s"/><MetricCard label="平均响应" value={data?.latency??null} unit="ms"/></div>}
 export default defineWidget({initialState:{details:false},render({data,history,state,setState}){return <section style={{display:'grid',gap:12}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h3 style={{margin:0}}>Nginx 服务概览</h3><StatusBadge label={data?'运行中':'暂无有效数据'} tone={data?'success':'warning'}/></div><Cards data={data}/><LineChart label="连接数 · 最近 10 分钟" series={history.series('connections')} unit="个"/><button onClick={()=>setState({details:!state.details})}>{state.details?'收起明细':'展开明细'}</button>{state.details&&<DataTable columns={['service','state']} rows={[{service:'nginx',state:data?'active':'unknown'}]}/>}</section>}})`;
@@ -212,6 +213,7 @@ export async function testWidgets(page, out) {
   );
   await page.getByText("查看原始输出", { exact: true }).click();
   await page.getByText("connections=128", { exact: false }).waitFor();
+  await testWidgetsV2(page, out);
   console.log(
     "PASS: offline WASM, candidate preview, custom TSX, interactions, live data, retained state, failed update, missing-data UI and compact dark layout",
   );

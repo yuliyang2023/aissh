@@ -1,12 +1,12 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"git.example.com/ai/wrd-ai-cli/internal/agent"
 	"git.example.com/ai/wrd-ai-cli/internal/credentialui"
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
 	"git.example.com/ai/wrd-ai-cli/internal/policy"
@@ -86,9 +86,12 @@ func (a *App) desktopState() credentialui.WorkbenchState {
 				Status: a.safeText(p.Status), Error: a.safeText(p.LastError), UpdatedAt: p.LastUpdated.UTC().Format(time.RFC3339Nano),
 				IntervalMS: p.Interval.Milliseconds(), Pinned: p.Pinned,
 			}
+			if p.Pipeline != nil {
+				entry.Command = desktopText(a.safeText(pipelineCommandPreview(p.Pipeline.Sources)))
+			}
 			if p.Widget != nil {
 				entry.Widget = &widgets.Meta{Hash: p.Widget.Hash, Revision: p.DefinitionRevision, BindingID: p.BindingID, Sequence: p.WidgetData.Sequence}
-				if a.safeText(p.Command) != p.Command {
+				if !a.pipelineSaveSafe(p) {
 					entry.Widget.SaveError = "采集命令包含凭据，本次会话运行但不保存该定义"
 				}
 			}
@@ -103,18 +106,29 @@ func (a *App) desktopState() credentialui.WorkbenchState {
 	state.WidgetTransfer = widgets.Transfer{Data: map[string]widgets.Data{}, Definitions: map[string]widgets.Definition{}}
 	if a.panels != nil {
 		for _, p := range a.panels.Panels() {
-			if p.Widget != nil && p.DataContract != nil {
+			if p.Widget != nil && (p.DataContract != nil || p.Pipeline != nil) {
 				state.WidgetTransfer.Artifacts = append(state.WidgetTransfer.Artifacts, *p.Widget)
 				state.WidgetTransfer.Data[p.ID] = widgets.Redact(p.WidgetData, a.safeText)
-				if a.safeText(p.Command) == p.Command {
-					state.WidgetTransfer.Definitions[p.ID] = widgets.Definition{ID: p.ID, Title: p.Title, Command: p.Command, IntervalMS: p.Interval.Milliseconds(), Contract: *p.DataContract, View: p.Widget.View, Revision: p.DefinitionRevision, AllowAIRead: p.AllowAIRead}
+				if a.pipelineSaveSafe(p) {
+					contract := widgets.Contract{}
+					if p.DataContract != nil {
+						contract = *p.DataContract
+					}
+					state.WidgetTransfer.Definitions[p.ID] = widgets.Definition{Pipeline: p.Pipeline, ID: p.ID, Title: p.Title, Command: p.Command, IntervalMS: p.Interval.Milliseconds(), Contract: contract, View: p.Widget.View, Revision: p.DefinitionRevision, AllowAIRead: p.AllowAIRead}
 				}
 			}
 		}
 	}
 	for _, c := range a.widgetCandidates {
-		if c.artifact != nil {
-			state.WidgetCandidates = append(state.WidgetCandidates, widgets.Candidate{Contract: c.panel.DataContract, ID: c.id, PanelID: c.panel.ID, Title: c.panel.Title, Hash: c.artifact.Hash, ExpiresAt: c.expires.UTC().Format(time.RFC3339Nano)})
+		if c.artifact != nil && !c.pipelineRefreshing {
+			sample := (*widgets.Data)(nil)
+			version := 0
+			if c.panel.WidgetData.Sequence > 0 || c.requiresSample {
+				data := widgets.Redact(c.panel.WidgetData, a.safeText)
+				sample = &data
+				version = c.artifact.View.SDKVersion
+			}
+			state.WidgetCandidates = append(state.WidgetCandidates, widgets.Candidate{Sample: sample, ProtocolVersion: version, Contract: c.panel.DataContract, ID: c.id, PanelID: c.panel.ID, Title: c.panel.Title, Hash: c.artifact.Hash, ExpiresAt: c.expires.UTC().Format(time.RFC3339Nano)})
 			state.WidgetTransfer.Artifacts = append(state.WidgetTransfer.Artifacts, *c.artifact)
 		}
 	}
@@ -228,6 +242,7 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 			return errors.New("组件候选已过期")
 		}
 		a.cancelWidgetCandidate(command.PanelID)
+		a.cancelPipeline(command.PanelID)
 		a.widgetNotice("已取消组件修改，原版本保持运行")
 		return nil
 	case "widget-ready", "widget-failed":
@@ -240,16 +255,7 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 		if d == nil {
 			return errors.New("缺少已保存的组件")
 		}
-		spec := agent.PanelSpec{ID: d.ID, ExpectedRevision: d.Revision, Type: "monitor", Purpose: "realtime", Title: d.Title, Command: d.Command, IntervalMS: int(d.IntervalMS), AllowAIRead: d.AllowAIRead, Data: &d.Contract, View: &d.View}
-		operation := "create"
-		if d.ID != "" {
-			operation = "update"
-		}
-		_, message, err := a.executePanelAction(agent.PanelAction{Action: operation, Panel: spec})
-		if err == nil {
-			a.widgetNotice(message)
-		}
-		return err
+		return a.restorePipeline(*d)
 
 	case "prompt":
 		prompt := strings.TrimSpace(command.Text)
@@ -312,6 +318,7 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 				return err
 			}
 			a.cancelWidgetCandidate(command.PanelID)
+			a.cancelPipeline(command.PanelID)
 			delete(a.monitorActive, command.PanelID)
 			delete(a.monitorLast, command.PanelID)
 		} else {
@@ -322,4 +329,15 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 	}
 	a.dirty = true
 	return nil
+}
+
+func (a *App) pipelineSaveSafe(p *panel.Panel) bool {
+	if a.safeText(p.Command) != p.Command {
+		return false
+	}
+	if p.Pipeline != nil {
+		data, _ := json.Marshal(p.Pipeline)
+		return a.safeText(string(data)) == string(data)
+	}
+	return true
 }

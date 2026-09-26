@@ -55,7 +55,7 @@ func Save(dir, host string, d Definition) error {
 	if err := d.View.Validate(); err != nil {
 		return err
 	}
-	if err := d.Contract.Validate(); err != nil {
+	if err := d.ValidateData(); err != nil {
 		return err
 	}
 	if len(d.Command) > 64<<10 || len(d.Title) > 256 {

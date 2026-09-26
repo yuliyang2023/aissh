@@ -18,6 +18,9 @@ func (a *App) applyPanelAction(action agent.PanelAction) {
 	role := "system"
 	if err != nil {
 		role = "error"
+		if action.Panel.Pipeline != nil || action.Action == "probe" || action.Action == "map" || action.Panel.View != nil && action.Panel.View.Kind == "custom" {
+			a.pipelineReply("操作失败 panel=" + action.Panel.ID + " stage=" + action.Action + ": " + err.Error())
+		}
 		message = a.t("监控面板操作失败（%s / %s）：%s", action.Action, action.Panel.ID, err.Error())
 	}
 	message = a.safeText(message)
@@ -54,6 +57,9 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 	}
 	if item != nil && (item.Origin != panel.OriginAI || item.Pinned) {
 		return nil, "", fmt.Errorf("%s", a.t("AI 只能修改或关闭自己创建的非固定面板"))
+	}
+	if operation == "probe" || operation == "map" || (operation == "create" || operation == "update" || operation == "open") && (spec.Pipeline != nil || item != nil && item.Pipeline != nil) {
+		return a.executePipelineAction(operation, spec)
 	}
 	switch operation {
 	case "open", "create", "update":
@@ -145,11 +151,20 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 			}
 		}
 		needsWidget := spec.View != nil && spec.View.Kind == "custom" || candidate.Widget != nil
+		if needsWidget && spec.View != nil && spec.View.SDKVersion == 2 {
+			return nil, "", fmt.Errorf("需要首采：先提交 pipeline probe、map，再使用 mapId 创建 v2 面板")
+		}
+		if needsWidget && item == nil && a.config.DesktopUI {
+			return nil, "", fmt.Errorf("新组件需要 v2 首采管线：请先 probe、map，不再接受直接生成 v1 组件")
+		}
 		if needsWidget && candidate.DataContract == nil {
 			return nil, "", fmt.Errorf("自定义组件需要 data 契约")
 		}
 		contractChanged := item != nil && !reflect.DeepEqual(item.DataContract, candidate.DataContract)
 		commandChanged := candidate.Command != command
+		if needsWidget && item != nil && item.Widget != nil && (commandChanged || contractChanged) {
+			return nil, "", fmt.Errorf("修改旧组件的数据源需要 v2 首采验证：请先 probe、map，再提交 sdkVersion=2 组件")
+		}
 		candidate.Command = command
 		if commandChanged || contractChanged {
 			candidate.WidgetData = widgets.Data{}
@@ -204,6 +219,7 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 		item.Status, item.Unread = a.t("AI 更新"), true
 		return item, a.t("监控面板内容已追加：%s（%s）", item.Title, item.ID), nil
 	case "close":
+		a.cancelPipeline(spec.ID)
 		a.cancelWidgetCandidate(spec.ID)
 		delete(a.monitorActive, spec.ID)
 		if err := a.panels.Close(spec.ID, panel.OriginAI); err != nil {
@@ -223,7 +239,7 @@ func (a *App) addPanelContext(request *agent.Request) {
 		request.SystemContext = make(map[string]string)
 	}
 	if a.config.DesktopUI {
-		request.SystemContext["monitorWidgetV1"] = agent.WidgetGuidance
+		request.SystemContext["monitorWidgetV2"] = agent.WidgetV2Guidance
 	}
 	request.SystemContext["monitor_panel_rules"] = "面板操作是否成功，以 monitor_panel_result 和 monitor_panel_state 为准；创建成功不代表采集成功。自定义 command 优先于 collector；使用自定义命令时 collector 留空。update 可修改采集配置，面板不存在时需提供 command 或有效 collector 才能创建。"
 	for index, result := range a.panelActionResults {
@@ -240,6 +256,9 @@ func (a *App) addPanelContext(request *agent.Request) {
 		if item.Widget != nil {
 			state["view"] = item.Widget.View
 			state["data"] = item.DataContract
+			if item.Pipeline != nil {
+				state["pipeline"] = item.Pipeline
+			}
 		}
 		if item.AllowAIRead {
 			state["command"] = agent.LimitOutputContext(a.safeText(item.Command), 500)

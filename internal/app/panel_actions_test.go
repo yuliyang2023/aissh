@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,25 @@ import (
 )
 
 const mysqlProcessCommand = "ps -C mysqld,mariadbd -o pid,comm,etime,pcpu,pmem,rss,nlwp,stat"
+
+func TestCreateMySQLMonitorWithSafeIntegerComparison(t *testing.T) {
+	command, err := os.ReadFile("../policy/testdata/mysql_widget_monitor.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := desktopTestApp(t)
+	action := agent.PanelAction{Action: "create", Panel: agent.PanelSpec{
+		ID: "live-mysql", Purpose: "realtime", Type: "monitor", Title: "MySQL 状态",
+		Command: string(command), IntervalMS: 5000,
+	}}
+	item, _, err := a.executePanelAction(action)
+	if err != nil || item == nil {
+		t.Fatalf("original MySQL collector could not be created: %v", err)
+	}
+	if item.Command != strings.TrimSpace(string(command)) || item.Interval != 5*time.Second {
+		t.Fatal("policy normalization changed the actual collector")
+	}
+}
 
 func mysqlPanelAction(operation string) agent.PanelAction {
 	return agent.PanelAction{Action: operation, Panel: agent.PanelSpec{

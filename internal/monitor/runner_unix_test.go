@@ -52,3 +52,24 @@ func TestRunnerRemovesStartupMarkerAndPreservesShellQuoting(t *testing.T) {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 }
+
+func TestCapturePreservesStreamsAndExitEvidence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ssh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nfor arg do command=$arg; done\nexec sh -c \"$command\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	r := Runner{SSHPath: path, Parsed: sshwrap.Parsed{Target: "server"}}
+	c, err := r.Capture(context.Background(), "printf 'raw\\n'; printf warning >&2")
+	if err != nil || !c.Good() || c.Stdout != "raw\n" || c.Stderr == nil || *c.Stderr != "warning" || c.Streams != "separate" || c.DurationMS < 0 {
+		t.Fatalf("lost capture %+v %v", c, err)
+	}
+	c, err = r.Capture(context.Background(), "printf diagnostic >&2; exit 7")
+	if err == nil || c.Good() || c.ExitCode == nil || *c.ExitCode != 7 || c.Status != "exit_error" || !c.Complete {
+		t.Fatalf("lost failed capture %+v %v", c, err)
+	}
+	r.Timeout = 50 * time.Millisecond
+	c, err = r.Capture(context.Background(), "exec sleep 20")
+	if err == nil || c.Good() || c.Complete || c.Status != "timeout" || c.ExitCode != nil {
+		t.Fatalf("timeout evidence %+v %v", c, err)
+	}
+}

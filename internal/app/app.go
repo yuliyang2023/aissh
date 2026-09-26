@@ -75,6 +75,14 @@ const DefaultSSHKeepalive = 30 * time.Second
 const AlwaysYesRiskAssessmentPasses = 3
 
 type App struct {
+	pipelineSequence      uint64
+	pipelineSession       string
+	pipelineGeneration    uint64
+	pipelineDrafts        map[string]*pipelineDraft
+	pipelineBatches       map[string]*pipelineBatch
+	pipelineFeedback      []string
+	pipelineContinuations int
+
 	config Config
 	parsed sshwrap.Parsed
 
@@ -708,6 +716,7 @@ func (a *App) handleEvent(event interface{}) {
 		_ = a.updateSize()
 		a.dirty = true
 	case sshExitEvent:
+		a.invalidatePipelines()
 		a.terminalErr = value.err
 		if !a.terminalDone && value.err != nil {
 			a.appendPersistentChat(chatMessage{Role: "system", Content: a.t("SSH 已结束：%s", value.err.Error()), Time: time.Now()})
@@ -841,6 +850,8 @@ func (a *App) handleOutput(data []byte) {
 func (a *App) scheduleMonitors() {
 	now := time.Now()
 	a.expireWidgetCandidates(now)
+	a.schedulePipelines(now)
+	a.continuePipelineAI()
 	if a.monitorViaPrimary {
 		a.scheduleInBandMonitor(now)
 		return
@@ -849,7 +860,7 @@ func (a *App) scheduleMonitors() {
 		if item.Kind != panel.KindMonitor && item.Kind != panel.KindTable && item.Kind != panel.KindLog {
 			continue
 		}
-		if item.Command == "" || a.monitorActive[item.ID] {
+		if item.Pipeline != nil || item.Command == "" || a.monitorActive[item.ID] {
 			continue
 		}
 		interval := item.Interval
@@ -875,6 +886,10 @@ func (a *App) scheduleMonitors() {
 }
 
 func (a *App) applyMonitorResult(value monitorResultEvent) {
+	if value.pipelineID != "" {
+		a.applyPipelineResult(value)
+		return
+	}
 	item := a.panels.ByID(value.panelID)
 	if value.binding != "" && (item == nil || item.BindingID != value.binding || item.SourceRevision != value.revision || item.RunID != value.runID) {
 		if item != nil && item.BindingID == value.binding && item.RunID == value.runID {

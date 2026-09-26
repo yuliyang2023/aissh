@@ -47,7 +47,7 @@ func TestWidgetCandidateAtomicCommitAndFreshData(t *testing.T) {
 func TestWidgetPreviewFailureAndCloseRetainTruth(t *testing.T) {
 	a, p := fixtureWidget(t)
 	original := p.Command
-	action := agent.PanelAction{Action: "update", Panel: agent.PanelSpec{ID: p.ID, Command: "printf 'n=99'", ExpectedRevision: p.DefinitionRevision}}
+	action := agent.PanelAction{Action: "update", Panel: agent.PanelSpec{ID: p.ID, Title: "failed layout", ExpectedRevision: p.DefinitionRevision}}
 	if _, _, err := a.executePanelAction(action); err != nil {
 		t.Fatal(err)
 	}
@@ -73,14 +73,12 @@ func TestWidgetRejectsOldSourceAndKeepsFailedSamplesUnknown(t *testing.T) {
 	a, p := fixtureWidget(t)
 	p.RunID = 4
 	old := monitorResultEvent{panelID: p.ID, binding: p.BindingID, revision: p.SourceRevision, runID: 4, command: p.Command, content: "n=999"}
-	for _, cmd := range []string{"printf 'n=2'", p.Command} {
-		if _, _, err := a.executePanelAction(agent.PanelAction{Action: "update", Panel: agent.PanelSpec{ID: p.ID, Command: cmd, ExpectedRevision: p.DefinitionRevision}}); err != nil {
-			t.Fatal(err)
-		}
-		if err := a.finishWidget(p.ID, a.widgetCandidates[p.ID].id, ""); err != nil {
-			t.Fatal(err)
-		}
+	if _, _, err := a.executePanelAction(agent.PanelAction{Action: "update", Panel: agent.PanelSpec{ID: p.ID, Command: "printf 'n=2'", ExpectedRevision: p.DefinitionRevision}}); err == nil {
+		t.Fatal("legacy source edit bypassed v2 first capture")
 	}
+	// Simulate a restored legacy definition to exercise rejection of late v1
+	// results. New AI source edits above are required to use the v2 transaction.
+	p.SourceRevision += 2
 	p.RunID = 5
 	a.monitorActive[p.ID] = true
 	a.applyMonitorResult(old)

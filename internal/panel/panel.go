@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"git.example.com/ai/wrd-ai-cli/internal/monitorplan"
 	"git.example.com/ai/wrd-ai-cli/internal/widgets"
 	"strings"
 	"time"
@@ -29,6 +30,10 @@ const (
 )
 
 type Panel struct {
+	Pipeline         *monitorplan.Definition
+	PipelineEngine   *monitorplan.Engine
+	PipelineCaptures map[string]monitorplan.Capture
+
 	Widget             *widgets.Artifact
 	DataContract       *widgets.Contract
 	WidgetData         widgets.Data

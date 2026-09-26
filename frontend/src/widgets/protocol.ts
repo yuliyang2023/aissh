@@ -6,6 +6,8 @@ export interface WidgetMeta {
   sequence: number;
 }
 export interface WidgetCandidate {
+  protocolVersion?: number;
+  sample?: WidgetData;
   data?: { format: string; fields: { name: string; type: string; nullable: boolean }[] };
   id: string;
   panelId: string;

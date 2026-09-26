@@ -11,13 +11,17 @@ import (
 )
 
 type widgetCandidate struct {
-	id           string
-	panel        panel.Panel
-	baseRevision uint64
-	baseBinding  string
-	expires      time.Time
-	cancel       context.CancelFunc
-	artifact     *widgets.Artifact
+	requiresSample     bool
+	pipelineRefreshes  int
+	pipelineRefreshing bool
+	compileID          string
+	id                 string
+	panel              panel.Panel
+	baseRevision       uint64
+	baseBinding        string
+	expires            time.Time
+	cancel             context.CancelFunc
+	artifact           *widgets.Artifact
 }
 type widgetCompiledEvent struct {
 	panelID, id string
@@ -52,6 +56,7 @@ func (a *App) prepareWidget(candidate panel.Panel, view *widgets.View) (*panel.P
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	c := &widgetCandidate{id: catalog.NewID(), panel: candidate, baseRevision: base, baseBinding: binding, expires: time.Now().Add(30 * time.Second), cancel: cancel}
+	c.compileID = c.id
 	a.widgetCandidates[candidate.ID] = c
 	if view == nil {
 		c.artifact = candidate.Widget
@@ -70,10 +75,13 @@ func (a *App) prepareWidget(candidate panel.Panel, view *widgets.View) (*panel.P
 }
 func (a *App) widgetCompiled(e widgetCompiledEvent) {
 	c := a.widgetCandidates[e.panelID]
-	if c == nil || c.id != e.id {
+	if c == nil || c.compileID != e.id {
 		return
 	}
 	if e.err != nil {
+		if c.panel.Pipeline != nil {
+			a.pipelineReply("组件编译失败 panel=" + e.panelID + ": " + e.err.Error())
+		}
 		a.widgetNotice("组件未生效：" + e.err.Error())
 		a.cancelWidgetCandidate(e.panelID)
 		return
@@ -110,12 +118,30 @@ func (a *App) finishWidget(panelID, candidateID, diagnostic string) error {
 		return fmt.Errorf("组件候选已过期")
 	}
 	if diagnostic != "" {
+		if c.panel.Pipeline != nil {
+			a.pipelineReply("真实数据渲染预检失败 panel=" + panelID + ": " + diagnostic)
+		}
 		a.widgetNotice("组件未生效：" + diagnostic)
 		a.cancelWidgetCandidate(panelID)
 		return nil
 	}
 	if c.artifact == nil {
 		return fmt.Errorf("组件尚未编译完成")
+	}
+	if c.requiresSample && c.panel.WidgetData.Sequence == 0 {
+		return fmt.Errorf("缺少真实采样")
+	}
+	if c.panel.Pipeline != nil {
+		if c.pipelineRefreshing {
+			return fmt.Errorf("真实采样正在刷新")
+		}
+		if c.panel.WidgetData.Sequence == 0 {
+			return fmt.Errorf("缺少真实数据预检样本")
+		}
+		if pipelineStale(c.panel, time.Now()) {
+			a.refreshPipelineCandidate(c)
+			return nil
+		}
 	}
 	old := a.panels.ByID(panelID)
 	if old == nil && c.baseRevision != 0 || old != nil && (old.DefinitionRevision != c.baseRevision || old.BindingID != c.baseBinding) {
@@ -138,6 +164,10 @@ func (a *App) finishWidget(panelID, candidateID, diagnostic string) error {
 		candidate.RefreshCount = old.RefreshCount
 		candidate.WidgetData = old.WidgetData
 		candidate.RunID = old.RunID
+		if candidate.Pipeline != nil {
+			candidate.PipelineEngine = old.PipelineEngine
+			candidate.PipelineCaptures = old.PipelineCaptures
+		}
 	}
 	candidate.WidgetData.IntervalMS = candidate.Interval.Milliseconds()
 	if old == nil {
@@ -146,7 +176,16 @@ func (a *App) finishWidget(panelID, candidateID, diagnostic string) error {
 		*old = candidate
 	}
 	a.cancelWidgetCandidate(panelID)
-	delete(a.monitorLast, panelID)
+	if candidate.Pipeline == nil {
+		delete(a.monitorLast, panelID)
+	} else {
+		a.monitorLast[panelID] = candidate.LastUpdated
+		delete(a.pipelineDrafts, panelID)
+	}
+	if candidate.Pipeline != nil {
+		a.widgetNotice(fmt.Sprintf("监控面板已生效：%s（%s）；真实 SSH 首采、映射及渲染预检通过", candidate.Title, panelID))
+		return nil
+	}
 	a.widgetNotice(fmt.Sprintf("自定义组件已生效：%s（%s），版本 %d；真实采集状态以面板为准", candidate.Title, panelID, candidate.DefinitionRevision))
 	return nil
 }

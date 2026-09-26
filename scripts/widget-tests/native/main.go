@@ -56,10 +56,19 @@ func main() {
 	if err != nil || len(workers) != 1 {
 		panic("build frontend before native smoke test")
 	}
-	a, err := widgets.Compile(widgets.View{Kind: "custom", SDKVersion: 1, StateVersion: 1, Source: `import {defineWidget,MetricCard} from '@wrd/monitor-ui'; export default defineWidget({render({data}){return <MetricCard label="native" value={data?.n??null}/>}})`})
+	var fixture struct {
+		Artifact widgets.Artifact `json:"artifact"`
+		Sample   widgets.Data     `json:"sample"`
+	}
+	raw, err := os.ReadFile(".cache/widget-v2-fixture.json")
 	if err != nil {
 		panic(err)
 	}
+	if err = json.Unmarshal(raw, &fixture); err != nil {
+		panic(err)
+	}
+	a := fixture.Artifact
+	sample, _ := json.Marshal(fixture.Sample)
 	init, _ := json.Marshal(map[string]any{"kind": "init", "sequence": 1, "bundle": a.Bundle})
 	worker, _ := json.Marshal("/" + workers[0])
 	html := `<!doctype html><html><head><meta charset="utf-8"></head><body>Testing native widget runtime<script>
@@ -68,7 +77,7 @@ const report=(ok,detail)=>window.go.main.Smoke.Report(ok,String(detail));
 try {
  const worker=new Worker(` + string(worker) + `,{type:'module'});
  worker.onerror=e=>report(false,'Worker: '+e.message);
- worker.onmessage=e=>{const m=e.data;if(m.error){report(false,m.error);return}if(m.ready){worker.postMessage({kind:'render',sequence:2,data:{data:{n:42},history:[],issues:[]}})}else{report(m.tree?.[0]?.props?.value===42,location.href+' rendered '+JSON.stringify(m.tree));worker.terminate()}};
+ worker.onmessage=e=>{const m=e.data;if(m.error){report(false,m.error);return}if(m.ready){worker.postMessage({kind:'render',sequence:2,data:` + string(sample) + `})}else{report(m.tree?.[0]?.children?.[1]?.props?.value===2&&m.tree?.[0]?.children?.[2]?.props?.value===30,location.href+' rendered '+JSON.stringify(m.tree));worker.terminate()}};
  worker.postMessage(` + string(init) + `);
 }catch(e){report(false,e.stack||e)}
 });</script></body></html>`

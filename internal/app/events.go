@@ -1,6 +1,7 @@
 package app
 
 import (
+	"git.example.com/ai/wrd-ai-cli/internal/monitorplan"
 	"time"
 
 	"git.example.com/ai/wrd-ai-cli/internal/agent"
@@ -12,6 +13,8 @@ type inputEvent struct{ data []byte }
 type resizeEvent struct{}
 type sshExitEvent struct{ err error }
 type monitorResultEvent struct {
+	pipelineID      string
+	capture         *monitorplan.Capture
 	binding         string
 	revision, runID uint64
 

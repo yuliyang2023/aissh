@@ -18,7 +18,7 @@ import (
 	"git.example.com/ai/wrd-ai-cli/internal/i18n"
 )
 
-const codexResponseSchema = `{
+var codexResponseSchema = withPipelineSchema(`{
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -328,7 +328,7 @@ const codexResponseSchema = `{
     "proposal",
     "panelActions"
   ]
-}`
+}`)
 
 type codexResponse struct {
 	Type         string        `json:"type"`
@@ -964,7 +964,7 @@ func buildCodexContinuationPrompt(request Request, input string) string {
 // Capability protocols are instructions, not log tails. Trimming this one
 // removed the imports and entry point while leaving only the UI restrictions.
 func promptContextValue(key, value string) string {
-	if key == "monitorWidgetV1" {
+	if key == "monitorWidgetV1" || key == "monitorWidgetV2" || key == "monitor_pipeline_receipt" || strings.HasPrefix(key, "monitor_panel_state_") {
 		return value
 	}
 	return trimText(value, 1000)

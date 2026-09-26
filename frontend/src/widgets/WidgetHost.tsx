@@ -44,12 +44,29 @@ export function WidgetPreviews({
         try {
           const a = await api.GetWidgetArtifact(sessionId, c.hash);
           await client.init(a);
+          if (c.sample) {
+            stage = '真实 SSH 数据';
+            await client.render(c.sample);
+          }
+          if (c.protocolVersion === 2) {
+            stage = '真实 SSH 数据';
+            if (!c.sample?.sequence || !c.sample.data) throw new Error('缺少真实 SSH 映射样本');
+            await client.render(c.sample);
+            stage = '未知指标状态';
+            const unknown = Object.fromEntries(Object.entries(c.sample.data).map(([key, value]) => {
+              const field = value as Record<string, unknown>;
+              return [key, { ...field, ...(Object.hasOwn(field, 'rows') ? { rows: null } : { value: null }), quality: 'unknown', reason: '采集失败' }];
+            }));
+            await client.render({ ...c.sample, data: unknown, error: '采集失败' });
+            stage = '过期数据状态';
+            await client.render({ ...c.sample, data: null, lastGood: c.sample.data, error: '数据已过期' });
+          }
           stage = '无采样数据';
           await client.render(empty);
           stage = '采集失败状态';
           await client.render({ ...empty, error: '采集失败' });
           for (const n of [0, 1, 1000000]) {
-            if (!c.data) break;
+            if (c.protocolVersion === 2 || !c.data) break;
             stage = `契约样例 ${n}`;
             const fixture = Object.fromEntries(
               c.data.fields.map((f) => [

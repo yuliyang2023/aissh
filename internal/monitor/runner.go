@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"git.example.com/ai/wrd-ai-cli/internal/monitorplan"
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
 	"git.example.com/ai/wrd-ai-cli/internal/sshwrap"
 	"git.example.com/ai/wrd-ai-cli/internal/terminalview"
@@ -69,8 +70,23 @@ func CanRetryViaPrimary(err error) bool {
 }
 
 func (r Runner) Run(ctx context.Context, command string) (string, error) {
+	c, err := r.Capture(ctx, command)
+	if err != nil {
+		return "", err
+	}
+	return r.Format(command, c.Stdout), nil
+}
+
+// Capture preserves raw streams and execution evidence for both first sampling
+// and recurring collection. Formatting is deliberately outside this boundary.
+func (r Runner) Capture(ctx context.Context, command string) (capture monitorplan.Capture, resultErr error) {
+	capture = monitorplan.Capture{StartedAt: time.Now(), Transport: "ssh-exec", Streams: "separate", Status: "disconnected"}
+	defer func() {
+		capture.FinishedAt = time.Now()
+		capture.DurationMS = capture.FinishedAt.Sub(capture.StartedAt).Milliseconds()
+	}()
 	if strings.TrimSpace(command) == "" {
-		return "", fmt.Errorf("monitor command is empty")
+		return capture, fmt.Errorf("monitor command is empty")
 	}
 	timeout := r.Timeout
 	if timeout <= 0 {
@@ -83,11 +99,9 @@ func (r Runner) Run(ctx context.Context, command string) (string, error) {
 		args = append(args, "-o", "ControlPath="+r.ControlPath)
 	}
 	args = append(args, r.Parsed.MonitorArgs()...)
-	// A private startup marker distinguishes SSH setup timeouts from slow
-	// commands. Only setup failures may retry through the authenticated shell.
 	var token [16]byte
 	if _, err := rand.Read(token[:]); err != nil {
-		return "", err
+		return capture, err
 	}
 	marker := "AISSH_MONITOR_START_" + hex.EncodeToString(token[:])
 	wrapped := "printf '\\036" + marker + "\\037'; exec sh -c '" + strings.ReplaceAll(command, "'", "'\"'\"'") + "'"
@@ -101,38 +115,47 @@ func (r Runner) Run(ctx context.Context, command string) (string, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
-	if stdout.exceeded || stderr.exceeded {
-		return "", fmt.Errorf("监控输出超过 256 KiB")
+	markerBytes := []byte("\x1e" + marker + "\x1f")
+	started := bytes.Contains(stdout.Bytes(), markerBytes)
+	capture.Stdout = string(bytes.Replace(stdout.Bytes(), markerBytes, nil, 1))
+	errorText := stderr.String()
+	capture.Stderr = &errorText
+	if stdout.exceeded || stderr.exceeded || len(capture.Stdout)+len(errorText) > monitorplan.MaxRaw {
+		capture.Status = "too_large"
+		return capture, fmt.Errorf("监控输出超过 256 KiB")
 	}
-	data := stdout.Bytes()
-	if err != nil {
-		data = append(data, stderr.Bytes()...)
-	}
-	startMarker := []byte("\x1e" + marker + "\x1f")
-	started := bytes.Contains(data, startMarker)
-	data = bytes.Replace(data, startMarker, nil, 1)
 	if ctx.Err() != nil {
-		return "", ctx.Err()
+		return capture, ctx.Err()
 	}
 	if queryContext.Err() != nil {
-		return "", &RunError{Message: "monitor query timed out", ExitCode: -1, CommandStarted: started, ConnectionTimeout: !started}
+		capture.Status = "timeout"
+		return capture, &RunError{Message: "monitor query timed out", ExitCode: -1, CommandStarted: started, ConnectionTimeout: !started}
 	}
 	if err != nil {
-		message := strings.TrimSpace(string(data))
+		message := strings.TrimSpace(capture.Stdout + errorText)
 		if message == "" {
 			message = err.Error()
 		}
-		exitCode := -1
+		code := -1
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
+			code = exitErr.ExitCode()
 		}
-		return "", &RunError{
-			Message: message, ExitCode: exitCode, CommandStarted: started,
-			ConnectionTimeout: !started && exitCode == 255 && strings.Contains(strings.ToLower(message), "timed out"),
+		if started && code >= 0 && code != 255 {
+			capture.ExitCode = &code
+			capture.Status = "exit_error"
+			capture.Complete = true
 		}
+		return capture, &RunError{Message: message, ExitCode: code, CommandStarted: started, ConnectionTimeout: !started && code == 255 && strings.Contains(strings.ToLower(message), "timed out")}
 	}
-	return r.Format(command, strings.TrimSpace(string(data))), nil
+	if !started {
+		return capture, fmt.Errorf("missing SSH command startup marker")
+	}
+	code := 0
+	capture.ExitCode = &code
+	capture.Status = "ok"
+	capture.Complete = true
+	return capture, nil
 }
 
 // Format applies the same presentation rules to output collected through an
