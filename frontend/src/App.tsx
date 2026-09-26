@@ -23,6 +23,7 @@ import {
   Play,
   Globe,
   Settings,
+  Activity,
 } from 'lucide-react';
 import {
   AIProfile,
@@ -55,6 +56,7 @@ import { Conversations, conversationKey } from './Conversations';
 import { NewConversation, NewConversationInput } from './NewConversation';
 import { primaryModifier } from './platform';
 import { KnowledgeLibrary } from './Knowledge';
+import { Monitoring } from './Monitoring';
 
 type SettingsPage = 'hosts' | 'credentials' | 'ai';
 type Page = SettingsPage | 'resources' | 'knowledge' | 'conversations' | 'terminal';
@@ -82,6 +84,7 @@ export function App() {
   const [data, setData] = useState<Catalog>(emptyCatalog);
   const connectionHosts = allHosts(data);
   const [page, setPage] = useState<Page>('conversations');
+  const [monitorInventoryRequest, setMonitorInventoryRequest] = useState(0);
   const [sidebarVisible, setSidebarVisible] = useStoredFlag('aissh.sidebar.visible', true);
   const [lastSettings, setLastSettings] = useState<SettingsPage>('hosts');
   const isSettings = settingsPages.some((item) => item.id === page);
@@ -633,6 +636,13 @@ export function App() {
         <div className="session-sidebar-footer">
           <nav aria-label="管理菜单">
             <button
+              className="settings-entry"
+              onClick={() => setMonitorInventoryRequest((v) => v + 1)}
+            >
+              <Activity size={18} />
+              <span>告警监控</span>
+            </button>
+            <button
               className={'settings-entry ' + (page === 'resources' ? 'selected' : '')}
               aria-current={page === 'resources' ? 'page' : undefined}
               onClick={() => goto('resources')}
@@ -691,6 +701,16 @@ export function App() {
             </span>
           </div>
           <div className="toolbar-actions">
+            <Monitoring
+              inventoryRequest={monitorInventoryRequest}
+              sessions={sessions}
+              activeSession={activeSession}
+              onOpenSession={(id) => {
+                const session = sessions.find((s) => s.id === id);
+                if (session) openSession(session);
+                else setError('该会话已移除，请重新连接对应服务器');
+              }}
+            />
             {!isManagement && page === 'terminal' && activeConversation && (
               <button
                 className="button"

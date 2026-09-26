@@ -1,7 +1,9 @@
 import { useId, useRef, useState } from 'react';
-import { Activity, ChevronDown, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react';
+import { Activity, ChevronDown, Maximize2, Minimize2, RefreshCw, X, Sparkles } from 'lucide-react';
 import { MonitorPanel, WorkbenchCommand } from './api';
 import { useStoredFlag } from './layout';
+import { realtimePrompt } from './monitoring-api';
+import { ShellCode } from './ShellCode';
 
 export type MonitorSize = 'normal' | 'large' | 'maximized';
 
@@ -41,6 +43,7 @@ export function Monitor({
   size = 'normal',
   onSizeChange,
   onAction,
+  aiReady = true,
 }: {
   panels: MonitorPanel[];
   online: boolean;
@@ -49,6 +52,7 @@ export function Monitor({
   size?: MonitorSize;
   onSizeChange?: (size: MonitorSize) => void;
   onAction: (command: WorkbenchCommand) => Promise<boolean>;
+  aiReady?: boolean;
 }) {
   const detailsId = useId();
   const [expanded, setExpanded] = useStoredFlag('aissh.monitor.expanded', true);
@@ -58,6 +62,8 @@ export function Monitor({
   const [selected, setSelected] = useState('system');
   const [custom, setCustom] = useState(false);
   const [command, setCommand] = useState('');
+  const [aiOpen, setAIOpen] = useState(false);
+  const [aiPrompt, setAIPrompt] = useState('');
   const current = panels.find((p) => p.id === selected) || panels[0];
   const overview = panels.find((p) => p.id === 'system');
   const metrics = overviewValues(overview?.content);
@@ -75,7 +81,7 @@ export function Monitor({
   return (
     <section
       className="native-monitor"
-      aria-label="服务器监控"
+      aria-label="实时面板"
       onKeyDown={(event) => {
         if (
           event.key === 'Escape' &&
@@ -93,7 +99,7 @@ export function Monitor({
       <div className="monitor-toolbar">
         <button
           className="monitor-heading"
-          title={showDetails ? '收起服务器监控' : '展开服务器监控'}
+          title={showDetails ? '收起实时面板' : '展开实时面板'}
           aria-expanded={showDetails}
           aria-controls={detailsId}
           onClick={() => {
@@ -102,7 +108,7 @@ export function Monitor({
           }}
         >
           <Activity size={16} />
-          <strong>服务器监控</strong>
+          <strong>实时面板</strong>
           <span className={'monitor-health ' + (failed || stale || !online ? 'warning' : '')}>
             {status}
           </span>
@@ -167,6 +173,14 @@ export function Monitor({
                 </button>
               ))}
             </div>
+            <button
+              className="button small"
+              disabled={!online || pending || !aiReady}
+              onClick={() => setAIOpen(!aiOpen)}
+            >
+              <Sparkles size={13} />
+              AI 添加面板
+            </button>
             <select
               aria-label="添加监控"
               disabled={!online || pending}
@@ -195,6 +209,44 @@ export function Monitor({
               ))}
             </select>
           </div>
+          {aiOpen && (
+            <form
+              className="monitor-ai-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!aiPrompt.trim() || !aiReady || pending) return;
+                if (await onAction({ kind: 'prompt', text: realtimePrompt(aiPrompt) })) {
+                  setAIOpen(false);
+                  setAIPrompt('');
+                }
+              }}
+            >
+              <label>
+                描述你想查看的数据
+                <textarea
+                  aria-label="AI 实时面板需求"
+                  rows={2}
+                  required
+                  maxLength={4000}
+                  placeholder="例如：每 5 秒展示 nginx 的进程数、CPU 和内存占用"
+                  value={aiPrompt}
+                  onChange={(e) => setAIPrompt(e.target.value)}
+                />
+              </label>
+              <div>
+                <small>AI 会在下方对话中创建实时面板。异常提醒请到侧栏「告警监控」添加。</small>
+                <button
+                  className="button primary small"
+                  disabled={!online || pending || !aiReady || !aiPrompt.trim()}
+                >
+                  让 AI 创建
+                </button>
+                <button type="button" className="button small" onClick={() => setAIOpen(false)}>
+                  取消
+                </button>
+              </div>
+            </form>
+          )}
           {custom && (
             <form
               className="monitor-custom"
@@ -225,6 +277,18 @@ export function Monitor({
                 <X size={14} />
               </button>
             </form>
+          )}
+          {current && (
+            <details className="realtime-collector-details" key={current.id}>
+              <summary>
+                采集配置 · 每 {Math.max(1, current.intervalMs / 1000)} 秒刷新 · 仅展示数据
+              </summary>
+              {current.command ? (
+                <ShellCode command={current.command} wrap />
+              ) : (
+                <p>尚未收到采集命令</p>
+              )}
+            </details>
           )}
           {current?.error && (
             <p className="monitor-warning" role="status">

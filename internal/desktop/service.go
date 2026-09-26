@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"git.example.com/ai/wrd-ai-cli/internal/alerts"
 	"git.example.com/ai/wrd-ai-cli/internal/catalog"
 	"git.example.com/ai/wrd-ai-cli/internal/history"
 	"git.example.com/ai/wrd-ai-cli/internal/resources"
@@ -30,6 +31,13 @@ type Service struct {
 	credentialRequests map[string]chan bool
 	executor           *resources.Executor
 	emit               func(string, ...any)
+	alertMu            sync.Mutex
+	alerts             *alerts.Engine
+	alertError         string
+	monitorCancel      context.CancelFunc
+	focusMain          func()
+	petMu              sync.Mutex
+	pet                *petProcess
 }
 type pendingScan struct {
 	check   sshauth.HostCheck
@@ -45,13 +53,23 @@ func New(store *catalog.Store) *Service {
 	case "0", "false", "off", "no":
 		dir = ""
 	}
-	return &Service{store: store, history: history.New(dir), ctx: context.Background(), scans: map[string]pendingScan{}, sessions: map[string]*terminalSession{}, credentialRequests: map[string]chan bool{}, executor: resources.New(store, "", "", nil), emit: func(string, ...any) {}}
+	s := &Service{store: store, history: history.New(dir), ctx: context.Background(), scans: map[string]pendingScan{}, sessions: map[string]*terminalSession{}, credentialRequests: map[string]chan bool{}, executor: resources.New(store, "", "", nil), emit: func(string, ...any) {}}
+	s.loadAlertPolicy()
+	return s
 }
 func Startup(s *Service, ctx context.Context) {
 	s.ctx = ctx
 	s.emit = func(name string, args ...any) { wails.EventsEmit(ctx, name, args...) }
+	s.focusMain = func() { wails.WindowShow(ctx); wails.WindowUnminimise(ctx) }
+	monitorCtx, cancel := context.WithCancel(ctx)
+	s.monitorCancel = cancel
+	go s.runAlerts(monitorCtx)
 }
 func Shutdown(s *Service) {
+	if s.monitorCancel != nil {
+		s.monitorCancel()
+	}
+	s.stopPet()
 	s.mu.Lock()
 	sessions := make([]*terminalSession, 0, len(s.sessions))
 	for _, session := range s.sessions {

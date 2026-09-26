@@ -35,6 +35,7 @@ func (a *App) desktopState() credentialui.WorkbenchState {
 		Status: a.safeText(a.agentStatus), Executing: a.execution != nil || a.executionRecovery,
 		CanApprove: a.desktopCanApprove(), ApprovalStatus: a.safeText(a.approvalStatus),
 		Messages: []credentialui.WorkbenchMessage{}, Panels: []credentialui.MonitorPanel{},
+		AlertMonitors: []credentialui.MonitorPanel{},
 	}
 	if a.proposal != nil {
 		p := *a.proposal
@@ -70,11 +71,24 @@ func (a *App) desktopState() credentialui.WorkbenchState {
 	}
 	if a.panels != nil {
 		for _, p := range a.panels.Panels() {
-			state.Panels = append(state.Panels, credentialui.MonitorPanel{
+			var alert *panel.AlertCondition
+			if p.Alert != nil {
+				copy := *p.Alert
+				copy.Pattern = a.safeText(copy.Pattern)
+				alert = &copy
+			}
+			entry := credentialui.MonitorPanel{
+				Command: a.safeText(p.Command), Origin: string(p.Origin), Collecting: a.monitorActive[p.ID],
+				Alert: alert, SampleContent: desktopText(a.safeText(p.SampleContent)), SourceRevision: p.SourceRevision,
 				ID: p.ID, Title: a.safeText(p.Title), Kind: string(p.Kind), Content: desktopText(a.safeText(p.Content)),
 				Status: a.safeText(p.Status), Error: a.safeText(p.LastError), UpdatedAt: p.LastUpdated.UTC().Format(time.RFC3339Nano),
 				IntervalMS: p.Interval.Milliseconds(), Pinned: p.Pinned,
-			})
+			}
+			if p.IsAlert() {
+				state.AlertMonitors = append(state.AlertMonitors, entry)
+			} else {
+				state.Panels = append(state.Panels, entry)
+			}
 		}
 	}
 	return state
@@ -155,7 +169,7 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 			a.rejectProposal()
 		}
 	case "monitor-open":
-		if len(a.panels.Panels()) >= 16 {
+		if a.panels.CountPurpose(false) >= 16 {
 			return errors.New("最多打开 16 个监控，请先关闭不用的监控")
 		}
 		var title, collector string
@@ -184,13 +198,19 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 			id = ""
 		}
 		a.panels.Open(panel.Panel{ID: id, Kind: panel.KindMonitor, Origin: panel.OriginUser, Title: title, Command: collector, Interval: interval, Target: a.parsed.Target, AllowAIRead: true})
-	case "monitor-close":
-		return a.panels.Close(command.PanelID, panel.OriginUser)
-	case "monitor-refresh":
-		if a.panels.ByID(command.PanelID) == nil {
-			return errors.New("监控不存在")
+	case "monitor-close", "alert-close", "monitor-refresh", "alert-refresh":
+		p := a.panels.ByID(command.PanelID)
+		if p == nil || p.IsAlert() != strings.HasPrefix(command.Kind, "alert-") {
+			return errors.New("对应的实时面板或告警任务不存在")
 		}
-		a.monitorLast[command.PanelID] = time.Time{}
+		if strings.HasSuffix(command.Kind, "-close") {
+			if err := a.panels.Close(command.PanelID, panel.OriginUser); err != nil {
+				return err
+			}
+			delete(a.monitorLast, command.PanelID)
+		} else {
+			a.monitorLast[command.PanelID] = time.Time{}
+		}
 	default:
 		return errors.New("未知的工作台操作")
 	}

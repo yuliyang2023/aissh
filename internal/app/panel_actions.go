@@ -37,6 +37,19 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 	spec := action.Panel
 	operation := strings.ToLower(strings.TrimSpace(action.Action))
 	item := a.panels.ByID(spec.ID)
+	purpose := strings.TrimSpace(spec.Purpose)
+	if purpose == "" {
+		purpose = "realtime"
+		if item != nil && item.IsAlert() {
+			purpose = "alert"
+		}
+	}
+	if purpose != "realtime" && purpose != "alert" {
+		return nil, "", fmt.Errorf("purpose 必须为 realtime（实时面板）或 alert（告警任务）")
+	}
+	if item != nil && item.IsAlert() != (purpose == "alert") {
+		return nil, "", fmt.Errorf("实时面板与告警任务不能互相覆盖，请使用新的 ID 创建独立任务")
+	}
 	if item != nil && (item.Origin != panel.OriginAI || item.Pinned) {
 		return nil, "", fmt.Errorf("%s", a.t("AI 只能修改或关闭自己创建的非固定面板"))
 	}
@@ -64,8 +77,8 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 		if err := policy.ValidateReadOnlyMonitorCommand(command); err != nil {
 			return nil, "", fmt.Errorf("%s", a.t("监控命令被只读策略拒绝：%s", err.Error()))
 		}
-		if item == nil && len(a.panels.Panels()) >= 16 {
-			return nil, "", fmt.Errorf("%s", a.t("最多打开 16 个监控，请先关闭不用的监控"))
+		if item == nil && a.panels.CountPurpose(purpose == "alert") >= 16 {
+			return nil, "", fmt.Errorf("实时面板与告警任务各最多 16 个，请先关闭同类中不用的项目")
 		}
 		// Validate the complete candidate before changing the live panel.
 		candidate := panel.Panel{ID: spec.ID, Kind: panel.KindMonitor, Origin: panel.OriginAI,
@@ -74,6 +87,7 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 		if item != nil {
 			candidate = *item
 		}
+		candidate.Purpose = purpose
 		if spec.Type != "" {
 			candidate.Kind = panelKind(spec.Type)
 		}
@@ -86,12 +100,27 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 				candidate.Interval = time.Second
 			}
 		}
+		if spec.Alert != nil {
+			if purpose != "alert" {
+				return nil, "", fmt.Errorf("实时面板不配置提醒，请使用 purpose=alert 和新 ID 创建独立告警任务")
+			}
+			if err := spec.Alert.Validate(); err != nil {
+				return nil, "", fmt.Errorf("提醒策略无效：%w", err)
+			}
+			copy := *spec.Alert
+			candidate.Alert = &copy
+		}
+		if purpose == "alert" && (candidate.Alert == nil || (created && !candidate.Alert.Enabled)) {
+			return nil, "", fmt.Errorf("创建告警任务必须配置有效且启用的 alert 条件")
+		}
 		if created || configUpdate {
 			candidate.AllowAIRead = spec.AllowAIRead
 		}
 		commandChanged := candidate.Command != command
 		candidate.Command = command
 		if commandChanged {
+			candidate.SourceRevision++
+			candidate.SampleContent = ""
 			candidate.Content, candidate.Status, candidate.LastError = "", "", ""
 			candidate.LastUpdated = time.Time{}
 			candidate.RefreshCount = 0
@@ -112,12 +141,23 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 		if created {
 			status = a.t("监控面板已创建：%s（%s），每 %g 秒刷新", item.Title, item.ID, item.Interval.Seconds())
 		}
+		if item.IsAlert() {
+			status = strings.ReplaceAll(strings.ReplaceAll(status, "监控面板", "告警任务"), "刷新", "检查")
+		}
+		if item.Alert != nil && item.Alert.Enabled {
+			if a.config.DesktopUI {
+				status += fmt.Sprintf("；已配置异常提醒（%s，持续 %d 秒触发，恢复持续 %d 秒）", item.Alert.Kind, item.Alert.ForSeconds, item.Alert.RecoverySeconds)
+			} else {
+				status += "；提醒条件已附加，自动告警需在桌面客户端运行"
+			}
+		}
 		return item, status, nil
 	case "append":
 		if item == nil {
 			return nil, "", fmt.Errorf("%s", a.t("监控面板不存在：%s；请使用 create 或提供完整的 update 配置", spec.ID))
 		}
-		a.panels.UpdateContent(item.ID, item.Content+"\n\n"+spec.Content, a.t("AI 更新"), false)
+		item.Content += "\n\n" + spec.Content
+		item.Status, item.Unread = a.t("AI 更新"), true
 		return item, a.t("监控面板内容已追加：%s（%s）", item.Title, item.ID), nil
 	case "close":
 		if err := a.panels.Close(spec.ID, panel.OriginAI); err != nil {
@@ -144,8 +184,9 @@ func (a *App) addPanelContext(request *agent.Request) {
 		return
 	}
 	for index, item := range a.panels.Panels() {
-		state := map[string]any{"id": item.ID, "title": item.Title, "origin": item.Origin,
+		state := map[string]any{"id": item.ID, "purpose": item.Purpose, "title": item.Title, "origin": item.Origin,
 			"intervalMs": item.Interval.Milliseconds(), "refreshCount": item.RefreshCount}
+		state["alert"] = item.Alert
 		if item.AllowAIRead {
 			state["command"] = agent.LimitOutputContext(a.safeText(item.Command), 500)
 			state["lastError"] = agent.LimitOutputContext(a.safeText(item.LastError), 200)

@@ -59,15 +59,29 @@ const codexResponseSchema = `{
             "additionalProperties": false,
             "properties": {
               "id": {"type": "string"},
+              "purpose": {"type": "string", "enum": ["realtime", "alert"], "description": "realtime 为实时展示面板，alert 为独立告警任务；两者不可共用 ID"},
               "type": {"type": "string", "enum": ["monitor", "log"]},
               "title": {"type": "string"},
               "collector": {"type": "string", "description": "内置采集器名称；使用自定义 command 时留空"},
               "command": {"type": "string", "description": "自定义只读采集命令，非空时优先于 collector；使用内置采集器时留空"},
               "intervalMs": {"type": "integer", "minimum": 0},
               "content": {"type": "string"},
-              "allowAIRead": {"type": "boolean"}
+              "allowAIRead": {"type": "boolean"},
+              "alert": {"anyOf": [
+                {"type":"null"},
+                {"type":"object", "additionalProperties":false, "properties": {
+                  "enabled":{"type":"boolean"},
+                  "kind":{"type":"string","enum":["match","not_match","above","below"]},
+                  "pattern":{"type":"string"},
+                  "threshold":{"type":"number"},
+                  "recoveryThreshold":{"type":"number"},
+                  "severity":{"type":"string","enum":["warning","critical"]},
+                  "forSeconds":{"type":"integer","minimum":0,"maximum":3600},
+                  "recoverySeconds":{"type":"integer","minimum":0,"maximum":3600}
+                }, "required":["enabled","kind","pattern","threshold","recoveryThreshold","severity","forSeconds","recoverySeconds"]}
+              ]}
             },
-            "required": ["id", "type", "title", "collector", "command", "intervalMs", "content", "allowAIRead"]
+            "required": ["id", "purpose", "type", "title", "collector", "command", "intervalMs", "content", "allowAIRead", "alert"]
           }
         },
         "required": ["action", "panel"]
@@ -652,6 +666,9 @@ func buildCodexPrompt(request Request, history []codexHistory, input string) str
 8. 只返回符合 JSON Schema 的对象，不要 Markdown 代码围栏。
 
 常用只读 collector：system.overview、process.top、disk.usage、network.sockets、service.status。
+实时展示和告警监控是两个独立用途。panel.purpose=realtime 仅创建工作台实时面板，alert 必须为 null，不触发桌宠；panel.purpose=alert 仅创建告警任务，必须配置有效且启用的 panel.alert，不创建实时面板。用户只要实时数据时不要创建告警任务；只要异常提醒时不要创建实时面板；用途不明确时先询问。用户同时需要两者时，使用不同 ID（建议 live- / alert- 前缀）创建两个任务，各自设置 command 和 intervalMs，不能复用或覆盖另一个用途的 ID。关闭、刷新或修改其中一个不会影响另一个。
+用户可以用自然语言创建任意只读监控，不限于内置 collector。用户明确要求异常提醒时，在 panelActions 的 panel.alert 配置该项目专属条件（仅该会话生效）。alert=null 表示不修改原规则；enabled=false 关闭此项目提醒。kind=match 在 RE2 正则命中时异常，not_match 在未命中时异常（只对成功且非空采集结果判断）；above/below 用 pattern 的唯一捕获组提取数值，达到 threshold 时异常，返回 recoveryThreshold 后确认恢复。数值提取失败是未知，不是正常。severity 为 warning/critical，forSeconds/recoverySeconds 为异常/恢复需持续秒数；未指定时可用 10 秒，说明所用阈值。全局静音、确认和重复间隔仍适用。关闭项目会停止它的提醒，修改命令会清空旧数据。规则和监控仅在当前连接生效，重连后需重新创建，不要声称已永久保存。
+例如用户要求 nginx 停止时提醒，可以创建 purpose="alert"、id="alert-nginx"、command="systemctl is-active nginx 2>/dev/null || true"、intervalMs=5000，alert={"enabled":true,"kind":"not_match","pattern":"(?m)^active\\s*$","threshold":0,"recoveryThreshold":0,"severity":"critical","forSeconds":10,"recoverySeconds":10}。采集错误、权限不足、缺失工具或空输出不能当作服务已正常运行。日志用有界只读命令（如 tail -n 100，不能 tail -f）；关键词使用 match。请求“最近一分钟出现 5 次”必须让采集命令真正按时间筛选并计数，不能把静态历史关键词命中说成发生了新事件。接口延迟、进程数、连接数、业务计数等可用 above/below；尽量输出单行 VALUE=数值再匹配。不要把整段敏感日志写入提醒，message 中清楚说明采集频率、异常条件和生效范围。只展示不提醒时 alert=null。
 `)
 	value.WriteString(monitorOutputGuidance)
 	if strings.HasPrefix(strings.ToLower(request.SystemContext["response_language"]), "en") {
@@ -691,6 +708,7 @@ func buildCodexContinuationPrompt(request Request, input string) string {
 	}
 	var value strings.Builder
 	value.WriteString(monitorOutputGuidance)
+	value.WriteString("\n通过 panelActions 创建任意只读采集：purpose=realtime 只展示，alert=null；purpose=alert 为独立告警任务，必须配置有效的 panel.alert；两类使用不同 ID，各自命令、周期、关闭操作独立，不得互相覆盖。只要展示就不要创建告警；只要告警就不要创建面板。panel.alert 项目专属提醒：kind=match/not_match 使用 RE2 pattern 匹配或检查未命中；above/below 用唯一捕获组提取数值，与 threshold/recoveryThreshold 比较。enabled、severity、forSeconds、recoverySeconds 也需填写。null 保留规则，enabled=false 关闭。数值提取失败、空输出和过期数据为未知；只对真实新采集确认异常或恢复。项目和规则仅当前连接有效。是否创建成功以 monitor_panel_result 为准。\n")
 	if len(request.SystemContext) > 0 {
 		value.WriteString("环境上下文更新：\n")
 		for key, item := range request.SystemContext {

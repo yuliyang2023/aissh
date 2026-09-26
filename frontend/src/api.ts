@@ -1,3 +1,5 @@
+import type { AlertPolicy, MonitoringState, PetBackend, MonitorCondition } from './monitoring-api';
+
 export interface Credential {
   id: string;
   name: string;
@@ -114,10 +116,19 @@ export interface ChatMessage {
   role: string;
   content: string;
   time: string;
-  proposal?: { id?: string; command: string; explanation: string; expectedEffect?: string; risk: string };
+  proposal?: {
+    id?: string;
+    command: string;
+    explanation: string;
+    expectedEffect?: string;
+    risk: string;
+  };
   activity?: { id: string; kind: string; title: string; status: string; detail?: string };
 }
 export interface MonitorPanel {
+  command?: string;
+  collecting?: boolean;
+  alert?: MonitorCondition;
   id: string;
   title: string;
   kind: string;
@@ -144,10 +155,19 @@ export interface WorkbenchState {
   approvalStatus: string;
   executing: boolean;
   panels: MonitorPanel[];
+  alertMonitors?: MonitorPanel[];
   updatedAt: string;
 }
 export interface WorkbenchCommand {
-  kind: 'prompt' | 'approve' | 'reject' | 'monitor-open' | 'monitor-close' | 'monitor-refresh';
+  kind:
+    | 'prompt'
+    | 'approve'
+    | 'reject'
+    | 'monitor-open'
+    | 'monitor-close'
+    | 'monitor-refresh'
+    | 'alert-close'
+    | 'alert-refresh';
   text?: string;
   proposalId?: string;
   panelId?: string;
@@ -188,6 +208,12 @@ export interface CreationReceipt {
   detail: string;
 }
 type Backend = {
+  GetMonitoring(): Promise<MonitoringState>;
+  SaveAlertPolicy(policy: AlertPolicy): Promise<void>;
+  AcknowledgeAlert(id: string): Promise<void>;
+  SnoozeAlerts(minutes: number): Promise<void>;
+  SetPetEnabled(enabled: boolean): Promise<void>;
+  OpenMonitorSession(id: string): Promise<void>;
   AskCatalogAssistant(input: {
     mode: 'knowledge' | 'system';
     conversationId: string;
@@ -243,7 +269,7 @@ type Backend = {
 };
 declare global {
   interface Window {
-    go?: { desktop: { Service: Backend } };
+    go?: { desktop: { Service: Backend; PetBridge?: PetBackend } };
     runtime?: {
       EventsOn(name: string, callback: (...args: any[]) => void): () => void;
       BrowserOpenURL?(url: string): void;

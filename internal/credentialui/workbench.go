@@ -2,6 +2,8 @@ package credentialui
 
 import (
 	"context"
+	"git.example.com/ai/wrd-ai-cli/internal/panel"
+
 	"encoding/json"
 	"errors"
 	"io"
@@ -24,6 +26,7 @@ type WorkbenchState struct {
 	ApprovalStatus string             `json:"approvalStatus"`
 	Executing      bool               `json:"executing"`
 	Panels         []MonitorPanel     `json:"panels"`
+	AlertMonitors  []MonitorPanel     `json:"alertMonitors"`
 	UpdatedAt      string             `json:"updatedAt"`
 }
 
@@ -44,15 +47,21 @@ type WorkbenchProposal struct {
 }
 
 type MonitorPanel struct {
-	ID         string `json:"id"`
-	Title      string `json:"title"`
-	Kind       string `json:"kind"`
-	Content    string `json:"content"`
-	Status     string `json:"status"`
-	Error      string `json:"error"`
-	UpdatedAt  string `json:"updatedAt"`
-	IntervalMS int64  `json:"intervalMs"`
-	Pinned     bool   `json:"pinned"`
+	Command        string                `json:"command"`
+	Origin         string                `json:"origin"`
+	Collecting     bool                  `json:"collecting"`
+	Alert          *panel.AlertCondition `json:"alert,omitempty"`
+	SampleContent  string                `json:"sampleContent"`
+	SourceRevision uint64                `json:"sourceRevision"`
+	ID             string                `json:"id"`
+	Title          string                `json:"title"`
+	Kind           string                `json:"kind"`
+	Content        string                `json:"content"`
+	Status         string                `json:"status"`
+	Error          string                `json:"error"`
+	UpdatedAt      string                `json:"updatedAt"`
+	IntervalMS     int64                 `json:"intervalMs"`
+	Pinned         bool                  `json:"pinned"`
 }
 
 type WorkbenchCommand struct {

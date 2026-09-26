@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"git.example.com/ai/wrd-ai-cli/internal/panel"
 )
 
 type Target struct {
@@ -52,14 +54,16 @@ type Turn struct {
 }
 
 type PanelSpec struct {
-	ID          string `json:"id,omitempty"`
-	Type        string `json:"type"`
-	Title       string `json:"title"`
-	Collector   string `json:"collector,omitempty"`
-	Command     string `json:"command,omitempty"`
-	IntervalMS  int    `json:"intervalMs,omitempty"`
-	Content     string `json:"content,omitempty"`
-	AllowAIRead bool   `json:"allowAIRead,omitempty"`
+	Purpose     string                `json:"purpose,omitempty"`
+	Alert       *panel.AlertCondition `json:"alert,omitempty"`
+	ID          string                `json:"id,omitempty"`
+	Type        string                `json:"type"`
+	Title       string                `json:"title"`
+	Collector   string                `json:"collector,omitempty"`
+	Command     string                `json:"command,omitempty"`
+	IntervalMS  int                   `json:"intervalMs,omitempty"`
+	Content     string                `json:"content,omitempty"`
+	AllowAIRead bool                  `json:"allowAIRead,omitempty"`
 }
 
 type PanelAction struct {

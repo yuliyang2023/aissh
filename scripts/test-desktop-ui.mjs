@@ -11,6 +11,7 @@ import { testMonitorResize } from './test-monitor-resize.mjs';
 import { testStreamingChat } from './test-streaming-chat.mjs';
 import { testMarkdownChat } from './test-markdown-chat.mjs';
 import { testIMEComposer, testWorkbenchIME } from './test-ime-composer.mjs';
+import { installMonitoringMock, testMonitoring, testPet } from './test-monitoring.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const browsers = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const engine = process.env.UI_BROWSER || 'chromium';
@@ -308,6 +309,7 @@ await page.addInitScript(() => {
   };
 });
 const out = path.join(root, '.cache/desktop-ui');
+await page.addInitScript(installMonitoringMock, !!process.env.PET_ONLY);
 await mkdir(out, { recursive: true });
 const openSettings = async (name = '主机') => {
   if (!await page.getByRole('navigation', { name: '设置分类' }).isVisible()) await page.getByRole('button', { name: '设置', exact: true }).click();
@@ -317,6 +319,12 @@ try {
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   if (process.env.MONITOR_RESIZE_ONLY) {
     await testMonitorResize(page, out);
+    assert.deepEqual(errors, []);
+  } else if (process.env.MONITORING_ONLY) {
+    await testMonitoring(page, out);
+    assert.deepEqual(errors, []);
+  } else if (process.env.PET_ONLY) {
+    await testPet(page, out);
     assert.deepEqual(errors, []);
   } else if (process.env.IME_ONLY) {
     await page.locator('.session-select').first().waitFor();
@@ -389,8 +397,8 @@ try {
     await page.screenshot({ path: path.join(out, 'unified-workbench.png') });
     await workbench.getByLabel('向 AI 提问').fill('尚未发送的输入');
     const startsBeforeSettings = await page.evaluate(() => window.__test.starts.length);
-    await workbench.getByRole('button', { name: /服务器监控/ }).click();
-    assert.equal(await workbench.getByRole('button', { name: /服务器监控/ }).getAttribute('aria-expanded'), 'false');
+    await workbench.getByRole('button', { name: /实时面板/ }).click();
+    assert.equal(await workbench.getByRole('button', { name: /实时面板/ }).getAttribute('aria-expanded'), 'false');
     assert.equal(await workbench.locator('.monitor-details').count(), 0);
     assert.match(await workbench.locator('.monitor-summary').textContent(), /负载 0.20.*内存 512/);
     assert.ok((await workbench.locator('.native-chat').boundingBox()).height > expandedChat.height + 80);
@@ -401,8 +409,8 @@ try {
     await page.getByRole('button', { name: '返回工作区', exact: false }).click();
     assert.equal(await workbench.getByLabel('向 AI 提问').inputValue(), '尚未发送的输入');
     assert.equal(await page.evaluate(() => window.__test.starts.length), startsBeforeSettings);
-    assert.equal(await workbench.getByRole('button', { name: /服务器监控/ }).getAttribute('aria-expanded'), 'false');
-    await workbench.getByRole('button', { name: /服务器监控/ }).click();
+    assert.equal(await workbench.getByRole('button', { name: /实时面板/ }).getAttribute('aria-expanded'), 'false');
+    await workbench.getByRole('button', { name: /实时面板/ }).click();
     await page.getByRole('button', { name: '收起会话列表', exact: true }).click();
     const beforeWrites = await page.evaluate(() => window.__test.writes.length);
     await testIMEComposer(workbench.getByLabel('向 AI 提问'), () => page.evaluate(() => window.__test.actions.filter(action => action.kind === 'prompt').length));
@@ -431,9 +439,9 @@ try {
     });
     await workbench.getByText('采集失败：连接超时', { exact: false }).waitFor();
     assert.equal(await workbench.getByText('512/2048 MB (25.0%)', { exact: true }).count(), 1);
-    await workbench.getByRole('button', { name: /服务器监控/ }).click();
+    await workbench.getByRole('button', { name: /实时面板/ }).click();
     assert.equal(await workbench.locator('.monitor-metric').count(), 0);
-    await workbench.getByRole('button', { name: /服务器监控/ }).click();
+    await workbench.getByRole('button', { name: /实时面板/ }).click();
     await page.evaluate(() => {
       const id = window.__test.sessions[0].id;
       window.__test.workbenches[id].panels[0].error = '';

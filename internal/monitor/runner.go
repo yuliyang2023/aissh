@@ -138,6 +138,7 @@ func formatBuiltin(command, output, language string) string {
 	labels := map[string]string{
 		"HOST":   "主机",
 		"UPTIME": "运行",
+		"CORES":  "CPU 核数",
 		"LOAD":   "负载",
 		"MEM":    "内存",
 		"DISK":   "根分区",
@@ -147,6 +148,7 @@ func formatBuiltin(command, output, language string) string {
 		labels = map[string]string{
 			"HOST":   "Host",
 			"UPTIME": "Uptime",
+			"CORES":  "CPU cores",
 			"LOAD":   "Load",
 			"MEM":    "Memory",
 			"DISK":   "Root disk",

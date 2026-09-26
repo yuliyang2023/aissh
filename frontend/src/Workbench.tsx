@@ -101,6 +101,7 @@ export function Workbench({
         now={now}
         size={monitorSize}
         onSizeChange={setMonitorSize}
+        aiReady={!state?.busy && !state?.executing && !state?.proposal}
         onAction={action}
       />
       <section className="native-chat" aria-label="AI 对话工作区">

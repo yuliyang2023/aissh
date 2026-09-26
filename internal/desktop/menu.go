@@ -37,6 +37,8 @@ func ApplicationMenu(s *Service) *menu.Menu {
 	view.AddText("工作区", keys.CmdOrCtrl("1"), action("workspace"))
 	view.AddText("外联系统", nil, action("page:resources"))
 	view.AddText("本地知识", nil, action("page:knowledge"))
+	view.AddText("告警记录与桌宠…", nil, action("monitoring"))
+	view.AddText("告警任务…", nil, action("monitor-inventory"))
 	view.AddText("设置…", keys.CmdOrCtrl(","), action("settings"))
 	view.AddSeparator()
 	view.AddText("展开 / 收起会话列表", keys.Combo("s", keys.CmdOrCtrlKey, keys.OptionOrAltKey), action("sidebar"))

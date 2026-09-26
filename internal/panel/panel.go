@@ -26,22 +26,31 @@ const (
 )
 
 type Panel struct {
-	ID           string
-	Kind         Kind
-	Origin       Origin
-	Title        string
-	Command      string
-	Interval     time.Duration
-	Content      string
-	Status       string
-	Pinned       bool
-	Unread       bool
-	AllowAIRead  bool
-	Target       string
-	LastUpdated  time.Time
-	LastError    string
-	RefreshCount uint64
+	// Purpose separates display collectors from independently managed alert tasks.
+	Purpose string
+	Alert   *AlertCondition
+	// SampleContent is only written by a completed collector. AI append/content
+	// operations must not be allowed to fabricate alert measurements.
+	SampleContent  string
+	SourceRevision uint64
+	ID             string
+	Kind           Kind
+	Origin         Origin
+	Title          string
+	Command        string
+	Interval       time.Duration
+	Content        string
+	Status         string
+	Pinned         bool
+	Unread         bool
+	AllowAIRead    bool
+	Target         string
+	LastUpdated    time.Time
+	LastError      string
+	RefreshCount   uint64
 }
+
+func (p *Panel) IsAlert() bool { return p.Purpose == "alert" }
 
 type Manager struct {
 	panels []*Panel
@@ -56,6 +65,16 @@ func NewManager(target string) *Manager {
 }
 
 func (m *Manager) Panels() []*Panel { return m.panels }
+
+func (m *Manager) CountPurpose(alert bool) int {
+	count := 0
+	for _, p := range m.panels {
+		if p.IsAlert() == alert {
+			count++
+		}
+	}
+	return count
+}
 
 func (m *Manager) Active() *Panel {
 	if len(m.panels) == 0 {
@@ -97,6 +116,9 @@ func (m *Manager) Previous() {
 }
 
 func (m *Manager) Open(item Panel) *Panel {
+	if item.Purpose == "" {
+		item.Purpose = "realtime"
+	}
 	if item.ID != "" {
 		if existing := m.ByID(item.ID); existing != nil {
 			return existing
@@ -152,6 +174,7 @@ func (m *Manager) UpdateContent(id, content, status string, foreground bool) {
 		return
 	}
 	item.Content = strings.TrimSpace(content)
+	item.SampleContent = item.Content
 	item.Status = status
 	item.LastUpdated = time.Now()
 	item.RefreshCount++
@@ -174,7 +197,7 @@ func (m *Manager) SetError(id string, err error) {
 	}
 }
 
-const BuiltinOverviewCommand = `LC_ALL=C; printf 'HOST='; hostname 2>/dev/null; printf 'UPTIME='; uptime 2>/dev/null; printf 'LOAD='; (cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || sysctl -n vm.loadavg 2>/dev/null); printf 'MEM='; (free -m 2>/dev/null | awk 'NR==2 {printf "%s/%s MB (%.1f%%)", $3,$2,$3*100/$2}' || true); printf '\nDISK='; df -hP / 2>/dev/null | awk 'NR==2 {printf "%s/%s (%s)\n", $3,$2,$5}'; printf 'PROCS='; (ps -e 2>/dev/null | wc -l | tr -d ' '); printf '\n'`
+const BuiltinOverviewCommand = `LC_ALL=C; printf 'HOST='; hostname 2>/dev/null; printf 'UPTIME='; uptime 2>/dev/null; printf 'CORES='; (getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null); printf 'LOAD='; (cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || sysctl -n vm.loadavg 2>/dev/null); printf 'MEM='; (free -m 2>/dev/null | awk 'NR==2 {printf "%s/%s MB (%.1f%%)", $3,$2,$3*100/$2}' || true); printf '\nDISK='; df -hP / 2>/dev/null | awk 'NR==2 {printf "%s/%s (%s)\n", $3,$2,$5}'; printf 'PROCS='; (ps -e 2>/dev/null | wc -l | tr -d ' '); printf '\n'`
 
 const BuiltinProcessCommand = `LC_ALL=C; ps -eo pid,user,comm,%cpu,%mem --sort=-%cpu 2>/dev/null | head -n 18 || ps aux 2>/dev/null | head -n 18`
 

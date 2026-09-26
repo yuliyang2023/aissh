@@ -1,6 +1,10 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { DesktopPet } from './DesktopPet';
 import { isMac } from './platform';
 import './style.css';
+import './monitoring.css';
 document.documentElement.dataset.platform = isMac ? 'mac' : 'other';
-createRoot(document.getElementById('root')!).render(<App />);
+const pet = !!window.go?.desktop.PetBridge;
+if (pet) document.documentElement.dataset.pet = 'true';
+createRoot(document.getElementById('root')!).render(pet ? <DesktopPet /> : <App />);

@@ -120,13 +120,19 @@ func TestDesktopStateRedactsAndCopiesData(t *testing.T) {
 	a.chat = append(a.chat, chatMessage{Role: "assistant", Content: "super-secret", Time: time.Now()})
 	a.proposal = &agent.Proposal{ID: "p", Command: "echo super-secret", Explanation: "super-secret"}
 	a.panels.UpdateContent("system", "HOST=super-secret", "live", false)
+	a.panels.ByID("system").Command = "printf super-secret"
+	a.monitorActive["system"] = true
 	snapshot := a.desktopState()
 	if strings.Contains(snapshot.Messages[len(snapshot.Messages)-1].Content, "super-secret") || strings.Contains(snapshot.Proposal.Command, "super-secret") || strings.Contains(snapshot.Panels[0].Content, "super-secret") {
 		t.Fatal("state contains credential")
 	}
+	if strings.Contains(snapshot.Panels[0].Command, "super-secret") || snapshot.Panels[0].Command == "" || snapshot.Panels[0].Origin != "system" || !snapshot.Panels[0].Collecting {
+		t.Fatal("inventory metadata omitted or leaked an unredacted command")
+	}
 	a.proposal.Command = "changed"
 	a.panels.UpdateContent("system", "changed", "live", false)
-	if snapshot.Proposal.Command == "changed" || snapshot.Panels[0].Content == "changed" {
+	a.panels.ByID("system").Command = "changed"
+	if snapshot.Proposal.Command == "changed" || snapshot.Panels[0].Content == "changed" || snapshot.Panels[0].Command == "changed" {
 		t.Fatal("snapshot shares mutable app state")
 	}
 }

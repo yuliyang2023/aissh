@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"git.example.com/ai/wrd-ai-cli/internal/agent"
+	"git.example.com/ai/wrd-ai-cli/internal/alerts"
+	"git.example.com/ai/wrd-ai-cli/internal/credentialui"
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
 )
 
@@ -19,6 +21,78 @@ func mysqlPanelAction(operation string) agent.PanelAction {
 		ID: "mysql-monitor", Type: "monitor", Title: "MySQL 进程监控", Collector: "process.top",
 		Command: mysqlProcessCommand, IntervalMS: 15000, AllowAIRead: true,
 	}}
+}
+
+func TestRealtimeAndAlertTasksHaveIndependentLifecycle(t *testing.T) {
+	a := desktopTestApp(t)
+	live := agent.PanelAction{Action: "create", Panel: agent.PanelSpec{ID: "live-nginx", Purpose: "realtime", Command: "ps -C nginx", IntervalMS: 2000}}
+	alert := agent.PanelAction{Action: "create", Panel: agent.PanelSpec{ID: "alert-nginx", Purpose: "alert", Command: "systemctl is-active nginx", IntervalMS: 30000,
+		Alert: &panel.AlertCondition{Enabled: true, Kind: "not_match", Pattern: "^active$", Severity: "critical"}}}
+	for _, action := range []agent.PanelAction{live, alert} {
+		if _, _, err := a.executePanelAction(action); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state := a.desktopState()
+	if len(state.Panels) != 2 || len(state.AlertMonitors) != 1 || state.AlertMonitors[0].ID != "alert-nginx" || state.AlertMonitors[0].IntervalMS != 30000 {
+		t.Fatalf("collector inventories not separated: %+v", state)
+	}
+	for _, p := range state.Panels {
+		if p.ID == "alert-nginx" || p.Alert != nil {
+			t.Fatal("alert task leaked into real-time display")
+		}
+	}
+	last := time.Now()
+	a.monitorLast[live.Panel.ID], a.monitorLast[alert.Panel.ID] = last, last
+	command := func(kind, id string) error {
+		return a.handleDesktopCommand(credentialui.WorkbenchCommand{Kind: kind, PanelID: id, Deadline: time.Now().Add(time.Second).UnixMilli()})
+	}
+	for _, op := range []struct{ kind, id string }{{"monitor-close", alert.Panel.ID}, {"monitor-refresh", alert.Panel.ID}, {"alert-close", live.Panel.ID}, {"alert-refresh", live.Panel.ID}} {
+		if command(op.kind, op.id) == nil {
+			t.Fatalf("cross-purpose operation accepted: %+v", op)
+		}
+	}
+	if err := command("alert-refresh", alert.Panel.ID); err != nil || !a.monitorLast[alert.Panel.ID].IsZero() || !a.monitorLast[live.Panel.ID].Equal(last) {
+		t.Fatalf("alert refresh affected real-time schedule: %v", err)
+	}
+	if err := command("monitor-close", live.Panel.ID); err != nil || a.panels.ByID(alert.Panel.ID) == nil {
+		t.Fatalf("closing display stopped alert task: %v", err)
+	}
+	if err := command("alert-close", alert.Panel.ID); err != nil || len(a.desktopState().AlertMonitors) != 0 || a.panels.ByID("system") == nil {
+		t.Fatalf("alert removal affected display inventory: %v", err)
+	}
+}
+
+func TestPanelActionsRejectMixedPurposesAtomically(t *testing.T) {
+	a := desktopTestApp(t)
+	condition := &panel.AlertCondition{Enabled: true, Kind: "match", Pattern: "failed", Severity: "warning"}
+	for _, spec := range []agent.PanelSpec{
+		{ID: "mixed", Purpose: "realtime", Command: "uptime", Alert: condition},
+		{ID: "implicit", Command: "uptime", Alert: condition},
+		{ID: "missing-rule", Purpose: "alert", Command: "uptime"},
+		{ID: "bad-purpose", Purpose: "both", Command: "uptime"},
+	} {
+		if _, _, err := a.executePanelAction(agent.PanelAction{Action: "create", Panel: spec}); err == nil || a.panels.ByID(spec.ID) != nil {
+			t.Fatalf("mixed or incomplete configuration accepted: %+v", spec)
+		}
+	}
+	action := mysqlPanelAction("create")
+	item, _, err := a.executePanelAction(action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action.Panel.Purpose, action.Panel.Alert = "alert", condition
+	if _, _, err := a.executePanelAction(action); err == nil || item.IsAlert() || item.Alert != nil {
+		t.Fatal("existing realtime collector converted to alert task")
+	}
+	// A full display inventory must not consume the independent alert quota.
+	for a.panels.CountPurpose(false) < 16 {
+		a.panels.Open(panel.Panel{Command: "uptime"})
+	}
+	action.Panel.ID = "independent-alert"
+	if _, _, err := a.executePanelAction(action); err != nil {
+		t.Fatalf("display quota blocked alert task: %v", err)
+	}
 }
 
 func TestMySQLPanelUsesExplicitCommandAndRecoversFailedCreation(t *testing.T) {
@@ -157,5 +231,58 @@ func TestAllAdvertisedCollectorsCreatePanels(t *testing.T) {
 				t.Fatalf("builtin collector refused: %#v", a.chat)
 			}
 		})
+	}
+}
+
+func TestAICustomMonitorFlowsThroughDesktopToPetAlerts(t *testing.T) {
+	a := desktopTestApp(t)
+	action := agent.PanelAction{Action: "create", Panel: agent.PanelSpec{
+		ID: "nginx", Purpose: "alert", Type: "monitor", Title: "Nginx 服务", Command: "systemctl is-active nginx 2>/dev/null || true", IntervalMS: 5000, AllowAIRead: true,
+		Alert: &panel.AlertCondition{Enabled: true, Kind: "not_match", Pattern: `(?m)^active\s*$`, Severity: "critical", ForSeconds: 0, RecoverySeconds: 0},
+	}}
+	a.applyPanelAction(action)
+	item := a.panels.ByID("nginx")
+	if item == nil || item.Alert == nil {
+		t.Fatalf("AI monitor failed: %#v", a.chat)
+	}
+	if !strings.Contains(a.chat[len(a.chat)-1].Content, "已配置异常提醒") {
+		t.Fatal("creation receipt omitted alert")
+	}
+	// AI-written text has no collector timestamp/sample and cannot manufacture a
+	// failure or recovery. Only completed read-only collection is evaluated.
+	a.applyPanelAction(agent.PanelAction{Action: "append", Panel: agent.PanelSpec{ID: "nginx", Content: "inactive"}})
+	p := alerts.DefaultPolicy()
+	p.Rules = nil
+	e := alerts.New(p)
+	feed := func() {
+		e.Tick(time.Now(), []alerts.Session{{ID: "session", Name: "host", Status: "running", CreatedAt: time.Now(), Panels: a.desktopState().AlertMonitors}})
+	}
+	feed()
+	if len(e.Snapshot().Incidents) != 0 {
+		t.Fatal("AI fabricated an alert from display text")
+	}
+	a.panels.UpdateContent("nginx", "inactive", "live", false)
+	feed()
+	state := e.Snapshot()
+	if len(state.Notices) != 1 || state.Notices[0].Incident.SessionID != "session" || state.Notices[0].Incident.Severity != "critical" {
+		t.Fatalf("custom monitor did not reach alert/companion feed: %#v", state)
+	}
+	a.applyPanelAction(agent.PanelAction{Action: "append", Panel: agent.PanelSpec{ID: "nginx", Content: "active"}})
+	feed()
+	if e.Snapshot().Incidents[0].Status != "firing" {
+		t.Fatal("AI display text fabricated recovery")
+	}
+	a.panels.UpdateContent("nginx", "active", "live", false)
+	feed()
+	if e.Snapshot().Notices[1].Kind != "recovered" {
+		t.Fatal("fresh service recovery did not reach companion")
+	}
+	// Invalid alert updates are atomic, just like rejected collector commands.
+	action.Action = "update"
+	action.Panel.Title = "bad"
+	action.Panel.Alert.Pattern = "["
+	a.applyPanelAction(action)
+	if item.Title == "bad" || item.Alert.Pattern == "[" {
+		t.Fatal("invalid alert partially updated monitor")
 	}
 }
