@@ -86,6 +86,11 @@ func (a *App) focusTerminalWorkspace() {
 }
 
 func (a *App) handleKeyboardInput(data []byte) {
+	if a.config.DesktopUI {
+		a.focus = focusTerminal
+		a.handleTerminalInput(data)
+		return
+	}
 	if a.handleExecutionControl(data) {
 		return
 	}
@@ -329,7 +334,7 @@ func (a *App) handleTerminalBytes(data []byte) {
 			}
 			a.lineReliable = false
 		case 0x14: // Ctrl+T
-			if a.atPrompt {
+			if a.atPrompt && !a.config.DesktopUI {
 				a.ensureSidebarVisible()
 				a.panels.Next()
 				if a.compact {
@@ -338,7 +343,7 @@ func (a *App) handleTerminalBytes(data []byte) {
 				continue
 			}
 		case 0x0e: // Ctrl+N
-			if a.atPrompt {
+			if a.atPrompt && !a.config.DesktopUI {
 				a.ensureSidebarVisible()
 				a.focus = focusPanelMenu
 				a.menuStatus = ""

@@ -53,6 +53,10 @@ func (s *Service) credentialChannel(session *terminalSession) ([]string, func(),
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		if r.URL.Path == "/workbench" {
+			s.exchangeWorkbench(session, w, r)
+			return
+		}
 		if r.URL.Path != "/credential" {
 			http.NotFound(w, r)
 			return

@@ -5,10 +5,8 @@ import {
   ChevronRight,
   Database,
   Download,
-  Folder,
   KeyRound,
   LoaderCircle,
-  LockKeyhole,
   PanelLeft,
   Plus,
   RefreshCw,
@@ -23,7 +21,7 @@ import {
   Pencil,
   Play,
   Globe,
-  MessageSquare,
+  Settings,
 } from 'lucide-react';
 import {
   AIProfile,
@@ -49,20 +47,15 @@ import {
 } from './api';
 import { AIEditor, CredentialEditor, HostEditor, ResourceEditor } from './forms';
 import { Empty, ErrorBox, Modal } from './components';
-import { Terminal } from './Terminal';
-import { Sessions } from './Sessions';
+import { Workbench } from './Workbench';
+import { SessionSidebar, conversationSession } from './SessionSidebar';
+import { useStoredFlag } from './layout';
 import { Conversations, conversationKey } from './Conversations';
 import { NewConversation, NewConversationInput } from './NewConversation';
 import { primaryModifier } from './platform';
 
-type Page =
-  | 'conversations'
-  | 'hosts'
-  | 'credentials'
-  | 'resources'
-  | 'ai'
-  | 'sessions'
-  | 'terminal';
+type SettingsPage = 'hosts' | 'credentials' | 'resources' | 'ai';
+type Page = SettingsPage | 'conversations' | 'terminal';
 type Editor =
   | { kind: 'host'; value: Host }
   | { kind: 'resource'; value: Resource }
@@ -77,32 +70,26 @@ const kinds: Record<string, string> = {
   mysql: 'MySQL',
   redis: 'Redis',
 };
-const navigation = [
-  {
-    id: 'sessions',
-    label: '会话',
-    items: [
-      { id: 'conversations' as Page, label: 'AI 会话', icon: MessageSquare },
-      { id: 'sessions' as Page, label: 'SSH 会话', icon: TerminalSquare },
-    ],
-  },
-  {
-    id: 'configuration',
-    label: '配置',
-    items: [
-      { id: 'hosts' as Page, label: '主机', icon: Server },
-      { id: 'credentials' as Page, label: '凭据', icon: KeyRound },
-      { id: 'resources' as Page, label: '系统连接', icon: Database },
-      { id: 'ai' as Page, label: 'AI 配置', icon: Sparkles },
-    ],
-  },
+const settingsPages = [
+  { id: 'hosts' as SettingsPage, label: '主机', icon: Server },
+  { id: 'credentials' as SettingsPage, label: '凭据', icon: KeyRound },
+  { id: 'resources' as SettingsPage, label: '系统连接', icon: Database },
+  { id: 'ai' as SettingsPage, label: 'AI 配置', icon: Sparkles },
 ];
 
 export function App() {
   const [data, setData] = useState<Catalog>(emptyCatalog);
   const connectionHosts = allHosts(data);
   const [page, setPage] = useState<Page>('conversations');
-  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [sidebarVisible, setSidebarVisible] = useStoredFlag('aissh.sidebar.visible', true);
+  const [lastSettings, setLastSettings] = useState<SettingsPage>('hosts');
+  const isSettings = settingsPages.some((item) => item.id === page);
+  const workspacePage = useRef<'conversations' | 'terminal'>('conversations');
+  useEffect(() => {
+    if (!isSettings) workspacePage.current = page as 'conversations' | 'terminal';
+  }, [page, isSettings]);
+  const [conversationSearch, setConversationSearch] = useState('');
+  const conversationSearchRef = useRef<HTMLInputElement>(null);
   const [selectedRow, setSelectedRow] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState('');
@@ -138,9 +125,6 @@ export function App() {
   const [newConversationHost, setNewConversationHost] = useState<string | null>(null);
   const [conversationError, setConversationError] = useState('');
   const [newConversationError, setNewConversationError] = useState('');
-  useEffect(() => {
-    if (page === 'conversations' && search.trim()) setCollapsedConversationHosts(new Set());
-  }, [page, search]);
   const conversationRequest = useRef(0);
   async function refreshConversations() {
     const request = ++conversationRequest.current;
@@ -155,13 +139,12 @@ export function App() {
     }
   }
   useEffect(() => {
-    if (page !== 'conversations') return;
     void refreshConversations();
     const timer = setInterval(() => {
       if (!document.hidden) void refreshConversations();
     }, 5000);
     return () => clearInterval(timer);
-  }, [page]);
+  }, []);
   useEffect(() => {
     if (conversationHost && !allHosts(data).some((h) => h.id === conversationHost))
       setConversationHost('');
@@ -433,10 +416,19 @@ export function App() {
     connectionHosts.filter((h) => h.credentialId === id).length +
     data.resources.filter((r) => r.credentialId === id).length +
     data.aiProfiles.filter((p) => p.credentialId === id).length;
-  const title =
-    page === 'terminal'
-      ? '连接工作台'
-      : navigation.flatMap((section) => section.items).find((n) => n.id === page)?.label;
+  const currentSession = sessions.find((s) => s.id === activeSession);
+  const currentConversation =
+    conversations.find((c) => conversationKey(c) === selectedConversation) || conversations[0];
+  const activeConversation =
+    currentSession &&
+    conversations.find(
+      (c) => c.hostId === currentSession.hostId && c.id === currentSession.conversationId,
+    );
+  const title = isSettings
+    ? '设置'
+    : page === 'terminal'
+      ? activeConversation?.title || currentSession?.name || '工作区'
+      : currentConversation?.title || 'SSH + AI 工作区';
   const add = () => {
     if (page === 'hosts') setEditor({ kind: 'host', value: newHost() });
     if (page === 'credentials') setCredentialEditor({ value: newCredential() });
@@ -452,54 +444,50 @@ export function App() {
     if (sessionLive(session)) setCloseSession(session);
     else void removeSession(session.id).catch((e) => setError(errorText(e)));
   };
-  async function clearEnded() {
-    setBusy('clear-sessions');
-    try {
-      for (const session of sessions.filter((s) => !sessionLive(s)))
-        await removeSession(session.id);
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy('');
-    }
-  }
-  async function clearHistory() {
-    setBusy('clear-history');
-    try {
-      await api.ClearRecentConnections();
-      setData(await api.Snapshot());
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy('');
-    }
-  }
   const openSession = (session: Session) => {
     setActiveSession(session.id);
+    setConversationHost(session.hostId);
+    if (session.conversationId)
+      setSelectedConversation(
+        conversationKey({ hostId: session.hostId, id: session.conversationId }),
+      );
     goto('terminal');
   };
   const goto = (value: Page) => {
     setPage(value);
+    if (settingsPages.some((item) => item.id === value)) setLastSettings(value as SettingsPage);
     setSearch('');
     setSelectedRow('');
     setRouteFilter('all');
+  };
+  const returnToWorkspace = () =>
+    goto(workspacePage.current === 'terminal' && currentSession ? 'terminal' : 'conversations');
+  const selectConversation = (conversation: Conversation) => {
+    setSelectedConversation(conversationKey(conversation));
+    setConversationHost(conversation.hostId);
+    const session = conversationSession(sessions, conversation);
+    if (session) openSession(session);
+    else goto('conversations');
   };
   useEffect(() => {
     return window.runtime?.EventsOn('desktop-command', (command: string) => {
       // Native menu commands must not dismiss an unfinished sheet or approve it.
       if (document.querySelector('dialog[open]') || busy) return;
-      if (command.startsWith('page:')) {
+      if (command === 'settings') {
+        goto(lastSettings);
+      } else if (
+        command === 'workspace' ||
+        command === 'page:conversations' ||
+        command === 'page:sessions'
+      ) {
+        returnToWorkspace();
+      } else if (command.startsWith('page:')) {
         const destination = command.slice(5) as Page;
-        if (
-          ['conversations', 'hosts', 'credentials', 'resources', 'ai', 'sessions'].includes(
-            destination,
-          )
-        ) {
+        if (['hosts', 'credentials', 'resources', 'ai'].includes(destination)) {
           goto(destination);
           if (destination === 'hosts') setGroup('全部主机');
         }
       } else if (command === 'new-conversation') {
-        goto('conversations');
         requestNewConversation();
       } else if (command === 'new-host') {
         goto('hosts');
@@ -514,10 +502,12 @@ export function App() {
         goto('ai');
         setEditor({ kind: 'ai', value: newAI() });
       } else if (command === 'sidebar') {
-        setSidebarVisible((v) => !v);
+        setSidebarVisible(!sidebarVisible);
       } else if (command === 'search') {
-        if (page === 'terminal') goto('conversations');
-        requestAnimationFrame(() => searchRef.current?.focus());
+        if (!isSettings) setSidebarVisible(true);
+        requestAnimationFrame(() =>
+          (isSettings ? searchRef : conversationSearchRef).current?.focus(),
+        );
       } else if (command === 'refresh') {
         void reload();
       } else if (command === 'import') {
@@ -525,7 +515,17 @@ export function App() {
         void importHosts();
       }
     });
-  }, [busy, page, data.hosts, data.conversationHosts, conversationHost]);
+  }, [
+    busy,
+    page,
+    data.hosts,
+    data.conversationHosts,
+    conversationHost,
+    lastSettings,
+    sidebarVisible,
+    activeSession,
+    sessions,
+  ]);
   const itemCount =
     page === 'hosts'
       ? visibleHosts.length
@@ -559,12 +559,12 @@ export function App() {
   };
   return (
     <div className={'shell' + (sidebarVisible ? '' : ' sidebar-hidden')}>
-      <aside className="sidebar" aria-label="侧栏">
+      <aside className="sidebar session-sidebar" aria-label="会话侧栏">
         <div className="sidebar-titlebar">
           <button
             className="icon-button"
-            aria-label="隐藏侧栏"
-            title="隐藏侧栏"
+            aria-label="收起会话列表"
+            title="收起会话列表"
             onClick={() => setSidebarVisible(false)}
           >
             <PanelLeft size={18} />
@@ -578,265 +578,242 @@ export function App() {
             <strong>
               aissh<span> / </span>
             </strong>
-            <small>本地工作空间</small>
+            <small>SSH + AI 会话</small>
           </div>
         </div>
-        <div className="sidebar-scroll">
-          {navigation.map((section, index) => (
-            <nav key={section.id} aria-label={section.label}>
-              <div className={'nav-caption' + (index > 0 ? ' section-caption' : '')}>
-                {section.label}
-              </div>
-              {section.items.map((n) => (
-                <button
-                  key={n.id}
-                  className={
-                    'nav-item ' +
-                    (page === n.id && (n.id !== 'hosts' || group === '全部主机') ? 'selected' : '')
-                  }
-                  aria-current={page === n.id ? 'page' : undefined}
-                  onClick={() => {
-                    goto(n.id);
-                    if (n.id === 'hosts') setGroup('全部主机');
-                  }}
-                >
-                  <n.icon size={17} />
-                  <span>{n.label}</span>
-                  {n.id === 'hosts' && <span className="nav-count">{data.hosts.length}</span>}
-                  {n.id === 'conversations' && (
-                    <span className="nav-count">{conversations.length}</span>
-                  )}
-                  {n.id === 'sessions' && sessions.length > 0 && (
-                    <span className="nav-count">{sessions.filter(sessionLive).length}</span>
-                  )}
-                </button>
-              ))}
-              {section.id === 'sessions' && sessions.length > 0 && (
-                <div className="session-shortcuts">
-                  {sessions.map((s) => (
-                    <button
-                      key={s.id}
-                      className={page === 'terminal' && activeSession === s.id ? 'active' : ''}
-                      title={s.name + ' · ' + sessionStatus[s.status]}
-                      onClick={() => {
-                        setActiveSession(s.id);
-                        goto('terminal');
-                      }}
-                    >
-                      <span className={'status-dot ' + s.status} />
-                      <span>
-                        {conversations.find(
-                          (c) => c.hostId === s.hostId && c.id === s.conversationId,
-                        )?.title || s.name}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </nav>
-          ))}
-          {data.hosts.some((h) => h.group) && (
-            <>
-              <div className="nav-caption section-caption">主机分组</div>
-              {[...new Set(data.hosts.map((h) => h.group).filter(Boolean))].map((g) => (
-                <button
-                  key={g}
-                  className={
-                    'nav-item group-item ' + (page === 'hosts' && group === g ? 'selected' : '')
-                  }
-                  onClick={() => {
-                    goto('hosts');
-                    setGroup(g);
-                  }}
-                >
-                  <Folder size={16} />
-                  <span>{g}</span>
-                  <span className="nav-count">
-                    {data.hosts.filter((h) => h.group === g).length}
-                  </span>
-                </button>
-              ))}
-            </>
-          )}
-        </div>
-        <div className="sidebar-bottom">
-          <span className="vault-icon">
-            <LockKeyhole size={17} />
-          </span>
-          <div>
-            <strong>本机凭据库</strong>
-            <small>密码由系统安全保存</small>
+        <SessionSidebar
+          hosts={connectionHosts}
+          conversations={conversations}
+          sessions={sessions}
+          selectedConversation={currentConversation ? conversationKey(currentConversation) : ''}
+          activeSession={
+            (isSettings ? workspacePage.current : page) === 'terminal' ? activeSession : ''
+          }
+          search={conversationSearch}
+          onSearch={setConversationSearch}
+          searchRef={conversationSearchRef}
+          collapsedHosts={collapsedConversationHosts}
+          onToggleHost={(id) =>
+            setCollapsedConversationHosts((previous) => {
+              const next = new Set(previous);
+              if (next.has(id)) next.delete(id);
+              else next.add(id);
+              return next;
+            })
+          }
+          busy={!!busy || !connected()}
+          onSelect={selectConversation}
+          onOpen={openSession}
+          onClose={requestClose}
+          onNew={requestNewConversation}
+        />
+        {conversationError && (
+          <div className="sidebar-load-error">
+            <ErrorBox error={conversationError} />
+            <button className="button small" onClick={() => void refreshConversations()}>
+              重试
+            </button>
           </div>
+        )}
+        <div className="session-sidebar-footer">
+          <button
+            className={'settings-entry ' + (isSettings ? 'selected' : '')}
+            aria-label="设置"
+            aria-pressed={isSettings}
+            onClick={() => goto(lastSettings)}
+          >
+            <Settings size={18} />
+            <span>设置</span>
+            <kbd>{primaryModifier},</kbd>
+          </button>
+          <small>{sessions.filter(sessionLive).length} 个连接运行中 · 会话保存在本机</small>
         </div>
       </aside>
-      <main className={'main ' + (page === 'terminal' ? 'session-main' : '')}>
+      <main className={'main ' + (!isSettings ? 'session-main' : 'settings-main')}>
         <header className="topbar">
           {!sidebarVisible && (
             <button
               className="icon-button"
-              aria-label="显示侧栏"
-              title="显示侧栏"
+              aria-label="展开会话列表"
+              title="展开会话列表"
               onClick={() => setSidebarVisible(true)}
             >
               <PanelLeft size={18} />
             </button>
           )}
           <div className="window-heading">
-            <h1>{page === 'hosts' && group !== '全部主机' ? group : title}</h1>
+            <h1>{title}</h1>
             <span>
-              {page === 'conversations'
-                ? '按服务器组织对话，延续每一次排查'
-                : page === 'hosts'
-                  ? 'SSH 连接与访问路径'
-                  : page === 'credentials'
-                    ? '在连接之间安全复用'
-                    : page === 'resources'
-                      ? 'API、数据库与内部服务'
-                      : page === 'ai'
-                        ? '本机助手与模型服务'
-                        : page === 'sessions'
-                          ? '当前 SSH 连接与最近访问'
-                          : '终端与 AI 助手'}
+              {isSettings
+                ? '管理主机、凭据与 AI 服务'
+                : page === 'terminal'
+                  ? currentSession?.name +
+                    ' · ' +
+                    sessionStatus[currentSession?.status || 'starting']
+                  : '对话内容 · SSH · 监控'}
             </span>
           </div>
           <div className="toolbar-actions">
-            {page === 'terminal' && (
-              <button className="button" onClick={() => goto('conversations')}>
-                AI 会话
-              </button>
-            )}
-            {page === 'conversations' && (
+            {!isSettings && page === 'terminal' && activeConversation && (
               <button
-                className="button primary"
-                disabled={!connected() || !!busy}
-                onClick={() => requestNewConversation()}
+                className="button"
+                onClick={() => {
+                  setSelectedConversation(conversationKey(activeConversation));
+                  goto('conversations');
+                }}
               >
-                <Plus size={16} />
-                新建对话
+                历史记录
               </button>
             )}
-            {page === 'sessions' && (
-              <button className="button primary" onClick={() => goto('hosts')}>
-                <Plus size={16} />
-                新建连接
+            {isSettings ? (
+              <button className="button" onClick={returnToWorkspace}>
+                返回工作区
+                <ArrowUpRight size={15} />
               </button>
+            ) : currentSession && page === 'terminal' ? (
+              <button
+                className="button"
+                disabled={!!busy}
+                onClick={() => requestClose(currentSession)}
+              >
+                {sessionLive(currentSession) ? '断开连接' : '移除连接'}
+              </button>
+            ) : null}
+            {!sidebarVisible && (
+              <>
+                <button
+                  className="icon-button"
+                  aria-label="新建会话"
+                  title="新建会话"
+                  onClick={() => requestNewConversation()}
+                  disabled={!!busy || !connected()}
+                >
+                  <Plus size={17} />
+                </button>
+                <button
+                  className="icon-button"
+                  aria-label="设置"
+                  title="设置"
+                  onClick={() => goto(lastSettings)}
+                >
+                  <Settings size={17} />
+                </button>
+              </>
             )}
-
             <button
               className="icon-button"
-              title={'刷新配置 · ' + primaryModifier + 'R'}
+              title={'刷新 · ' + primaryModifier + 'R'}
               aria-label="刷新配置"
               onClick={() => void reload()}
             >
               <RefreshCw size={17} />
             </button>
-            {page === 'hosts' && (
-              <button
-                className="button import-button"
-                aria-label="导入 SSH 配置"
-                title="导入 SSH 配置"
-                disabled={!!busy || !connected()}
-                onClick={() => void importHosts()}
-              >
-                <Download size={15} />
-                导入
-              </button>
-            )}
-            {page !== 'sessions' && page !== 'terminal' && page !== 'conversations' && (
-              <button
-                className="button primary add-button"
-                onClick={add}
-                disabled={!connected()}
-                aria-label={
-                  page === 'hosts'
-                    ? '添加主机'
-                    : page === 'credentials'
-                      ? '添加凭据'
-                      : page === 'resources'
-                        ? '添加系统'
-                        : '添加 AI 配置'
-                }
-                title={
-                  page === 'hosts'
-                    ? '添加主机'
-                    : page === 'credentials'
-                      ? '添加凭据'
-                      : page === 'resources'
-                        ? '添加系统'
-                        : '添加 AI 配置'
-                }
-              >
-                <Plus size={16} />
-                {page === 'hosts'
-                  ? '新建主机'
-                  : page === 'credentials'
-                    ? '新建凭据'
-                    : page === 'resources'
-                      ? '新建系统'
-                      : '新建 AI 配置'}
-              </button>
-            )}
           </div>
         </header>
-        {page !== 'terminal' && (
-          <div className="collection-toolbar">
-            <label className="search">
-              <Search size={15} />
-              <input
-                ref={searchRef}
-                aria-label="搜索"
-                placeholder={
-                  page === 'conversations'
-                    ? '搜索对话、服务器或地址…'
-                    : page === 'hosts'
-                      ? '搜索名称、地址或分组…'
-                      : page === 'sessions'
-                        ? '搜索会话或主机地址…'
-                        : '搜索配置…'
-                }
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-              {search && (
-                <button className="icon-button" aria-label="清除搜索" onClick={() => setSearch('')}>
-                  <X size={12} />
+        {isSettings && (
+          <>
+            <nav className="settings-tabs" aria-label="设置分类">
+              {settingsPages.map((item) => (
+                <button
+                  key={item.id}
+                  aria-current={page === item.id ? 'page' : undefined}
+                  onClick={() => goto(item.id)}
+                >
+                  <item.icon size={16} />
+                  {item.label}
                 </button>
-              )}
-              {!search && <kbd>{primaryModifier}F</kbd>}
-            </label>
-            {page === 'hosts' && (
-              <div className="filter-tabs" role="group" aria-label="连接方式">
-                {(
-                  [
-                    ['all', '全部'],
-                    ['direct', '直接连接'],
-                    ['jump', '通过跳板'],
-                  ] as const
-                ).map(([value, label]) => (
+              ))}
+            </nav>
+            <div className="collection-toolbar">
+              <label className="search">
+                <Search size={15} />
+                <input
+                  ref={searchRef}
+                  aria-label="搜索配置"
+                  placeholder={page === 'hosts' ? '搜索名称、地址或分组…' : '搜索配置…'}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                {search && (
                   <button
-                    key={value}
-                    aria-pressed={routeFilter === value}
-                    onClick={() => {
-                      setRouteFilter(value);
-                      setSelectedRow('');
-                    }}
+                    className="icon-button"
+                    aria-label="清除搜索"
+                    onClick={() => setSearch('')}
                   >
-                    {label}
+                    <X size={12} />
                   </button>
-                ))}
+                )}
+              </label>
+              {page === 'hosts' && (
+                <>
+                  <select
+                    className="host-group-filter"
+                    aria-label="主机分组"
+                    value={group}
+                    onChange={(e) => setGroup(e.target.value)}
+                  >
+                    <option>全部主机</option>
+                    {[...new Set(data.hosts.map((h) => h.group).filter(Boolean))].map((name) => (
+                      <option key={name}>{name}</option>
+                    ))}
+                  </select>
+                  <div className="filter-tabs" role="group" aria-label="连接方式">
+                    {(
+                      [
+                        ['all', '全部'],
+                        ['direct', '直接连接'],
+                        ['jump', '通过跳板'],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button
+                        key={value}
+                        aria-pressed={routeFilter === value}
+                        onClick={() => setRouteFilter(value)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              <div className="settings-actions">
+                {page === 'hosts' && (
+                  <button
+                    className="button"
+                    aria-label="导入 SSH 配置"
+                    disabled={!!busy || !connected()}
+                    onClick={() => void importHosts()}
+                  >
+                    <Download size={15} />
+                    导入
+                  </button>
+                )}
+                <button
+                  className="button primary"
+                  disabled={!connected()}
+                  onClick={add}
+                  aria-label={
+                    page === 'hosts'
+                      ? '添加主机'
+                      : page === 'credentials'
+                        ? '添加凭据'
+                        : page === 'resources'
+                          ? '添加系统'
+                          : '添加 AI 配置'
+                  }
+                >
+                  <Plus size={15} />
+                  {page === 'hosts'
+                    ? '新建主机'
+                    : page === 'credentials'
+                      ? '新建凭据'
+                      : page === 'resources'
+                        ? '新建系统'
+                        : '新建 AI 配置'}
+                </button>
               </div>
-            )}
-            <span className="collection-count">
-              {itemCount}{' '}
-              {page === 'hosts'
-                ? '台主机'
-                : page === 'sessions'
-                  ? '个 SSH 会话'
-                  : page === 'conversations'
-                    ? '段对话'
-                    : '项配置'}
-            </span>
-          </div>
+            </div>
+          </>
         )}
         {error && (
           <div className="page-error">
@@ -846,10 +823,7 @@ export function App() {
             </button>
           </div>
         )}
-        <div
-          className={'page-content ' + (page === 'conversations' ? 'conversations-content' : '')}
-          style={{ display: page === 'terminal' ? 'none' : undefined }}
-        >
+        <div className="page-content" style={{ display: isSettings ? undefined : 'none' }}>
           {page === 'credentials' && !!data.pendingDeletes?.length && (
             <div className="info-box">
               <span>有 {data.pendingDeletes.length} 项已停用的秘密等待从系统凭据库清理。</span>
@@ -873,54 +847,6 @@ export function App() {
             </div>
           ) : (
             <>
-              {page === 'conversations' && (
-                <>
-                  <ErrorBox error={conversationError} />
-                  <Conversations
-                    hosts={connectionHosts}
-                    conversations={conversations}
-                    sessions={sessions}
-                    search={search}
-                    busy={!!busy}
-                    hostFilter={conversationHost}
-                    onHostFilter={(id) => {
-                      setConversationHost(id);
-                      setCollapsedConversationHosts((previous) => {
-                        const next = new Set(previous);
-                        next.delete(id);
-                        return next;
-                      });
-                    }}
-                    collapsedHosts={collapsedConversationHosts}
-                    onToggleHost={(id) =>
-                      setCollapsedConversationHosts((previous) => {
-                        const next = new Set(previous);
-                        if (next.has(id)) next.delete(id);
-                        else next.add(id);
-                        return next;
-                      })
-                    }
-                    selected={selectedConversation}
-                    onSelect={setSelectedConversation}
-                    onNew={requestNewConversation}
-                    onContinue={(c) => void continueConversation(c)}
-                  />
-                </>
-              )}
-              {page === 'sessions' && (
-                <Sessions
-                  data={data}
-                  sessions={sessions}
-                  search={search}
-                  busy={!!busy}
-                  onOpen={openSession}
-                  onConnect={(host, previous) => void hostAction(host, false, previous)}
-                  onClose={requestClose}
-                  onClearEnded={() => void clearEnded()}
-                  onClearHistory={() => void clearHistory()}
-                  onNew={() => goto('hosts')}
-                />
-              )}
               {page === 'hosts' &&
                 (visibleHosts.length ? (
                   <div className="table-card">
@@ -1348,76 +1274,73 @@ export function App() {
             </>
           )}
         </div>
-        <div className="workspace" style={{ display: page === 'terminal' ? 'flex' : 'none' }}>
-          {sessions.length ? (
-            <>
-              <div className="terminal-tabs">
-                {sessions.map((s) => (
-                  <div
-                    className={'terminal-tab ' + (activeSession === s.id ? 'active' : '')}
-                    key={s.id}
-                  >
-                    <button onClick={() => setActiveSession(s.id)}>
-                      <span className={'status-dot ' + s.status} />
-                      {conversations.find((c) => c.hostId === s.hostId && c.id === s.conversationId)
-                        ?.title || s.name}
-                    </button>
-                    <button
-                      aria-label={'关闭连接 ' + s.name}
-                      disabled={!!busy}
-                      onClick={() => requestClose(s)}
-                    >
-                      <X size={13} />
-                    </button>
-                  </div>
-                ))}
-                <button className="terminal-new" title="添加连接" onClick={() => goto('hosts')}>
-                  <Plus size={17} />
-                </button>
-              </div>
-              {sessions.map((s) => (
-                <Terminal
-                  key={s.id}
-                  session={s}
-                  active={page === 'terminal' && activeSession === s.id}
-                  onReconnect={() => {
-                    const host = connectionHosts.find((h) => h.id === s.hostId);
-                    if (host) void hostAction(host, false, s);
-                  }}
-                  canReconnect={!busy && connectionHosts.some((h) => h.id === s.hostId)}
+        <div className="workspace" style={{ display: isSettings ? 'none' : 'flex' }}>
+          {page === 'conversations' && (
+            <div className="workbench-sessions">
+              {loading ? (
+                <div className="loading">
+                  <LoaderCircle className="spin" />
+                  正在读取会话…
+                </div>
+              ) : (
+                <Conversations
+                  hosts={connectionHosts}
+                  current={currentConversation}
+                  busy={!!busy || !connected()}
+                  onNew={requestNewConversation}
+                  onContinue={(c) => void continueConversation(c)}
                 />
-              ))}
-            </>
-          ) : (
-            <Empty
-              icon={<TerminalSquare size={30} />}
-              title="还没有打开的连接"
-              description="从主机列表选择服务器，终端和 AI 工作台会在这里打开。"
-              action={
-                <button className="button primary" onClick={() => goto('hosts')}>
-                  前往主机列表 <ArrowUpRight size={16} />
-                </button>
-              }
-            />
+              )}
+            </div>
           )}
+          <div
+            className="workbench-sessions"
+            style={{ display: page === 'terminal' ? 'flex' : 'none' }}
+          >
+            {sessions.map((s) => (
+              <Workbench
+                key={s.id}
+                title={
+                  conversations.find((c) => c.hostId === s.hostId && c.id === s.conversationId)
+                    ?.title || 'AI 对话'
+                }
+                session={s}
+                active={page === 'terminal' && activeSession === s.id}
+                onReconnect={() => {
+                  const host = connectionHosts.find((h) => h.id === s.hostId);
+                  if (host) void hostAction(host, false, s);
+                }}
+                canReconnect={!busy && connectionHosts.some((h) => h.id === s.hostId)}
+              />
+            ))}
+            {!sessions.length && (
+              <Empty
+                icon={<TerminalSquare size={30} />}
+                title="选择或新建一个会话"
+                description="AI 对话、SSH 和监控会在这里一起打开。"
+                action={
+                  <button className="button primary" onClick={() => requestNewConversation()}>
+                    新建会话
+                    <Plus size={16} />
+                  </button>
+                }
+              />
+            )}
+          </div>
         </div>
-        {page !== 'terminal' && (
+        {isSettings && (
           <footer className="statusbar">
             <span>
               {itemCount} 个项目{search && ' · 已筛选'}
             </span>
             <span>
-              {page === 'conversations'
-                ? '先选对话，再进入服务器工作台'
-                : page === 'hosts'
-                  ? '双击主机连接'
-                  : page === 'credentials'
-                    ? '秘密保存在系统凭据库'
-                    : page === 'resources'
-                      ? '按配置范围使用凭据'
-                      : page === 'sessions'
-                        ? '最近记录保存在本机'
-                        : '每台主机可单独选择 AI 配置'}
+              {page === 'hosts'
+                ? '双击主机连接'
+                : page === 'credentials'
+                  ? '秘密保存在系统凭据库'
+                  : page === 'resources'
+                    ? '按配置范围使用凭据'
+                    : '每台主机可单独选择 AI 配置'}
             </span>
           </footer>
         )}

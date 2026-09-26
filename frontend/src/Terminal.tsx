@@ -19,9 +19,14 @@ export function Terminal({
   const fit = useRef<FitAddon | null>(null);
   const terminal = useRef<XTerminal | null>(null);
   const [error, setError] = useState('');
+  const [activated, setActivated] = useState(active);
+  useEffect(() => {
+    if (active) setActivated(true);
+  }, [active]);
   const live = useRef(sessionLive(session));
   live.current = sessionLive(session);
   useEffect(() => {
+    if (!activated) return;
     const term = new XTerminal({
       fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
       fontSize: 13,
@@ -67,7 +72,8 @@ export function Terminal({
         });
     });
     const resize = term.onResize(({ cols, rows }) => {
-      if (ready) void api.ResizeTerminal(session.id, cols, rows).catch(() => {});
+      if (ready)
+        void api.ResizeTerminal(session.id, Math.max(40, cols), Math.max(10, rows)).catch(() => {});
     });
     const observer = new ResizeObserver(() => {
       if (ref.current?.offsetWidth) addon.fit();
@@ -81,7 +87,7 @@ export function Terminal({
         return;
       }
       void api
-        .StartSession(session.id, term.cols, term.rows)
+        .StartSession(session.id, Math.max(40, term.cols), Math.max(10, term.rows))
         .then(() => {
           ready = true;
         })
@@ -104,7 +110,7 @@ export function Terminal({
       terminal.current = null;
       fit.current = null;
     };
-  }, [session.id]);
+  }, [session.id, activated]);
   useEffect(() => {
     if (active)
       requestAnimationFrame(() => {
@@ -117,7 +123,7 @@ export function Terminal({
       <div className="terminal-caption">
         <span className={'status-dot ' + session.status} /> {session.name} ·{' '}
         {sessionStatus[session.status]}
-        <span>中文提问或 /ai · /sidebar 展开 AI 与监控</span>
+        <span>SSH 终端</span>
       </div>
       {!sessionLive(session) && (
         <div className="terminal-ended">

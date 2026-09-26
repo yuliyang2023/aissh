@@ -15,6 +15,7 @@ import (
 	"golang.org/x/term"
 
 	"git.example.com/ai/wrd-ai-cli/internal/agent"
+	"git.example.com/ai/wrd-ai-cli/internal/credentialui"
 	"git.example.com/ai/wrd-ai-cli/internal/history"
 	app_i18n "git.example.com/ai/wrd-ai-cli/internal/i18n"
 	"git.example.com/ai/wrd-ai-cli/internal/monitor"
@@ -29,6 +30,7 @@ import (
 )
 
 type Config struct {
+	DesktopUI           bool
 	ProfileID           string
 	AIProfileID         string
 	HostLabel           string
@@ -76,9 +78,10 @@ type App struct {
 	config Config
 	parsed sshwrap.Parsed
 
-	ctx    context.Context
-	cancel context.CancelFunc
-	events chan interface{}
+	ctx           context.Context
+	cancel        context.CancelFunc
+	events        chan interface{}
+	desktopStates chan credentialui.WorkbenchState
 
 	sshCommand   *exec.Cmd
 	sshPTY       io.ReadWriteCloser
@@ -411,8 +414,14 @@ func (a *App) Run() error {
 
 	a.startInputReader()
 	a.startSignalReader()
+	if a.config.DesktopUI {
+		a.desktopStates = make(chan credentialui.WorkbenchState, 1)
+		go a.runDesktopBridge()
+	}
 
 	maintenanceTicker := time.NewTicker(120 * time.Millisecond)
+	desktopTicker := time.NewTicker(250 * time.Millisecond)
+	defer desktopTicker.Stop()
 	frameTicker := time.NewTicker(terminalFrameInterval)
 	defer maintenanceTicker.Stop()
 	defer frameTicker.Stop()
@@ -422,6 +431,8 @@ func (a *App) Run() error {
 			return nil
 		case event := <-a.events:
 			a.handleEvent(event)
+		case <-desktopTicker.C:
+			a.publishDesktopState()
 		case <-maintenanceTicker.C:
 			now := time.Now()
 			a.checkZmodemCompletion(now)
@@ -487,6 +498,7 @@ func (a *App) startSSH() error {
 		ControlPath: a.controlPath,
 		Timeout:     8 * time.Second,
 		Language:    a.localizer.Language(),
+		RawOutput:   a.config.DesktopUI,
 	}
 	// Keep background monitoring isolated from the interactive PTY initially.
 	// Win32-OpenSSH cannot reuse ControlMaster, so password-only sessions may
@@ -577,7 +589,7 @@ func (a *App) setViewportSize(cols, rows int) {
 	a.cols, a.rows = cols, rows
 	a.contentRows = rows - 2
 	a.compact = cols < 92
-	if !a.compact && a.sidebarCollapsed && a.sidebarWorkspaceFocused() {
+	if !a.config.DesktopUI && !a.compact && a.sidebarCollapsed && a.sidebarWorkspaceFocused() {
 		a.sidebarCollapsed = false
 	}
 	a.applyPaneLayout()
@@ -590,7 +602,7 @@ func (a *App) applyPaneLayout() {
 	previousMainCols := a.mainCols
 	// mainCols is the SSH content width; the column right of it (mainCols+1) is
 	// reserved as the scrollbar gutter so the scrollbar never covers pane text.
-	if a.compact || a.sidebarCollapsed {
+	if a.config.DesktopUI || a.compact || a.sidebarCollapsed {
 		a.mainCols = a.cols - 1
 	} else {
 		a.mainCols = a.cols*64/100 - 1
@@ -622,7 +634,7 @@ func (a *App) applyPaneLayout() {
 }
 
 func (a *App) sidebarVisible() bool {
-	return !a.compact && !a.sidebarCollapsed
+	return !a.config.DesktopUI && !a.compact && !a.sidebarCollapsed
 }
 
 func (a *App) sidebarWorkspaceFocused() bool {
@@ -635,7 +647,7 @@ func (a *App) sidebarWorkspaceFocused() bool {
 }
 
 func (a *App) toggleSidebar() {
-	if a.compact {
+	if a.config.DesktopUI || a.compact {
 		return
 	}
 	a.sidebarCollapsed = !a.sidebarCollapsed
@@ -652,7 +664,7 @@ func (a *App) toggleSidebar() {
 }
 
 func (a *App) ensureSidebarVisible() {
-	if a.compact || !a.sidebarCollapsed {
+	if a.config.DesktopUI || a.compact || !a.sidebarCollapsed {
 		return
 	}
 	a.sidebarCollapsed = false
@@ -662,6 +674,8 @@ func (a *App) ensureSidebarVisible() {
 
 func (a *App) handleEvent(event interface{}) {
 	switch value := event.(type) {
+	case desktopCommandEvent:
+		value.reply <- a.handleDesktopCommand(value.command)
 	case sshWriteEvent:
 		a.finishSSHWrite(value)
 	case inputEvent:
@@ -729,6 +743,9 @@ func (a *App) handleEvent(event interface{}) {
 }
 
 func (a *App) monitorWorkspaceVisible() bool {
+	if a.config.DesktopUI {
+		return true
+	}
 	if a.sidebarVisible() {
 		return true
 	}

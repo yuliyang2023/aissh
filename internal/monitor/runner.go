@@ -22,6 +22,8 @@ type Runner struct {
 	ControlPath string
 	Timeout     time.Duration
 	Language    string
+	// RawOutput preserves collector fields for client-side rendering.
+	RawOutput bool
 }
 
 // RunError preserves the SSH process exit status while keeping the monitor
@@ -123,6 +125,9 @@ func (r Runner) Run(ctx context.Context, command string) (string, error) {
 // Format applies the same presentation rules to output collected through an
 // already authenticated interactive SSH session.
 func (r Runner) Format(command, output string) string {
+	if r.RawOutput {
+		return strings.TrimSpace(output)
+	}
 	return formatBuiltin(command, strings.TrimSpace(output), r.Language)
 }
 

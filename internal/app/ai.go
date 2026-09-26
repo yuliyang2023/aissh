@@ -13,6 +13,10 @@ import (
 )
 
 func (a *App) startInlineAI(prompt, sourceLine string, locallyCaptured bool) {
+	if a.config.DesktopUI {
+		a.startAI(prompt, false)
+		return
+	}
 	if a.inlineAI != nil {
 		a.archiveInlineAI()
 	}
@@ -53,11 +57,15 @@ func (a *App) startAI(prompt string, foreground bool) {
 	if prompt == "" {
 		return
 	}
+	if a.config.DesktopUI && (a.proposal != nil || a.execution != nil || a.executionRecovery) {
+		a.chat = append(a.chat, chatMessage{Role: "system", Content: "请先处理当前命令建议或等待执行完成。", Time: time.Now()})
+		return
+	}
 	if a.agentBusy {
 		a.chat = append(a.chat, chatMessage{Role: "system", Content: a.t("AI 正在处理上一个请求。"), Time: time.Now()})
 		return
 	}
-	if foreground && a.sidebarCollapsed && !a.compact {
+	if foreground && !a.config.DesktopUI && a.sidebarCollapsed && !a.compact {
 		a.startInlineAI(prompt, prompt, true)
 		return
 	}
@@ -426,7 +434,7 @@ func (a *App) approveProposal() {
 	if a.proposal == nil || a.agentBusy {
 		return
 	}
-	if !a.atPrompt || a.sensitive || a.execution != nil || a.executionRecovery {
+	if !a.atPrompt || a.sensitive || a.execution != nil || a.executionRecovery || (a.config.DesktopUI && !a.desktopCanApprove()) {
 		a.approvalStatus = a.t("当前不在安全的 Shell 提示符，暂时不能执行；请输入 no 拒绝")
 		return
 	}
@@ -448,7 +456,7 @@ func (a *App) finishApproval(event approvalEvent) {
 	a.agentBusy = false
 	a.agentStatus = ""
 	marker := ""
-	if event.err == nil && (!a.atPrompt || a.sensitive || a.execution != nil || a.executionRecovery) {
+	if event.err == nil && (!a.atPrompt || a.sensitive || a.execution != nil || a.executionRecovery || (a.config.DesktopUI && !a.desktopCanApprove())) {
 		event.err = fmt.Errorf("%s", a.t("当前不在安全的 Shell 提示符，暂时不能执行；请输入 no 拒绝"))
 	}
 	if event.err == nil && a.resourceProposal(event.command) {
@@ -580,7 +588,7 @@ func (a *App) submitExecutionResult() {
 	}
 	a.execution = nil
 	a.retireExecution(execution)
-	if execution.Inline || !a.sidebarVisible() {
+	if !a.config.DesktopUI && (execution.Inline || !a.sidebarVisible()) {
 		a.startInlineExecutionAnalysis(execution.Command)
 	}
 	a.agentBusy = true

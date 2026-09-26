@@ -11,18 +11,22 @@ import (
 	"time"
 
 	"git.example.com/ai/wrd-ai-cli/internal/catalog"
+	"git.example.com/ai/wrd-ai-cli/internal/credentialui"
 )
 
 type terminalSession struct {
-	mu           sync.Mutex
-	id, hostID   string
-	cmd          *exec.Cmd
-	pty          io.ReadWriteCloser
-	cancel       context.CancelFunc
-	closeChannel func()
-	started      bool
-	closed       bool
-	info         SessionInfo
+	mu                sync.Mutex
+	id, hostID        string
+	cmd               *exec.Cmd
+	pty               io.ReadWriteCloser
+	cancel            context.CancelFunc
+	closeChannel      func()
+	started           bool
+	closed            bool
+	info              SessionInfo
+	workbench         *credentialui.WorkbenchState
+	workbenchCommands []credentialui.WorkbenchCommand
+	workbenchReplies  map[string]chan string
 }
 type SessionInfo struct {
 	ID             string `json:"id"`
@@ -266,6 +270,14 @@ func (s *terminalSession) finish(status string) {
 		return
 	}
 	s.closed = true
+	for id, reply := range s.workbenchReplies {
+		select {
+		case reply <- "连接已结束":
+		default:
+		}
+		delete(s.workbenchReplies, id)
+	}
+	s.workbenchCommands = nil
 	s.info.Status = status
 	s.info.EndedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	if s.cmd != nil && s.cmd.Process != nil {

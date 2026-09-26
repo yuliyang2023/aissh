@@ -1,6 +1,6 @@
 // Package credentialui lets a running CLI ask its owning desktop window to
-// repair a missing credential and track its selected AI conversation.
-// This channel carries IDs and decisions only.
+// repair a missing credential and share its AI conversation and monitoring state.
+// Each session uses an authenticated loopback channel; stored credentials are not exported.
 package credentialui
 
 import (

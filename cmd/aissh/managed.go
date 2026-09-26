@@ -18,6 +18,7 @@ import (
 
 func prepareManaged(config *app.Config) (func(), error) {
 	if credentialui.Available() {
+		config.DesktopUI = true
 		config.ConversationChanged = credentialui.NotifyConversation
 	}
 	store := catalog.Default()

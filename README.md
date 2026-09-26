@@ -167,13 +167,16 @@ Keyboard-first users can still access every core feature.
 
 ## Desktop client and saved credentials
 
-The native desktop opens on AI conversations, grouped by server. Create separate
-topics, search and preview saved history, or continue with the original context.
-AI conversations and SSH sessions come first in the sidebar, followed by a
-Configuration group for hosts, credentials, system connections and AI profiles.
-SSH sessions manage current terminals and recent connections. Continuing a conversation opens the existing
-aissh workspace in a terminal tab. The client also manages credentials, system
-connections and AI profiles. Secrets live in the OS keyring.
+The desktop opens directly into a unified workspace: a collapsible SSH + AI
+session list on the left, with chat, SSH and monitoring on the right. Select a
+running session to resume work, or preview offline history and reconnect. There
+is no separate SSH sessions page. Settings groups hosts, credentials, system
+connections and AI profiles in one place. Switching settings or sessions keeps
+terminals and unsent AI drafts intact. The client renders chat, streaming answers,
+command approvals and monitoring cards; the SSH pane has no terminal sidebar.
+Monitoring spans the top of the chat and SSH panes and folds into a single
+status row, with the collapse preference saved locally.
+Secrets live in the OS keyring.
 
 Build on macOS with Go 1.25+, Node.js 20+ and Xcode command-line tools:
 

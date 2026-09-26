@@ -2,7 +2,6 @@ package desktop
 
 import (
 	"runtime"
-	"strconv"
 
 	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/menu/keys"
@@ -21,7 +20,7 @@ func ApplicationMenu(s *Service) *menu.Menu {
 		return func(*menu.CallbackData) { s.emit("desktop-command", command) }
 	}
 	file := appMenu.AddSubmenu("文件")
-	file.AddText("新建 AI 对话…", keys.CmdOrCtrl("n"), action("new-conversation"))
+	file.AddText("新建会话…", keys.CmdOrCtrl("n"), action("new-conversation"))
 	file.AddText("新建主机…", nil, action("new-host"))
 	file.AddText("新建凭据…", keys.Combo("n", keys.CmdOrCtrlKey, keys.ShiftKey), action("new-credential"))
 	file.AddText("新建系统连接…", nil, action("new-resource"))
@@ -34,16 +33,10 @@ func ApplicationMenu(s *Service) *menu.Menu {
 	}
 	appMenu.Append(menu.EditMenu())
 	view := appMenu.AddSubmenu("显示")
-	for i, page := range []struct{ name, command string }{
-		{"AI 会话", "conversations"}, {"SSH 会话", "sessions"}, {"主机", "hosts"}, {"凭据", "credentials"}, {"系统连接", "resources"}, {"AI 配置", "ai"},
-	} {
-		if i == 2 {
-			view.AddSeparator()
-		}
-		view.AddText(page.name, keys.CmdOrCtrl(strconv.Itoa(i+1)), action("page:"+page.command))
-	}
+	view.AddText("工作区", keys.CmdOrCtrl("1"), action("workspace"))
+	view.AddText("设置…", keys.CmdOrCtrl(","), action("settings"))
 	view.AddSeparator()
-	view.AddText("显示 / 隐藏侧栏", keys.Combo("s", keys.CmdOrCtrlKey, keys.OptionOrAltKey), action("sidebar"))
+	view.AddText("展开 / 收起会话列表", keys.Combo("s", keys.CmdOrCtrlKey, keys.OptionOrAltKey), action("sidebar"))
 	view.AddText("搜索", keys.CmdOrCtrl("f"), action("search"))
 	view.AddText("刷新配置", keys.CmdOrCtrl("r"), action("refresh"))
 	appMenu.Append(menu.WindowMenu())

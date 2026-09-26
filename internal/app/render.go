@@ -12,6 +12,9 @@ import (
 )
 
 func (a *App) render() {
+	if a.config.DesktopUI {
+		a.focus = focusTerminal
+	}
 	if a.inputDebug != nil {
 		started := time.Now()
 		defer func() {
@@ -40,12 +43,12 @@ func (a *App) render() {
 	}
 	output.WriteString(positionedLine(1, 1, a.headerLine(header), a.cols, "\x1b[1;38;5;45m"))
 
-	workspaceOnly := a.compact && a.sidebarWorkspaceFocused()
+	workspaceOnly := !a.config.DesktopUI && a.compact && a.sidebarWorkspaceFocused()
 	if !workspaceOnly {
 		terminalOutput, cursorRow, cursorCol := a.renderTerminalWorkspace()
 		terminalCursorRow, terminalCursorCol = cursorRow, cursorCol
 		output.WriteString(terminalOutput)
-		if a.proposal != nil && !a.inlineApprovalAvailable() {
+		if !a.config.DesktopUI && a.proposal != nil && !a.inlineApprovalAvailable() {
 			output.WriteString(a.renderApprovalCard())
 			top, _, _, height := a.approvalGeometry()
 			for row := top; row < top+height; row++ {
@@ -57,7 +60,7 @@ func (a *App) render() {
 		// be restored when the user returns to the terminal.
 		a.terminalRows = nil
 	}
-	if a.compact {
+	if a.compact && !a.config.DesktopUI {
 		a.sidebarFrame = ""
 		if workspaceOnly {
 			if a.focus == focusAI || a.focus == focusAIHistory {
@@ -84,7 +87,7 @@ func (a *App) render() {
 
 	output.WriteString(positionedLine(a.rows, 1, a.statusLine(a.cols), a.cols, "\x1b[38;5;245m"))
 	switch {
-	case a.focus == focusTerminal && a.terminalScroll == 0 && a.proposal == nil && !workspaceOnly && a.virtual != nil && (a.virtual.CursorVisible() || a.atPrompt):
+	case a.focus == focusTerminal && a.terminalScroll == 0 && (a.proposal == nil || a.config.DesktopUI) && !workspaceOnly && a.virtual != nil && (a.virtual.CursorVisible() || a.atPrompt):
 		output.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b[?25h", terminalCursorRow, terminalCursorCol))
 	case a.focus == focusApproval && a.proposal != nil:
 		if row, col, ok := a.inlineApprovalCursor(); ok {
@@ -128,7 +131,7 @@ func (a *App) headerLine(title string) string {
 }
 
 func (a *App) sidebarToggleButton() string {
-	if a.compact {
+	if a.config.DesktopUI || a.compact {
 		return ""
 	}
 	if a.sidebarCollapsed {
@@ -717,6 +720,9 @@ func positionedLine(row, col int, value string, width int, style string) string 
 }
 
 func (a *App) statusLine(width int) string {
+	if a.config.DesktopUI {
+		return "SSH · AI 对话与监控由客户端显示"
+	}
 	status := a.inputStatus()
 	if a.aiNotice != "" && !a.agentBusy && a.execution == nil {
 		status = a.aiNotice + " · " + status

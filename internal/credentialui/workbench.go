@@ -1,0 +1,106 @@
+package credentialui
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+)
+
+// Workbench data travels over the per-session authenticated loopback channel,
+// never through terminal escape sequences or the remote SSH environment.
+type WorkbenchState struct {
+	ConversationID string             `json:"conversationId"`
+	Messages       []WorkbenchMessage `json:"messages"`
+	Busy           bool               `json:"busy"`
+	Status         string             `json:"status"`
+	Proposal       *WorkbenchProposal `json:"proposal,omitempty"`
+	CanApprove     bool               `json:"canApprove"`
+	ApprovalStatus string             `json:"approvalStatus"`
+	Executing      bool               `json:"executing"`
+	Panels         []MonitorPanel     `json:"panels"`
+	UpdatedAt      string             `json:"updatedAt"`
+}
+
+type WorkbenchMessage struct {
+	Role     string             `json:"role"`
+	Content  string             `json:"content"`
+	Time     string             `json:"time"`
+	Proposal *WorkbenchProposal `json:"proposal,omitempty"`
+}
+
+type WorkbenchProposal struct {
+	ID             string `json:"id"`
+	Command        string `json:"command"`
+	Explanation    string `json:"explanation"`
+	ExpectedEffect string `json:"expectedEffect"`
+	Risk           string `json:"risk"`
+}
+
+type MonitorPanel struct {
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	Kind       string `json:"kind"`
+	Content    string `json:"content"`
+	Status     string `json:"status"`
+	Error      string `json:"error"`
+	UpdatedAt  string `json:"updatedAt"`
+	IntervalMS int64  `json:"intervalMs"`
+	Pinned     bool   `json:"pinned"`
+}
+
+type WorkbenchCommand struct {
+	ID         string `json:"id"`
+	Kind       string `json:"kind"`
+	Text       string `json:"text"`
+	ProposalID string `json:"proposalId"`
+	PanelID    string `json:"panelId"`
+	Deadline   int64  `json:"deadline"`
+}
+
+type CommandResult struct {
+	ID    string `json:"id"`
+	Error string `json:"error"`
+}
+
+type WorkbenchExchange struct {
+	State   WorkbenchState  `json:"state"`
+	Results []CommandResult `json:"results"`
+}
+
+func ExchangeWorkbench(ctx context.Context, state WorkbenchState, results []CommandResult) ([]WorkbenchCommand, error) {
+	address, token := os.Getenv(AddressEnv), os.Getenv(CapabilityEnv)
+	host, _, err := net.SplitHostPort(address)
+	if err != nil || host != "127.0.0.1" || len(token) != 32 {
+		return nil, errors.New("invalid desktop channel")
+	}
+	body, err := json.Marshal(WorkbenchExchange{State: state, Results: results})
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+address+"/workbench", strings.NewReader(string(body)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	client := &http.Client{Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	defer client.CloseIdleConnections()
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("desktop channel unavailable")
+	}
+	var commands []WorkbenchCommand
+	err = json.NewDecoder(io.LimitReader(resp.Body, 256*1024)).Decode(&commands)
+	return commands, err
+}

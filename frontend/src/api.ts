@@ -80,6 +80,46 @@ export interface ChatMessage {
   time: string;
   proposal?: { command: string; explanation: string; risk: string };
 }
+export interface MonitorPanel {
+  id: string;
+  title: string;
+  kind: string;
+  content: string;
+  status: string;
+  error: string;
+  updatedAt: string;
+  intervalMs: number;
+  pinned: boolean;
+}
+export interface WorkbenchState {
+  conversationId: string;
+  messages: ChatMessage[];
+  busy: boolean;
+  status: string;
+  proposal?: {
+    id: string;
+    command: string;
+    explanation: string;
+    expectedEffect: string;
+    risk: string;
+  };
+  canApprove: boolean;
+  approvalStatus: string;
+  executing: boolean;
+  panels: MonitorPanel[];
+  updatedAt: string;
+}
+export interface WorkbenchCommand {
+  kind: 'prompt' | 'approve' | 'reject' | 'monitor-open' | 'monitor-close' | 'monitor-refresh';
+  text?: string;
+  proposalId?: string;
+  panelId?: string;
+}
+export const sessionAddress = (s: Pick<Session, 'user' | 'address' | 'port'>) =>
+  (s.user ? s.user + '@' : '') +
+  (s.address.includes(':') ? '[' + s.address + ']' : s.address) +
+  ':' +
+  s.port;
 export const sessionLive = (s: Session) => s.status === 'starting' || s.status === 'running';
 export const sessionStatus = {
   starting: '正在启动',
@@ -135,6 +175,8 @@ type Backend = {
   StartSession(id: string, cols: number, rows: number): Promise<void>;
   WriteTerminal(id: string, data: string): Promise<void>;
   ResizeTerminal(id: string, cols: number, rows: number): Promise<void>;
+  GetWorkbench(id: string): Promise<WorkbenchState | null>;
+  WorkbenchAction(id: string, command: WorkbenchCommand): Promise<void>;
   CloseSession(id: string): Promise<void>;
   RunResource(op: Operation): Promise<string>;
   TestResource(id: string): Promise<string>;

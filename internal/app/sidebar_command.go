@@ -23,6 +23,10 @@ func (a *App) handleLocalSidebarCommand(line string, inline bool) bool {
 	if !ok {
 		return false
 	}
+	if a.config.DesktopUI {
+		a.appendPersistentChat(chatMessage{Role: "system", Content: "AI 对话与监控已移至客户端工作区。", Time: time.Now()})
+		return true
+	}
 	message := ""
 	switch argument {
 	case "", "toggle", "show", "hide":
