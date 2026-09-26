@@ -2476,47 +2476,6 @@ tbody tr:last-child td {
 .session-host-remove:hover {
   color: var(--danger);
 }
-.removed-session-hosts {
-  flex-shrink: 0;
-  padding: 8px 16px;
-  color: var(--secondary);
-  font-size: 11px;
-  border-top: 1px solid var(--line);
-}
-.removed-session-hosts summary {
-  cursor: pointer;
-}
-.removed-session-hosts > div {
-  max-height: 160px;
-  overflow-y: auto;
-  margin-top: 6px;
-}
-.removed-session-hosts button {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  padding: 7px 4px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-}
-.removed-session-hosts button:hover {
-  background: var(--hover);
-}
-.removed-session-hosts button span {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.removed-session-hosts button small {
-  flex-shrink: 0;
-  color: var(--accent);
-}
 .session-host-heading small {
   font-size: 10px;
   color: var(--tertiary);

@@ -10,6 +10,7 @@ import {
   LoaderCircle,
   PanelLeft,
   Plus,
+  RotateCcw,
   Search,
   Server,
   ShieldCheck,
@@ -58,7 +59,7 @@ import { primaryModifier } from './platform';
 import { KnowledgeLibrary } from './Knowledge';
 import { Monitoring } from './Monitoring';
 
-type SettingsPage = 'hosts' | 'credentials' | 'ai';
+type SettingsPage = 'hosts' | 'credentials' | 'ai' | 'removedHosts';
 type Page = SettingsPage | 'resources' | 'knowledge' | 'conversations' | 'terminal';
 type Editor =
   | { kind: 'host'; value: Host }
@@ -78,6 +79,7 @@ const settingsPages = [
   { id: 'hosts' as SettingsPage, label: '主机', icon: Server },
   { id: 'credentials' as SettingsPage, label: '凭据', icon: KeyRound },
   { id: 'ai' as SettingsPage, label: 'AI 配置', icon: Sparkles },
+  { id: 'removedHosts' as SettingsPage, label: '已移除服务器', icon: RotateCcw },
 ];
 
 export function App() {
@@ -140,6 +142,24 @@ export function App() {
   const [operation, setOperation] = useState<Resource | null>(null);
   const [operationText, setOperationText] = useState('');
   const [sessions, setSessions] = useState<Session[]>([]);
+  // Keep session hosts available for listing and restoration after their saved host is deleted.
+  const sidebarHosts = [
+    ...connectionHosts,
+    ...sessions
+      .filter(
+        (s, index) =>
+          !connectionHosts.some((h) => h.id === s.hostId) &&
+          !sessions.slice(0, index).some((other) => other.hostId === s.hostId),
+      )
+      .map((s) => ({
+        ...newHost(),
+        id: s.hostId,
+        name: s.name,
+        address: s.address,
+        port: s.port,
+        user: s.user,
+      })),
+  ];
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationHost, setConversationHost] = useState('');
   const [collapsedConversationHosts, setCollapsedConversationHosts] = useState<Set<string>>(
@@ -473,6 +493,9 @@ export function App() {
       (group === '全部主机' || h.group === group) &&
       (routeFilter === 'all' || (routeFilter === 'jump' ? !!h.jumpHostId : !h.jumpHostId)),
   );
+  const visibleRemovedHosts = sidebarHosts.filter(
+    (h) => removedSidebarHosts.has(h.id) && matches(h.name, h.address, h.user, h.group),
+  );
   const credentialUses = (id: string) =>
     connectionHosts.filter((h) => h.credentialId === id).length +
     data.resources.filter((r) => r.credentialId === id).length +
@@ -598,28 +621,30 @@ export function App() {
     sessions,
   ]);
   const itemCount =
-    page === 'hosts'
-      ? visibleHosts.length
-      : page === 'credentials'
-        ? data.credentials.filter((c) => matches(c.name, c.username, kinds[c.kind])).length
-        : page === 'resources'
-          ? data.resources.filter((r) =>
-              matches(r.name, r.kind, kinds[r.kind], r.endpoint, r.description || ''),
-            ).length
-          : page === 'ai'
-            ? data.aiProfiles.filter((p) => matches(p.name, p.provider, p.model)).length
-            : page === 'conversations'
-              ? conversations.filter(
-                  (c) =>
-                    (!conversationHost || c.hostId === conversationHost) &&
-                    matches(
-                      c.title,
-                      c.preview,
-                      connectionHosts.find((h) => h.id === c.hostId)?.name || '',
-                      connectionHosts.find((h) => h.id === c.hostId)?.address || '',
-                    ),
-                ).length
-              : sessions.length;
+    page === 'removedHosts'
+      ? visibleRemovedHosts.length
+      : page === 'hosts'
+        ? visibleHosts.length
+        : page === 'credentials'
+          ? data.credentials.filter((c) => matches(c.name, c.username, kinds[c.kind])).length
+          : page === 'resources'
+            ? data.resources.filter((r) =>
+                matches(r.name, r.kind, kinds[r.kind], r.endpoint, r.description || ''),
+              ).length
+            : page === 'ai'
+              ? data.aiProfiles.filter((p) => matches(p.name, p.provider, p.model)).length
+              : page === 'conversations'
+                ? conversations.filter(
+                    (c) =>
+                      (!conversationHost || c.hostId === conversationHost) &&
+                      matches(
+                        c.title,
+                        c.preview,
+                        connectionHosts.find((h) => h.id === c.hostId)?.name || '',
+                        connectionHosts.find((h) => h.id === c.hostId)?.address || '',
+                      ),
+                  ).length
+                : sessions.length;
   const needed = credentialRequests[0];
   const neededCredential = needed && data.credentials.find((c) => c.id === needed.credentialId);
   const resolveNeeded = (accepted: boolean) => {
@@ -655,7 +680,7 @@ export function App() {
           </div>
         </div>
         <SessionSidebar
-          hosts={connectionHosts}
+          hosts={sidebarHosts}
           conversations={conversations}
           sessions={sessions}
           selectedConversation={currentConversation ? conversationKey(currentConversation) : ''}
@@ -682,9 +707,8 @@ export function App() {
           removedHosts={removedSidebarHosts}
           onRemoveHost={(host) => {
             setRemovedSidebarHosts((previous) => new Set(previous).add(host.id));
-            setToast('已从列表移除「' + host.name + '」，可在“已移除服务器”中恢复');
+            setToast('已从列表移除「' + host.name + '」，可在“设置 → 已移除服务器”中恢复');
           }}
-          onRestoreHost={restoreSidebarHost}
           hiddenItems={hiddenSidebarItems}
           onHide={(item) => {
             setHiddenSidebarItems((previous) => new Set(previous).add(item.key));
@@ -868,7 +892,7 @@ export function App() {
                   ref={searchRef}
                   aria-label="搜索配置"
                   placeholder={
-                    page === 'hosts'
+                    page === 'hosts' || page === 'removedHosts'
                       ? '搜索名称、地址或分组…'
                       : page === 'resources'
                         ? '搜索系统、用途或地址…'
@@ -919,42 +943,44 @@ export function App() {
                   </div>
                 </>
               )}
-              <div className="settings-actions">
-                {page === 'hosts' && (
+              {page !== 'removedHosts' && (
+                <div className="settings-actions">
+                  {page === 'hosts' && (
+                    <button
+                      className="button"
+                      aria-label="导入 SSH 配置"
+                      disabled={!!busy || !connected()}
+                      onClick={() => void importHosts()}
+                    >
+                      <Download size={15} />
+                      导入
+                    </button>
+                  )}
                   <button
-                    className="button"
-                    aria-label="导入 SSH 配置"
-                    disabled={!!busy || !connected()}
-                    onClick={() => void importHosts()}
+                    className="button primary"
+                    disabled={!connected()}
+                    onClick={add}
+                    aria-label={
+                      page === 'hosts'
+                        ? '添加主机'
+                        : page === 'credentials'
+                          ? '添加凭据'
+                          : page === 'resources'
+                            ? '添加系统'
+                            : '添加 AI 配置'
+                    }
                   >
-                    <Download size={15} />
-                    导入
-                  </button>
-                )}
-                <button
-                  className="button primary"
-                  disabled={!connected()}
-                  onClick={add}
-                  aria-label={
-                    page === 'hosts'
-                      ? '添加主机'
+                    <Plus size={15} />
+                    {page === 'hosts'
+                      ? '新建主机'
                       : page === 'credentials'
-                        ? '添加凭据'
+                        ? '新建凭据'
                         : page === 'resources'
-                          ? '添加系统'
-                          : '添加 AI 配置'
-                  }
-                >
-                  <Plus size={15} />
-                  {page === 'hosts'
-                    ? '新建主机'
-                    : page === 'credentials'
-                      ? '新建凭据'
-                      : page === 'resources'
-                        ? '新建系统'
-                        : '新建 AI 配置'}
-                </button>
-              </div>
+                          ? '新建系统'
+                          : '新建 AI 配置'}
+                  </button>
+                </div>
+              )}
             </div>
           </>
         )}
@@ -1127,6 +1153,70 @@ export function App() {
                           添加第一台主机
                         </button>
                       )
+                    }
+                  />
+                ))}
+              {page === 'removedHosts' &&
+                (visibleRemovedHosts.length ? (
+                  <div className="table-card">
+                    <table aria-label="已移除服务器">
+                      <thead>
+                        <tr>
+                          <th>服务器</th>
+                          <th>连接地址</th>
+                          <th className="align-right">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleRemovedHosts.map((host) => (
+                          <tr key={host.id}>
+                            <td>
+                              <div className="identity">
+                                <div className="row-icon">
+                                  <Server size={19} />
+                                </div>
+                                <div>
+                                  <strong>{host.name}</strong>
+                                  <small>{host.group || '未分组'}</small>
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              <span className="mono">
+                                {host.user ? host.user + '@' : ''}
+                                {host.address}
+                              </span>
+                              <small className="cell-small">端口 {host.port}</small>
+                            </td>
+                            <td>
+                              <div className="row-actions">
+                                <button
+                                  className="button"
+                                  aria-label={'恢复 ' + host.name + ' 到会话列表'}
+                                  disabled={!!busy}
+                                  onClick={() => {
+                                    restoreSidebarHost(host.id);
+                                    setToast('已恢复「' + host.name + '」到会话列表');
+                                  }}
+                                >
+                                  <RotateCcw size={15} />
+                                  恢复到会话列表
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <Empty
+                    icon={<RotateCcw size={29} />}
+                    title={search ? '没有找到匹配的服务器' : '没有已移除的服务器'}
+                    description={
+                      search
+                        ? '试试其他名称、地址或分组。'
+                        : '从会话列表移除的服务器会显示在这里，可随时恢复。'
                     }
                   />
                 ))}
@@ -1512,13 +1602,15 @@ export function App() {
               {itemCount} 个项目{search && ' · 已筛选'}
             </span>
             <span>
-              {page === 'hosts'
-                ? '双击主机连接'
-                : page === 'credentials'
-                  ? '秘密保存在系统凭据库'
-                  : page === 'resources'
-                    ? '按配置范围使用凭据'
-                    : '每台主机可单独选择 AI 配置'}
+              {page === 'removedHosts'
+                ? '仅从会话列表隐藏，主机配置与会话记录仍保留'
+                : page === 'hosts'
+                  ? '双击主机连接'
+                  : page === 'credentials'
+                    ? '秘密保存在系统凭据库'
+                    : page === 'resources'
+                      ? '按配置范围使用凭据'
+                      : '每台主机可单独选择 AI 配置'}
             </span>
           </footer>
         )}

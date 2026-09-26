@@ -34,7 +34,6 @@ export function SessionSidebar({
   onNew,
   onRemoveHost,
   removedHosts,
-  onRestoreHost,
   hiddenItems,
   onHide,
 }: {
@@ -55,33 +54,13 @@ export function SessionSidebar({
   onNew: (hostId?: string) => void;
   onRemoveHost: (host: Pick<Host, 'id' | 'name'>) => void;
   removedHosts: Set<string>;
-  onRestoreHost: (id: string) => void;
   hiddenItems: Set<string>;
   onHide: (item: SessionItem) => void;
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const query = search.trim().toLowerCase();
-  // Keep running connections reachable even if their saved host was removed in Settings.
-  const groupHosts = [
-    ...hosts,
-    ...sessions
-      .filter(
-        (s, index) =>
-          !hosts.some((h) => h.id === s.hostId) &&
-          !sessions.slice(0, index).some((other) => other.hostId === s.hostId),
-      )
-      .map((s) => ({
-        id: s.hostId,
-        name: s.name,
-        address: s.address,
-        port: s.port,
-        user: s.user,
-        group: '',
-      })),
-  ];
-  const removed = groupHosts.filter((host) => removedHosts.has(host.id));
   const allItems = sessionItems(conversations, sessions);
-  const groups = groupHosts
+  const groups = hosts
     .filter((host) => !removedHosts.has(host.id))
     .map((host) => ({
       host,
@@ -236,30 +215,10 @@ export function SessionSidebar({
           </div>
         )}
       </div>
-      {!!removed.length && (
-        <details className="removed-session-hosts">
-          <summary>已移除服务器（{removed.length}）</summary>
-          <div>
-            {removed.map((host) => (
-              <button
-                key={host.id}
-                title={'恢复 ' + host.name}
-                aria-label={'恢复 ' + host.name + ' 到会话列表'}
-                disabled={busy}
-                onClick={() => onRestoreHost(host.id)}
-              >
-                <Server size={13} />
-                <span>{host.name}</span>
-                <small>恢复</small>
-              </button>
-            ))}
-          </div>
-        </details>
-      )}
       {historyOpen && (
         <SessionHistory
           items={allItems}
-          hosts={groupHosts}
+          hosts={hosts}
           hiddenItems={hiddenItems}
           removedHosts={removedHosts}
           busy={busy}
