@@ -37,6 +37,12 @@ func (a *App) handleInput(data []byte) {
 		a.handleZmodemInput(data)
 		return
 	}
+	if a.config.DesktopUI {
+		// Mouse reports and terminal shortcuts belong to the remote application;
+		// the desktop has separate controls for AI and local scrolling.
+		a.handleKeyboardInput(data)
+		return
+	}
 	if len(data) == 1 && data[0] == 0x1d { // Ctrl+]
 		a.toggleMouseMode()
 		return
@@ -285,7 +291,7 @@ func (a *App) handleTerminalBytes(data []byte) {
 		if size > 1 {
 			r, _ := utf8.DecodeRune(unit)
 			a.captureLineAnchor()
-			if a.atPrompt && a.lineReliable && len(a.lineInput) == 0 && unicode.Is(unicode.Han, r) {
+			if !a.config.DesktopUI && a.atPrompt && a.lineReliable && len(a.lineInput) == 0 && unicode.Is(unicode.Han, r) {
 				a.aiLineCapture = true
 			}
 			if a.lineReliable {
@@ -350,7 +356,7 @@ func (a *App) handleTerminalBytes(data []byte) {
 				continue
 			}
 		case 0x1f: // Ctrl+Shift+- (Ctrl+_)
-			if a.atPrompt && !a.compact {
+			if a.atPrompt && !a.compact && !a.config.DesktopUI {
 				a.toggleSidebar()
 				continue
 			}
@@ -413,7 +419,7 @@ func (a *App) finishTerminalPaste(payload []byte) bool {
 	value = strings.ReplaceAll(value, "\r", "\n")
 	captured := a.aiLineCapture
 	line := string(a.lineInput) + value
-	if a.atPrompt && a.lineReliable && !a.sensitive {
+	if !a.config.DesktopUI && a.atPrompt && a.lineReliable && !a.sensitive {
 		// Keep a pasted sidebar command editable locally until Enter. Shell
 		// pastes otherwise lose line tracking and bypass local commands.
 		pastedLine := strings.TrimRight(line, "\n")
@@ -471,7 +477,7 @@ func (a *App) submitTerminalLine(newline byte) {
 		_, aiSyntax := trigger.IsAIInput(line)
 		a.debugInput("submit bytes=%d han=%t ai_syntax=%t prompt=%t reliable=%t captured=%t sensitive=%t", len(line), containsHanInput([]byte(line)), aiSyntax, a.atPrompt, reliable, captured, a.sensitive)
 	}
-	if a.atPrompt && reliable && !a.sensitive {
+	if !a.config.DesktopUI && a.atPrompt && reliable && !a.sensitive {
 		if _, ok := parseLocalSidebarCommand(line); ok {
 			if !captured && a.sshPTY != nil {
 				_, _ = a.writeSSH([]byte{0x15})

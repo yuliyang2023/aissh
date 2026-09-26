@@ -6,6 +6,7 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { testCommandReview } from './test-command-review.mjs';
+import { testTerminalScroll } from './test-terminal-scroll.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const browsers = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const engine = process.env.UI_BROWSER || 'chromium';
@@ -28,6 +29,7 @@ const server = http.createServer(async (req, res) => {
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const browser = await browsers[engine].launch({
   headless: true,
+  ignoreDefaultArgs: process.env.TERMINAL_ONLY ? ['--hide-scrollbars'] : undefined,
   timeout: 20000,
   executablePath:
     process.env.UI_BROWSER_PATH || (engine === 'chromium' ? process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined),
@@ -312,6 +314,10 @@ try {
   if (process.env.COMMAND_REVIEW_ONLY) {
     await page.locator('.session-select').first().waitFor();
     await testCommandReview(page, out);
+    assert.deepEqual(errors, []);
+  } else if (process.env.TERMINAL_ONLY) {
+    await page.locator('.session-select').first().waitFor();
+    await testTerminalScroll(page, out, engine);
     assert.deepEqual(errors, []);
   } else {
   await page.locator('.session-select').first().waitFor();
@@ -605,6 +611,9 @@ try {
     console.log('PASS: settings host/credential/resource/AI workflows, trust, terminal input, credential repair, reconnect, direct sessions, light/dark layout and persisted sidebar state');
   }
   }
+} catch (error) {
+  await page.screenshot({ path: path.join(out, `failure-${engine}.png`) });
+  throw error;
 } finally {
   await browser.close();
   await new Promise((resolve) => server.close(resolve));

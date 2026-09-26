@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ func desktopTestApp(t *testing.T) *App {
 	}
 	t.Cleanup(a.cancel)
 	a.agent = approvalTestProvider{}
+	a.screenOut = io.Discard
 	a.setViewportSize(120, 36)
 	a.virtual = vt10x.New(vt10x.WithSize(a.mainCols, a.contentRows))
 	return a
@@ -32,15 +34,15 @@ func TestDesktopKeepsTerminalFreeOfSidebarAndApproval(t *testing.T) {
 	a.toggleSidebar()
 	a.ensureSidebarVisible()
 	a.handleLocalSidebarCommand("/sidebar show", true)
-	if a.sidebarVisible() || a.mainCols != 139 || a.sidebarToggleButton() != "" {
+	if a.sidebarVisible() || a.mainCols != 140 || a.contentRows != 36 || a.sidebarToggleButton() != "" {
 		t.Fatal("desktop exposed terminal sidebar")
 	}
 	a.finishAgentTurn(agent.Turn{Proposal: &agent.Proposal{ID: "p", Command: "secret-command-card", Risk: "high"}}, nil)
 	var output bytes.Buffer
 	a.screenOut = &output
 	a.render()
-	if strings.Contains(output.String(), "secret-command-card") || strings.Contains(output.String(), "/sidebar") {
-		t.Fatal("AI content leaked into SSH view")
+	if output.Len() != 0 {
+		t.Fatalf("CLI rendering leaked into the desktop terminal: %q", output.String())
 	}
 	if a.desktopState().Proposal == nil {
 		t.Fatal("client lost approval")

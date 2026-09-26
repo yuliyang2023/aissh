@@ -14,6 +14,9 @@ import (
 func (a *App) render() {
 	if a.config.DesktopUI {
 		a.focus = focusTerminal
+		// Repainting a CLI screen inside xterm hides SSH history in an alternate
+		// buffer. Desktop SSH output is streamed by processVisibleSSHOutput.
+		return
 	}
 	if a.inputDebug != nil {
 		started := time.Now()

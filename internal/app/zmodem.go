@@ -69,9 +69,13 @@ func (a *App) processSSHOutput(data []byte) {
 	}
 	start := dataMarker
 	if start < 0 {
-		// The marker crossed two PTY reads. Re-send its retained prefix verbatim;
-		// those bytes were only painted by the VT renderer, never forwarded raw.
-		a.enterZmodemPassthrough(combined[marker:])
+		if a.config.DesktopUI {
+			// The prefix was already streamed to the desktop in the earlier read.
+			a.enterZmodemPassthrough(data)
+		} else {
+			// The CLI only painted that prefix; its transfer helper still needs it.
+			a.enterZmodemPassthrough(combined[marker:])
+		}
 	} else {
 		a.enterZmodemPassthrough(data[start:])
 	}
@@ -99,6 +103,12 @@ func (a *App) processRegularSSHOutput(data []byte) {
 func (a *App) processVisibleSSHOutput(data []byte) {
 	if len(data) == 0 || a.virtual == nil {
 		return
+	}
+	if a.config.DesktopUI {
+		// Preserve the original bytes and terminal modes so xterm owns scrollback,
+		// selection and mouse hit testing. Execution/monitor markers are already
+		// removed before this point; the emulator still observes output below.
+		_, _ = a.outputWriter().Write(data)
 	}
 	a.captureInlineResizeAnchors()
 	tokens := a.transformer.TransformTokens(data)
@@ -129,7 +139,9 @@ func (a *App) enterZmodemPassthrough(data []byte) {
 	a.mouseReporting = false
 	a.mouseScrollbarDrag = scrollbarDragState{}
 	a.dirty = false
-	_, _ = io.WriteString(a.outputWriter(), "\x1b[?2026l"+mouseReportingDisable+"\x1b[0m\x1b[?25h\x1b[?1049l")
+	if !a.config.DesktopUI {
+		_, _ = io.WriteString(a.outputWriter(), "\x1b[?2026l"+mouseReportingDisable+"\x1b[0m\x1b[?25h\x1b[?1049l")
+	}
 	a.processZmodemOutput(data)
 }
 
@@ -282,7 +294,9 @@ func (a *App) leaveZmodemPassthrough() {
 	a.lineAnchored = false
 	a.lineReliable = false
 	a.terminalKeyCarry = nil
-	_, _ = io.WriteString(a.outputWriter(), "\x1b[?1049h\x1b[2J\x1b[H"+mouseReportingDisable)
+	if !a.config.DesktopUI {
+		_, _ = io.WriteString(a.outputWriter(), "\x1b[?1049h\x1b[2J\x1b[H"+mouseReportingDisable)
+	}
 	a.dirty = true
 	// Ask the remote shell for a fresh prompt so the VT model, which intentionally
 	// skipped binary transfer traffic, is synchronized again without replaying it.

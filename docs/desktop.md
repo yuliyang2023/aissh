@@ -26,6 +26,10 @@ macOS 构建产物是 `dist/desktop/WRD AI SSH.app`。可直接双击，或复�
 
 当前会话出现待确认命令时自动打开「命令审计」弹窗，展示执行目标、风险、说明、预期效果及完整命令。长命令可独立滚动、切换自动换行或原样复制，批准和拒绝操作固定在底部。按 Esc、关闭窗口或选择「稍后处理」会保留待审计命令，可点击「查看并审计」重新打开；后台会话的命令在切回该会话后展示。
 
+SSH 终端保留最多 20,000 行回滚历史。在底部时自动跟随输出，滚轮上翻或拖动右侧滚动条后显示「浏览历史」，新输出不会将视图拉回底部；点击「回到底部」或手动滚到底部即可恢复跟随。按钮会将输入焦点交回终端，不向 SSH 发送命令。切换会话保留各自的浏览位置，会话结束后仍可翻阅；历史超过上限时最早的内容会被移除。
+
+桌面终端直接呈现 SSH 输出，由客户端管理回滚；不会再嵌套命令行的全屏界面。SSH 区的中文、粘贴和远端程序鼠标操作交给远端终端，AI 提问使用左侧对话区。更新后需要重新连接 SSH，已有连接仍使用启动时的终端进程。
+
 服务器监控位于工作区顶部，横跨下方的 AI 对话和 SSH 两栏，由客户端直接绘制。系统概览以横向卡片显示 1/5/15 分钟负载、内存、根目录磁盘和进程数；内存、磁盘带占用条。点击标题栏可收起为一行状态、负载和内存摘要，客户端记住折叠选择，下方对话和终端自动扩展。可切换到进程、磁盘、网络、服务，或添加符合原只读策略的自定义命令；AI 添加的监控也会同步出现。支持刷新、关闭非固定监控。显示最近采集时间；采集失败时保留上次结果并显示错误，超过刷新间隔的三倍（至少 15 秒）标为过期。监控复用 aissh 现有采集器，不解析终端画面，不在远端安装程序。主 SSH 通道采集忙于交互时会延后刷新。
 
 AI 提问和审批通过每个会话独立认证的本机通道传递，不通过模拟键盘输入发送到 Shell。审批携带当前建议 ID，并在发起审批和写入 SSH 前检查空闲提示符及未提交输入；过期操作会被拒绝。客户端显示最近 100 条运行时消息，较长消息截断显示，完整持久对话仍可通过「历史记录」预览。独立命令行的 `/sidebar` 保持原有行为。
@@ -135,6 +139,13 @@ AISSH_TEST_OS_KEYRING=1 go test ./internal/catalog -run TestOSKeyringRoundTrip -
 # 界面流程测试：需先构建 frontend，并安装 Playwright 和 Chrome
 # 可通过 PLAYWRIGHT_MODULE / CHROME_PATH 指定现有安装
 node scripts/test-desktop-ui.mjs
+
+# 只验证 SSH 终端滚动、跟随、切换会话与窗口缩放
+TERMINAL_ONLY=1 node scripts/test-desktop-ui.mjs
+
+# 用真实终端进程输出验证滚动条（Unix；SSH 使用测试替身，不连接实际主机）
+AISSH_TEST_DESKTOP_TRANSCRIPT="$PWD/.cache/desktop-terminal.ansi" go test ./internal/app -run '^TestDesktopTerminalPTYScrollback$' -count=1
+TERMINAL_ONLY=1 TERMINAL_TRANSCRIPT="$PWD/.cache/desktop-terminal.ansi" node scripts/test-desktop-ui.mjs
 ```
 
 本次开发验证了 macOS 原生窗口、真实 Keychain、真实 OpenSSH 密码/加密私钥认证、跳板机与隧道、授权和脱敏，以及浏览器中的完整界面操作。界面自动化使用内存 Wails bridge，真实窗口启动另行验证。Windows/Linux 的桌面交互及你的实际业务数据库仍需在对应环境验收。

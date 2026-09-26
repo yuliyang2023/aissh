@@ -1351,6 +1351,7 @@ td:last-child {
 }
 .terminal-pane {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   background: #101923;
   flex-direction: column;
@@ -1362,17 +1363,56 @@ td:last-child {
   padding: 7px 12px;
   color: #a0a9b0;
   font-size: 11px;
+  min-width: 0;
+  flex-shrink: 0;
   border-bottom: 1px solid #ffffff12;
 }
-.terminal-caption > span:last-child {
+.terminal-session-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.terminal-scroll-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-left: auto;
-  color: #8b969f;
+  flex-shrink: 0;
+}
+.terminal-scroll-status {
+  color: #a0b0bd;
   font-size: 10px;
+}
+.terminal-scroll-bottom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  color: #b4ebdb;
+  background: #1c3038;
+  border: 1px solid #65d6b14d;
+  border-radius: 5px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.terminal-scroll-bottom:hover:not(:disabled) {
+  background: #28444c;
+}
+.terminal-scroll-bottom:focus-visible {
+  outline-color: #65d6b1;
+}
+.terminal-body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px;
+  overflow: hidden;
 }
 .terminal-screen {
   flex: 1;
+  min-width: 0;
   min-height: 0;
-  padding: 8px;
 }
 .terminal-error {
   padding: 9px;
@@ -1477,8 +1517,24 @@ td:last-child {
 .xterm .xterm-viewport {
   border-radius: 0 !important;
 }
-.xterm-viewport::-webkit-scrollbar-thumb {
-  background: #ffffff40;
+.terminal-screen .xterm-viewport {
+  overscroll-behavior: contain;
+}
+.terminal-screen .xterm-viewport::-webkit-scrollbar {
+  width: 12px;
+}
+.terminal-screen .xterm-viewport::-webkit-scrollbar-track {
+  background: #17232f;
+}
+.terminal-screen .xterm-viewport::-webkit-scrollbar-thumb {
+  background-color: #617889;
+  min-height: 32px;
+}
+.terminal-screen .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background-color: #86b0bd;
+}
+.terminal-screen .xterm-viewport::-webkit-scrollbar-thumb:active {
+  background-color: #65d6b1;
 }
 ::-webkit-scrollbar {
   width: 9px;

@@ -409,7 +409,9 @@ func (a *App) Run() error {
 			_ = os.RemoveAll(a.controlDir)
 		}
 	}()
-	_, _ = io.WriteString(os.Stdout, "\x1b[?1049h\x1b[2J\x1b[H"+bracketedPasteEnable+mouseReportingDisable)
+	if !a.config.DesktopUI {
+		_, _ = io.WriteString(os.Stdout, "\x1b[?1049h\x1b[2J\x1b[H"+bracketedPasteEnable+mouseReportingDisable)
+	}
 	a.notifyAI = newAINotifier(a.ctx)
 
 	a.startInputReader()
@@ -491,7 +493,13 @@ func (a *App) startSSH() error {
 	a.sshCommand = cmd
 	a.sshPTY = ptmx
 	a.sshInput = newSSHInputWriter(a.ctx, ptmx, a.events)
-	a.virtual = vt10x.New(vt10x.WithWriter(a.sshInput), vt10x.WithSize(a.mainCols, a.contentRows))
+	var terminalReplyWriter io.Writer = a.sshInput
+	if a.config.DesktopUI {
+		// xterm answers device/cursor queries for the actual displayed terminal.
+		// The observation-only emulator must not send a second, conflicting reply.
+		terminalReplyWriter = io.Discard
+	}
+	a.virtual = vt10x.New(vt10x.WithWriter(terminalReplyWriter), vt10x.WithSize(a.mainCols, a.contentRows))
 	a.monitor = monitor.Runner{
 		SSHPath:     a.config.SSHPath,
 		Parsed:      a.parsed,
@@ -588,6 +596,9 @@ func (a *App) updateSize() error {
 func (a *App) setViewportSize(cols, rows int) {
 	a.cols, a.rows = cols, rows
 	a.contentRows = rows - 2
+	if a.config.DesktopUI {
+		a.contentRows = rows
+	}
 	a.compact = cols < 92
 	if !a.config.DesktopUI && !a.compact && a.sidebarCollapsed && a.sidebarWorkspaceFocused() {
 		a.sidebarCollapsed = false
@@ -602,7 +613,10 @@ func (a *App) applyPaneLayout() {
 	previousMainCols := a.mainCols
 	// mainCols is the SSH content width; the column right of it (mainCols+1) is
 	// reserved as the scrollbar gutter so the scrollbar never covers pane text.
-	if a.config.DesktopUI || a.compact || a.sidebarCollapsed {
+	if a.config.DesktopUI {
+		// The desktop owns the caption, scrollbar and status outside the PTY.
+		a.mainCols = a.cols
+	} else if a.compact || a.sidebarCollapsed {
 		a.mainCols = a.cols - 1
 	} else {
 		a.mainCols = a.cols*64/100 - 1
