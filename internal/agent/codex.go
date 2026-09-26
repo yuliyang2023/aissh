@@ -653,6 +653,7 @@ func buildCodexPrompt(request Request, history []codexHistory, input string) str
 
 常用只读 collector：system.overview、process.top、disk.usage、network.sockets、service.status。
 `)
+	value.WriteString(monitorOutputGuidance)
 	if strings.HasPrefix(strings.ToLower(request.SystemContext["response_language"]), "en") {
 		value.WriteString("\n输出语言：本轮用户使用英文提问，因此 message、proposal explanation、expectedEffect 和 panel 标题使用英文。\n")
 	} else {
@@ -689,6 +690,7 @@ func buildCodexContinuationPrompt(request Request, input string) string {
 		return buildCatalogPrompt(request, nil, input)
 	}
 	var value strings.Builder
+	value.WriteString(monitorOutputGuidance)
 	if len(request.SystemContext) > 0 {
 		value.WriteString("环境上下文更新：\n")
 		for key, item := range request.SystemContext {

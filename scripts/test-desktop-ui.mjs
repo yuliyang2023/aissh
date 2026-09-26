@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { testCommandReview } from './test-command-review.mjs';
 import { testTerminalScroll } from './test-terminal-scroll.mjs';
+import { testMonitorResize } from './test-monitor-resize.mjs';
 import { testStreamingChat } from './test-streaming-chat.mjs';
 import { testMarkdownChat } from './test-markdown-chat.mjs';
 import { testIMEComposer, testWorkbenchIME } from './test-ime-composer.mjs';
@@ -314,7 +315,10 @@ const openSettings = async (name = '主机') => {
 };
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  if (process.env.IME_ONLY) {
+  if (process.env.MONITOR_RESIZE_ONLY) {
+    await testMonitorResize(page, out);
+    assert.deepEqual(errors, []);
+  } else if (process.env.IME_ONLY) {
     await page.locator('.session-select').first().waitFor();
     await page.evaluate(() => { window.__test.trusted = true; });
     await page.getByRole('button', { name: '连接并继续', exact: true }).click();

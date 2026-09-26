@@ -3,7 +3,7 @@ import { ArrowDown, Send, Sparkles } from 'lucide-react';
 import { api, errorText, Session, sessionLive, WorkbenchCommand, WorkbenchState } from './api';
 import { Empty, ErrorBox } from './components';
 import { Terminal } from './Terminal';
-import { Monitor } from './Monitor';
+import { Monitor, MonitorSize } from './Monitor';
 import { ChatEntry } from './ChatEntry';
 import { sessionAddress } from './api';
 import { CommandReview } from './CommandReview';
@@ -28,6 +28,7 @@ export function Workbench({
   const [prompt, setPrompt] = useState('');
   const [now, setNow] = useState(Date.now());
   const [follow, setFollow] = useState(true);
+  const [monitorSize, setMonitorSize] = useState<MonitorSize>('normal');
   const messages = useRef<HTMLDivElement>(null);
   const chatSubmit = useChatSubmit();
   useEffect(() => {
@@ -54,9 +55,9 @@ export function Workbench({
   }, [session.id]);
   const online = sessionLive(session) && !!state && now - Date.parse(state.updatedAt) < 5000;
   useEffect(() => {
-    if (active && follow && messages.current)
+    if (active && monitorSize !== 'maximized' && follow && messages.current)
       messages.current.scrollTop = messages.current.scrollHeight;
-  }, [state?.messages, active, follow]);
+  }, [state?.messages, active, follow, monitorSize]);
   async function action(command: WorkbenchCommand) {
     if (pending) return false;
     setPending(true);
@@ -86,12 +87,20 @@ export function Workbench({
               ? '等待确认命令'
               : '就绪';
   return (
-    <div className="native-workbench" style={{ display: active ? 'grid' : 'none' }}>
+    <div
+      className={
+        'native-workbench' +
+        (monitorSize === 'normal' ? '' : ' monitor-enlarged monitor-' + monitorSize)
+      }
+      style={{ display: active ? 'grid' : 'none' }}
+    >
       <Monitor
         panels={state?.panels || []}
         online={online}
         pending={pending}
         now={now}
+        size={monitorSize}
+        onSizeChange={setMonitorSize}
         onAction={action}
       />
       <section className="native-chat" aria-label="AI 对话工作区">
@@ -144,7 +153,7 @@ export function Workbench({
             key={JSON.stringify([session.id, state.proposal.id, state.proposal.command])}
             proposal={state.proposal}
             target={sessionAddress(session)}
-            active={active}
+            active={active && monitorSize !== 'maximized'}
             online={online}
             pending={pending}
             busy={state.busy}

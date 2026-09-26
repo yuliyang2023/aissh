@@ -1973,9 +1973,20 @@ tbody tr:last-child td {
   flex-direction: column;
   flex-shrink: 0;
 }
+.monitor-toolbar {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+  padding-right: 12px;
+}
+.monitor-resize {
+  flex-shrink: 0;
+}
 .monitor-heading {
   display: flex;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
   align-items: center;
   width: 100%;
   gap: 8px;
@@ -2156,11 +2167,54 @@ tbody tr:last-child td {
 .monitor-warning {
   color: #b47925;
 }
+.native-workbench.monitor-large {
+  grid-template-rows: 50% minmax(0, 1fr);
+}
+.native-workbench.monitor-maximized {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+.monitor-maximized > .native-chat,
+.monitor-maximized > .native-ssh {
+  display: none;
+}
+.monitor-enlarged > .native-monitor {
+  max-height: none;
+}
+.monitor-enlarged .monitor-details {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+.monitor-enlarged .monitor-tabs,
+.monitor-enlarged .monitor-custom,
+.monitor-enlarged .monitor-metrics,
+.monitor-enlarged .monitor-footer {
+  flex-shrink: 0;
+}
+.monitor-enlarged .monitor-warning {
+  max-height: 25%;
+  overflow: auto;
+  flex-shrink: 0;
+}
+.monitor-enlarged .monitor-output {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+.monitor-enlarged .monitor-footer {
+  margin-top: auto;
+}
 @container (max-width: 640px) {
   .native-workbench {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(260px, 1fr) minmax(280px, 1fr);
     overflow-y: auto;
+  }
+  .native-workbench.monitor-large {
+    grid-template-rows: 50% minmax(260px, 1fr) minmax(280px, 1fr);
   }
   .native-chat {
     border-right: 0;

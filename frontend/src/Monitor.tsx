@@ -1,7 +1,9 @@
-import { useId, useState } from 'react';
-import { Activity, ChevronDown, RefreshCw, X } from 'lucide-react';
+import { useId, useRef, useState } from 'react';
+import { Activity, ChevronDown, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react';
 import { MonitorPanel, WorkbenchCommand } from './api';
 import { useStoredFlag } from './layout';
+
+export type MonitorSize = 'normal' | 'large' | 'maximized';
 
 export function overviewValues(content = '') {
   return Object.fromEntries(
@@ -36,16 +38,23 @@ export function Monitor({
   online,
   pending,
   now,
+  size = 'normal',
+  onSizeChange,
   onAction,
 }: {
   panels: MonitorPanel[];
   online: boolean;
   pending: boolean;
   now: number;
+  size?: MonitorSize;
+  onSizeChange?: (size: MonitorSize) => void;
   onAction: (command: WorkbenchCommand) => Promise<boolean>;
 }) {
   const detailsId = useId();
   const [expanded, setExpanded] = useStoredFlag('aissh.monitor.expanded', true);
+  const sizeButton = useRef<HTMLButtonElement>(null);
+  const enlarged = size !== 'normal';
+  const showDetails = expanded || enlarged;
   const [selected, setSelected] = useState('system');
   const [custom, setCustom] = useState(false);
   const [command, setCommand] = useState('');
@@ -64,27 +73,86 @@ export function Monitor({
           ? '等待采集'
           : '实时';
   return (
-    <section className="native-monitor" aria-label="服务器监控">
-      <button
-        className="monitor-heading"
-        title={expanded ? '收起服务器监控' : '展开服务器监控'}
-        aria-expanded={expanded}
-        aria-controls={detailsId}
-        onClick={() => setExpanded(!expanded)}
-      >
-        <Activity size={16} />
-        <strong>服务器监控</strong>
-        <span className={'monitor-health ' + (failed || stale || !online ? 'warning' : '')}>
-          {status}
-        </span>
-        {!expanded && (
-          <span className="monitor-summary">
-            负载 {metrics.LOAD || '—'} · 内存 {metrics.MEM || '—'}
+    <section
+      className="native-monitor"
+      aria-label="服务器监控"
+      onKeyDown={(event) => {
+        if (
+          event.key === 'Escape' &&
+          enlarged &&
+          !event.defaultPrevented &&
+          !event.nativeEvent.isComposing
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          onSizeChange?.('normal');
+          sizeButton.current?.focus();
+        }
+      }}
+    >
+      <div className="monitor-toolbar">
+        <button
+          className="monitor-heading"
+          title={showDetails ? '收起服务器监控' : '展开服务器监控'}
+          aria-expanded={showDetails}
+          aria-controls={detailsId}
+          onClick={() => {
+            if (enlarged) onSizeChange?.('normal');
+            setExpanded(!showDetails);
+          }}
+        >
+          <Activity size={16} />
+          <strong>服务器监控</strong>
+          <span className={'monitor-health ' + (failed || stale || !online ? 'warning' : '')}>
+            {status}
           </span>
+          {!showDetails && (
+            <span className="monitor-summary">
+              负载 {metrics.LOAD || '—'} · 内存 {metrics.MEM || '—'}
+            </span>
+          )}
+          <ChevronDown size={15} className={showDetails ? '' : 'folded'} />
+        </button>
+        {onSizeChange && (
+          <button
+            ref={sizeButton}
+            type="button"
+            className="button small monitor-resize"
+            aria-label={
+              size === 'maximized' ? '还原监控' : size === 'large' ? '最大化监控' : '放大监控'
+            }
+            title={
+              size === 'maximized'
+                ? '还原监控（Esc）'
+                : size === 'large'
+                  ? '最大化至整个工作区'
+                  : '放大至工作区约一半高度'
+            }
+            onClick={() =>
+              onSizeChange(size === 'normal' ? 'large' : size === 'large' ? 'maximized' : 'normal')
+            }
+          >
+            {size === 'maximized' ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            {size === 'maximized' ? '还原' : size === 'large' ? '最大化' : '放大'}
+          </button>
         )}
-        <ChevronDown size={15} className={expanded ? '' : 'folded'} />
-      </button>
-      {expanded && (
+        {size === 'large' && onSizeChange && (
+          <button
+            type="button"
+            className="button small monitor-resize"
+            aria-label="还原监控"
+            title="还原监控（Esc）"
+            onClick={() => {
+              onSizeChange('normal');
+              sizeButton.current?.focus();
+            }}
+          >
+            <Minimize2 size={14} />
+            还原
+          </button>
+        )}
+      </div>
+      {showDetails && (
         <div id={detailsId} className="monitor-details">
           <div className="monitor-tabs">
             <div role="group" aria-label="监控项目">
