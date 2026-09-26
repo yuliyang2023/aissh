@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 )
 
 type DirectModelProvider struct {
+	Streaming          bool // Enabled only by the desktop client.
 	Label              string
 	BaseURL            string
 	APIKey             string
@@ -35,6 +37,7 @@ type directChatMessage struct {
 
 type directChatRequest struct {
 	Model          string              `json:"model"`
+	Stream         bool                `json:"stream,omitempty"`
 	Messages       []directChatMessage `json:"messages"`
 	ResponseFormat map[string]string   `json:"response_format"`
 	MaxTokens      int                 `json:"max_tokens"`
@@ -109,7 +112,11 @@ func (p *DirectModelProvider) Stream(ctx context.Context, request Request, callb
 	if callbacks.OnStatus != nil {
 		callbacks.OnStatus(p.localizer().T("正在调用直连模型 %s", p.Name()))
 	}
-	result, err := p.invoke(ctx, buildDirectModelPrompt(request, history, input))
+	var streaming []Callbacks
+	if p.Streaming {
+		streaming = append(streaming, callbacks)
+	}
+	result, err := p.invoke(ctx, buildDirectModelPrompt(request, history, input), streaming...)
 	if err != nil {
 		if created {
 			p.mu.Lock()
@@ -237,9 +244,10 @@ func (p *DirectModelProvider) requestText(session *codexSession, request Request
 	}
 }
 
-func (p *DirectModelProvider) invoke(ctx context.Context, prompt string) (codexResponse, error) {
+func (p *DirectModelProvider) invoke(ctx context.Context, prompt string, streaming ...Callbacks) (codexResponse, error) {
 	body, err := json.Marshal(directChatRequest{
-		Model: p.Model,
+		Model:  p.Model,
+		Stream: len(streaming) > 0,
 		Messages: []directChatMessage{{
 			Role: "system", Content: prompt,
 		}},
@@ -255,6 +263,9 @@ func (p *DirectModelProvider) invoke(ctx context.Context, prompt string) (codexR
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
+	if len(streaming) > 0 {
+		request.Header.Set("Accept", "text/event-stream")
+	}
 	if p.APIKey != "" {
 		request.Header.Set("Authorization", "Bearer "+p.APIKey)
 	}
@@ -267,6 +278,13 @@ func (p *DirectModelProvider) invoke(ctx context.Context, prompt string) (codexR
 		return codexResponse{}, fmt.Errorf("%s", p.localizer().T("直连模型调用失败：%s", err.Error()))
 	}
 	defer response.Body.Close()
+	if response.StatusCode >= 200 && response.StatusCode < 300 && strings.Contains(response.Header.Get("Content-Type"), "text/event-stream") {
+		var cb Callbacks
+		if len(streaming) > 0 {
+			cb = streaming[0]
+		}
+		return p.readChatStream(response.Body, cb)
+	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, 4*1024*1024))
 	if err != nil {
 		return codexResponse{}, err
@@ -299,6 +317,100 @@ func (p *DirectModelProvider) endpoint() string {
 		return value
 	}
 	return value + "/chat/completions"
+}
+
+func (p *DirectModelProvider) readChatStream(reader io.Reader, cb Callbacks) (codexResponse, error) {
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	var content strings.Builder
+	stream := messageStream{emit: cb.OnAnswer}
+	var lines []string
+	finished, done := false, false
+	eventBytes := 0
+	flush := func() error {
+		raw := strings.Join(lines, "\n")
+		lines = nil
+		eventBytes = 0
+		if raw == "[DONE]" {
+			done = true
+			return nil
+		}
+		if raw == "" {
+			return nil
+		}
+		var chunk struct {
+			Choices []struct {
+				Index int `json:"index"`
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+				FinishReason *string `json:"finish_reason"`
+			} `json:"choices"`
+			Error *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(raw), &chunk); err != nil {
+			return fmt.Errorf("无法解析模型流式响应：%w", err)
+		}
+		if chunk.Error != nil {
+			detail := chunk.Error.Message
+			if p.APIKey != "" {
+				detail = strings.ReplaceAll(detail, p.APIKey, "[redacted]")
+			}
+			return fmt.Errorf("模型流式响应失败：%s", trimText(detail, 800))
+		}
+		for _, choice := range chunk.Choices {
+			if choice.Index != 0 {
+				continue
+			}
+			if content.Len()+len(choice.Delta.Content) > 4*1024*1024 {
+				return fmt.Errorf("模型响应过长")
+			}
+			content.WriteString(choice.Delta.Content)
+			stream.Write(choice.Delta.Content)
+			if choice.FinishReason != nil {
+				if *choice.FinishReason != "stop" {
+					return fmt.Errorf("模型回复未完成：%s", *choice.FinishReason)
+				}
+				finished = true
+			}
+		}
+		return nil
+	}
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			if err := flush(); err != nil {
+				return codexResponse{}, err
+			}
+			if done {
+				break
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "data:") {
+			eventBytes += len(line)
+			if eventBytes > 4*1024*1024 {
+				return codexResponse{}, fmt.Errorf("模型响应事件过长")
+			}
+			lines = append(lines, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return codexResponse{}, err
+	}
+	if err := flush(); err != nil {
+		return codexResponse{}, err
+	}
+	if !finished {
+		return codexResponse{}, fmt.Errorf("模型连接中断，回复尚未完成")
+	}
+	var result codexResponse
+	if err := json.Unmarshal([]byte(stripJSONFence(content.String())), &result); err != nil {
+		return result, fmt.Errorf("无法解析模型的结构化结果：%w", err)
+	}
+	return result, nil
 }
 
 func buildDirectModelPrompt(request Request, history []codexHistory, input string) string {

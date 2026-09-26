@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { testCommandReview } from './test-command-review.mjs';
 import { testTerminalScroll } from './test-terminal-scroll.mjs';
+import { testStreamingChat } from './test-streaming-chat.mjs';
+import { testMarkdownChat } from './test-markdown-chat.mjs';
 import { testIMEComposer, testWorkbenchIME } from './test-ime-composer.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const browsers = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -320,6 +322,17 @@ try {
     await testWorkbenchIME(page);
     assert.deepEqual(errors, []);
     console.log('PASS: IME confirmation preserves drafts; Enter, Shift+Enter and Send work');
+  } else if (process.env.MARKDOWN_ONLY) {
+    await page.locator('.session-select').first().waitFor();
+    await testMarkdownChat(page, out);
+    assert.deepEqual(errors, []);
+  } else if (process.env.STREAMING_ONLY) {
+    await page.locator('.session-select').first().waitFor();
+    await page.evaluate(() => { window.__test.trusted = true; });
+    await page.getByRole('button', { name: '连接并继续', exact: true }).click();
+    await page.locator('.native-workbench:visible .native-chat-messages').getByText('服务器负载平稳', { exact: false }).waitFor();
+    await testStreamingChat(page, page.locator('.native-workbench:visible'), out);
+    assert.deepEqual(errors, []);
   } else if (process.env.COMMAND_REVIEW_ONLY) {
     await page.locator('.session-select').first().waitFor();
     await testCommandReview(page, out);
@@ -401,6 +414,7 @@ try {
     });
     await workbench.getByRole('button', { name: '批准执行', exact: true }).click();
     await workbench.getByLabel('待审批命令').waitFor({ state: 'detached' });
+    await testStreamingChat(page, workbench, out);
     assert.equal(await page.evaluate(() => window.__test.actions.at(-1).proposalId), 'p1');
     await workbench.getByLabel('添加监控').selectOption('processes');
     await workbench.locator('.monitor-output').getByText('123 ops nginx', { exact: false }).waitFor();

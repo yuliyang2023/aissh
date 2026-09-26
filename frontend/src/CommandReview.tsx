@@ -3,6 +3,7 @@ import { Check, Copy, ShieldCheck } from 'lucide-react';
 import { WorkbenchCommand, WorkbenchState } from './api';
 import { ErrorBox, Modal } from './components';
 import { commandRisk } from './risk';
+import { MarkdownContent } from './MarkdownContent';
 
 export function CommandReview({
   proposal,
@@ -72,8 +73,10 @@ export function CommandReview({
           <div className="command-review-body">
             <div className="command-review-context">
               <span className="command-risk-badge">{risk.label}</span>
-              {proposal.explanation && <p>{proposal.explanation}</p>}
-              {proposal.expectedEffect && <p>预期效果：{proposal.expectedEffect}</p>}
+              {proposal.explanation && <MarkdownContent content={proposal.explanation} />}
+              {proposal.expectedEffect && (
+                <MarkdownContent content={'预期效果：' + proposal.expectedEffect} />
+              )}
             </div>
             <div className="command-review-toolbar">
               <strong>完整命令</strong>

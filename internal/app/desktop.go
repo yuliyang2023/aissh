@@ -42,7 +42,28 @@ func (a *App) desktopState() credentialui.WorkbenchState {
 	}
 	start := max(0, len(a.chat)-100)
 	for _, m := range a.chat[start:] {
+		var proposal *credentialui.WorkbenchProposal
+		if m.Proposal != nil {
+			p := m.Proposal
+			proposal = &credentialui.WorkbenchProposal{ID: p.ID, Command: a.safeText(p.Command), Explanation: a.safeText(p.Explanation), ExpectedEffect: a.safeText(p.ExpectedEffect), Risk: p.Risk}
+		}
+		var activity *credentialui.WorkbenchActivity
+		if m.Activity != nil {
+			copy := *m.Activity
+			if a.execution != nil && copy.ID == "ssh:"+a.execution.ProposalID {
+				copy.Status = "running"
+				if a.executionRecovery {
+					copy.Status = "recovering"
+				}
+				if a.execution.Output != nil {
+					copy.Detail = a.execution.Output.ContextString()
+				}
+			}
+			copy.Title, copy.Detail = a.safeText(copy.Title), desktopText(a.safeText(copy.Detail))
+			activity = &credentialui.WorkbenchActivity{ID: copy.ID, Kind: copy.Kind, Title: copy.Title, Status: copy.Status, Detail: copy.Detail}
+		}
 		state.Messages = append(state.Messages, credentialui.WorkbenchMessage{
+			Proposal: proposal, Activity: activity,
 			Role: m.Role, Content: desktopText(a.safeText(m.Content)), Time: m.Time.UTC().Format(time.RFC3339Nano),
 		})
 	}

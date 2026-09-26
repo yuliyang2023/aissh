@@ -153,11 +153,12 @@ func (a *App) mirrorActiveAIInline() {
 func (a *App) runAgentStream(request agent.Request, retrySession bool) {
 	a.prepareAgentRequest(&request)
 	callbacks := agent.Callbacks{
-		OnStatus:  func(value string) { a.events <- agentStatusEvent{status: value} },
-		OnThought: func(value string) { a.events <- agentThoughtEvent{content: value} },
-		OnAnswer:  func(value string) { a.events <- agentAnswerEvent{content: value} },
+		OnStatus:   func(value string) { a.sendAgentEvent(agentStatusEvent{status: value}) },
+		OnThought:  func(value string) { a.sendAgentEvent(agentThoughtEvent{content: value}) },
+		OnAnswer:   func(value string) { a.sendAgentEvent(agentAnswerEvent{content: value}) },
+		OnActivity: func(value agent.Activity) { a.sendAgentEvent(agentActivityEvent{activity: value}) },
 		OnPanelAction: func(value agent.PanelAction) {
-			a.events <- agentPanelEvent{action: value}
+			a.sendAgentEvent(agentPanelEvent{action: value})
 		},
 	}
 	turn, err := a.agent.Stream(a.ctx, request, callbacks)
@@ -173,22 +174,24 @@ func (a *App) runAgentStream(request agent.Request, retrySession bool) {
 }
 
 func (a *App) appendAssistantDelta(content string) {
-	if len(a.chat) == 0 || a.chat[len(a.chat)-1].Role != "assistant_stream" {
+	index := a.assistantStreamIndex()
+	if index < 0 {
 		a.chat = append(a.chat, chatMessage{Role: "assistant_stream", Time: time.Now()})
+		index = len(a.chat) - 1
 	}
-	a.chat[len(a.chat)-1].Content += content
+	a.chat[index].Content += content
 }
 
 func (a *App) finishAgentTurn(turn agent.Turn, err error) {
 	defer a.notifyAgentTurn(turn, err)
+	a.finishAgentActivities()
 	inline := a.agentInline
 	a.agentInline = nil
 	a.agentBusy = false
 	a.agentStatus = ""
 	a.agentThought = ""
-	streamedMessage := -1
-	if len(a.chat) > 0 && a.chat[len(a.chat)-1].Role == "assistant_stream" {
-		streamedMessage = len(a.chat) - 1
+	streamedMessage := a.assistantStreamIndex()
+	if streamedMessage >= 0 {
 		a.chat[streamedMessage].Role = "assistant"
 	}
 	if err != nil {
@@ -248,6 +251,7 @@ func (a *App) finishAgentTurn(turn agent.Turn, err error) {
 			Content:  a.proposalConversationContent(*turn.Proposal),
 			Time:     time.Now(),
 			Proposal: turn.Proposal,
+			Activity: &agent.Activity{ID: "ssh:" + turn.Proposal.ID, Kind: "ssh", Title: turn.Proposal.Command, Status: "pending"},
 		})
 		a.approvalInput = nil
 		a.approvalStatus = ""
@@ -464,7 +468,7 @@ func (a *App) finishApproval(event approvalEvent) {
 		if a.proposal != nil {
 			proposalID = a.proposal.ID
 		}
-		a.appendPersistentChat(chatMessage{Role: "user", Content: "已批准系统操作：" + event.command, Time: time.Now()})
+		a.appendCommandDecision(chatMessage{Role: "user", Content: "已批准系统操作：" + event.command, Time: time.Now()})
 		a.executeResource(event.command, proposalID, a.agentSessionID, true)
 		return
 	}
@@ -482,7 +486,7 @@ func (a *App) finishApproval(event approvalEvent) {
 	if event.turn.Session.ID != "" {
 		a.agentSessionID = event.turn.Session.ID
 	}
-	a.appendPersistentChat(chatMessage{Role: "user", Content: a.t("已批准执行命令：%s", event.command), Time: time.Now()})
+	a.appendCommandDecision(chatMessage{Role: "user", Content: a.t("已批准执行命令：%s", event.command), Time: time.Now()})
 	inlineExecution := a.inlineAI != nil
 	if a.inlineAI != nil {
 		a.inlineAI.ApprovalResult = a.t("已批准执行：%s", event.command)
@@ -494,6 +498,7 @@ func (a *App) finishApproval(event approvalEvent) {
 	if a.proposal != nil {
 		proposalID = a.proposal.ID
 	}
+	a.updateSSHActivity(proposalID, "running", "")
 	a.execution = &executionState{
 		SessionID:  a.agentSessionID,
 		ProposalID: proposalID,
@@ -534,6 +539,9 @@ func (a *App) rejectProposal() {
 }
 
 func (a *App) finishRejection(event rejectionEvent) {
+	if event.err == nil && a.proposal != nil {
+		a.updateSSHActivity(a.proposal.ID, "rejected", "")
+	}
 	if a.inlineAI != nil && event.err == nil {
 		a.inlineAI.ApprovalResult = a.t("已拒绝命令建议：%s", event.command)
 		a.inlineAI.Done = true
@@ -553,7 +561,7 @@ func (a *App) finishRejection(event rejectionEvent) {
 		}
 		a.appendPersistentChat(chatMessage{Role: "error", Content: a.t("拒绝失败：%s", event.err.Error()), Time: time.Now()})
 	} else {
-		a.appendPersistentChat(chatMessage{Role: "user", Content: a.t("已拒绝命令建议：%s", event.command), Time: time.Now()})
+		a.appendCommandDecision(chatMessage{Role: "user", Content: a.t("已拒绝命令建议：%s", event.command), Time: time.Now()})
 		a.finishAgentTurn(event.turn, nil)
 	}
 	a.dirty = true
@@ -586,6 +594,7 @@ func (a *App) submitExecutionResult() {
 	if execution == nil || !execution.finished() || execution.sending() || a.executionRecovery || a.agentBusy {
 		return
 	}
+	a.finishSSHActivity(execution)
 	a.execution = nil
 	a.retireExecution(execution)
 	if !a.config.DesktopUI && (execution.Inline || !a.sidebarVisible()) {
@@ -612,11 +621,12 @@ func (a *App) submitExecutionResult() {
 	a.prepareAgentRequest(&request)
 	go func() {
 		callbacks := agent.Callbacks{
-			OnStatus:  func(value string) { a.events <- agentStatusEvent{status: value} },
-			OnThought: func(value string) { a.events <- agentThoughtEvent{content: value} },
-			OnAnswer:  func(value string) { a.events <- agentAnswerEvent{content: value} },
+			OnStatus:   func(value string) { a.sendAgentEvent(agentStatusEvent{status: value}) },
+			OnThought:  func(value string) { a.sendAgentEvent(agentThoughtEvent{content: value}) },
+			OnAnswer:   func(value string) { a.sendAgentEvent(agentAnswerEvent{content: value}) },
+			OnActivity: func(value agent.Activity) { a.sendAgentEvent(agentActivityEvent{activity: value}) },
 			OnPanelAction: func(value agent.PanelAction) {
-				a.events <- agentPanelEvent{action: value}
+				a.sendAgentEvent(agentPanelEvent{action: value})
 			},
 		}
 		turn, err := a.agent.Stream(a.ctx, request, callbacks)

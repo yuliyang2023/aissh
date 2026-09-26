@@ -114,7 +114,8 @@ export interface ChatMessage {
   role: string;
   content: string;
   time: string;
-  proposal?: { command: string; explanation: string; risk: string };
+  proposal?: { id?: string; command: string; explanation: string; expectedEffect?: string; risk: string };
+  activity?: { id: string; kind: string; title: string; status: string; detail?: string };
 }
 export interface MonitorPanel {
   id: string;
@@ -243,7 +244,10 @@ type Backend = {
 declare global {
   interface Window {
     go?: { desktop: { Service: Backend } };
-    runtime?: { EventsOn(name: string, callback: (...args: any[]) => void): () => void };
+    runtime?: {
+      EventsOn(name: string, callback: (...args: any[]) => void): () => void;
+      BrowserOpenURL?(url: string): void;
+    };
   }
 }
 export const connected = () => !!window.go?.desktop?.Service;

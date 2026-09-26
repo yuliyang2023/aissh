@@ -28,6 +28,7 @@ type WorkbenchState struct {
 }
 
 type WorkbenchMessage struct {
+	Activity *WorkbenchActivity `json:"activity,omitempty"`
 	Role     string             `json:"role"`
 	Content  string             `json:"content"`
 	Time     string             `json:"time"`
@@ -103,4 +104,12 @@ func ExchangeWorkbench(ctx context.Context, state WorkbenchState, results []Comm
 	var commands []WorkbenchCommand
 	err = json.NewDecoder(io.LimitReader(resp.Body, 256*1024)).Decode(&commands)
 	return commands, err
+}
+
+type WorkbenchActivity struct {
+	ID     string `json:"id"`
+	Kind   string `json:"kind"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
 }

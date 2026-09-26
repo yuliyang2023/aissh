@@ -105,6 +105,7 @@ type codexRunner func(context.Context, string, []string, string) ([]byte, []byte
 // enabled; aissh remains solely responsible for executing approved commands
 // over SSH.
 type CodexProvider struct {
+	Streaming          bool // Desktop clients opt into App Server events.
 	Path               string
 	Model              string
 	Timeout            time.Duration
@@ -113,13 +114,16 @@ type CodexProvider struct {
 	WorkspaceWritable  bool
 	OutputContextChars int
 
-	mu       sync.Mutex
-	active   sync.WaitGroup
-	closed   bool
-	sessions map[string]*codexSession
-	owned    map[string]struct{}
-	run      codexRunner
-	lookPath func(string) (string, error)
+	mu          sync.Mutex
+	active      sync.WaitGroup
+	closed      bool
+	sessions    map[string]*codexSession
+	owned       map[string]struct{}
+	streamMu    sync.Mutex
+	server      *codexAppServer
+	startServer func(string) (*codexAppServer, error)
+	run         codexRunner
+	lookPath    func(string) (string, error)
 }
 
 func NewCodexProvider(path, model string) *CodexProvider {
@@ -245,14 +249,14 @@ func (p *CodexProvider) Stream(ctx context.Context, request Request, callbacks C
 	if !created {
 		prompt = buildCodexContinuationPrompt(request, input)
 	}
-	result, resumedThreadID, err := p.invoke(ctx, prompt, workspace, workspaceWritable, threadID)
+	result, resumedThreadID, err := p.invokeStreaming(ctx, prompt, workspace, workspaceWritable, threadID, callbacks)
 	if err != nil && !created && codexSessionMissing(err) {
 		p.mu.Lock()
 		delete(p.sessions, threadID)
 		delete(p.owned, threadID)
 		p.mu.Unlock()
 		prompt = buildCodexPrompt(request, history, input)
-		result, resumedThreadID, err = p.invoke(ctx, prompt, workspace, workspaceWritable, "")
+		result, resumedThreadID, err = p.invokeStreaming(ctx, prompt, workspace, workspaceWritable, "", callbacks)
 		created = true
 	}
 	if err != nil {
@@ -366,6 +370,12 @@ func (p *CodexProvider) Close() error {
 	p.closed = true
 	p.mu.Unlock()
 	p.active.Wait()
+	p.streamMu.Lock()
+	if p.server != nil {
+		p.server.close()
+		p.server = nil
+	}
+	p.streamMu.Unlock()
 
 	p.mu.Lock()
 	threadIDs := make([]string, 0, len(p.owned))
@@ -769,4 +779,11 @@ func newLocalID(prefix string) string {
 		return prefix + "-" + hex.EncodeToString(data)
 	}
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
+}
+
+func (p *CodexProvider) invocationTimeout() time.Duration {
+	if p.Timeout > 0 {
+		return p.Timeout
+	}
+	return 90 * time.Second
 }

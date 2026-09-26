@@ -19,6 +19,8 @@ type monitorResultEvent struct {
 type agentStatusEvent struct{ status string }
 type agentThoughtEvent struct{ content string }
 type agentAnswerEvent struct{ content string }
+type agentActivityEvent struct{ activity agent.Activity }
+type sshActivityEvent struct{ proposalID, status, detail string }
 type agentTurnEvent struct {
 	turn agent.Turn
 	err  error
@@ -79,6 +81,7 @@ const (
 
 type chatMessage struct {
 	Role            string
+	Activity        *agent.Activity
 	Content         string
 	Time            time.Time
 	Proposal        *agent.Proposal

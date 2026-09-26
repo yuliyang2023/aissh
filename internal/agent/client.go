@@ -72,6 +72,16 @@ type Callbacks struct {
 	OnThought     func(string)
 	OnAnswer      func(string)
 	OnPanelAction func(PanelAction)
+	OnActivity    func(Activity)
+}
+
+// Activity is a replaceable progress item, identified across start/output/end.
+type Activity struct {
+	ID     string `json:"id"`
+	Kind   string `json:"kind"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
 }
 
 type Client struct {

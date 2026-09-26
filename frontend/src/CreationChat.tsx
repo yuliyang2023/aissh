@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, LoaderCircle, Send, Sparkles } from 'lucide-react';
 import { api, Catalog, ChatMessage, CreationReceipt, errorText } from './api';
 import { ErrorBox } from './components';
+import { MarkdownContent } from './MarkdownContent';
 import { useChatSubmit } from './useChatSubmit';
 
 export function CreationTabs({
@@ -142,7 +143,11 @@ export function CreationChat({
                     ? '提示'
                     : 'AI'}
             </span>
-            <p>{message.content}</p>
+            {message.role === 'assistant' || message.role === 'assistant_stream' ? (
+              <MarkdownContent content={message.content} />
+            ) : (
+              <p>{message.content}</p>
+            )}
           </div>
         ))}
         {receipts.length > 0 && (

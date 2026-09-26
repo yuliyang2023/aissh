@@ -5,6 +5,7 @@ import { Empty, ErrorBox } from './components';
 import { Monitor } from './Monitor';
 import { sessionAddress } from './api';
 import { commandRisk } from './risk';
+import { MarkdownContent } from './MarkdownContent';
 
 export const conversationKey = (c: Pick<Conversation, 'hostId' | 'id'>) => c.hostId + '/' + c.id;
 const roles: Record<string, string> = {
@@ -82,7 +83,13 @@ export function Conversations({
                       })}
                     </time>
                   </header>
-                  <div className="chat-content">{m.content}</div>
+                  <div className="chat-content">
+                    {m.role === 'assistant' || m.role === 'assistant_stream' ? (
+                      <MarkdownContent content={m.content} />
+                    ) : (
+                      m.content
+                    )}
+                  </div>
                   {m.proposal && (
                     <div className="chat-proposal">
                       <small>历史记录 · {commandRisk(m.proposal.risk).label}</small>

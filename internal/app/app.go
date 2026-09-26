@@ -297,6 +297,7 @@ func newAgentProvider(config Config) (agent.Provider, error) {
 	switch mode {
 	case "codex", "local":
 		provider := agent.NewCodexProvider(config.CodexPath, config.CodexModel)
+		provider.Streaming = config.DesktopUI
 		provider.Language = config.Language
 		provider.SetLocalWorkspaceWritable(config.WorkspaceWritable)
 		provider.SetLocalWorkspace(config.Workspace)
@@ -305,6 +306,7 @@ func newAgentProvider(config Config) (agent.Provider, error) {
 		return provider, nil
 	case "claude":
 		provider := agent.NewClaudeProvider(config.ClaudePath, config.ClaudeModel)
+		provider.Streaming = config.DesktopUI
 		provider.Language = config.Language
 		provider.SetLocalWorkspaceWritable(config.WorkspaceWritable)
 		provider.SetLocalWorkspace(config.Workspace)
@@ -317,12 +319,14 @@ func newAgentProvider(config Config) (agent.Provider, error) {
 		return provider, nil
 	case "deepseek":
 		provider := agent.NewDirectModelProvider("DeepSeek", config.ModelURL, config.ModelAPIKey, config.ModelName, true)
+		provider.Streaming = config.DesktopUI
 		provider.Language = config.Language
 		provider.HTTP.Timeout = config.AITimeout
 		provider.OutputContextChars = config.AIContextChars
 		return provider, nil
 	case "model", "openai-compatible":
 		provider := agent.NewDirectModelProvider("Model", config.ModelURL, config.ModelAPIKey, config.ModelName, false)
+		provider.Streaming = config.DesktopUI
 		provider.Language = config.Language
 		provider.HTTP.Timeout = config.AITimeout
 		provider.OutputContextChars = config.AIContextChars
@@ -422,7 +426,7 @@ func (a *App) Run() error {
 	}
 
 	maintenanceTicker := time.NewTicker(120 * time.Millisecond)
-	desktopTicker := time.NewTicker(250 * time.Millisecond)
+	desktopTicker := time.NewTicker(80 * time.Millisecond)
 	defer desktopTicker.Stop()
 	frameTicker := time.NewTicker(terminalFrameInterval)
 	defer maintenanceTicker.Stop()
@@ -723,6 +727,12 @@ func (a *App) handleEvent(event interface{}) {
 		if len(a.agentThought) > 12000 {
 			a.agentThought = a.agentThought[len(a.agentThought)-12000:]
 		}
+		a.dirty = true
+	case sshActivityEvent:
+		a.updateSSHActivity(value.proposalID, value.status, value.detail)
+		a.dirty = true
+	case agentActivityEvent:
+		a.updateAgentActivity(value.activity)
 		a.dirty = true
 	case agentAnswerEvent:
 		a.agentThought = ""

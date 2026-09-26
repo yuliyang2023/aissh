@@ -4,18 +4,11 @@ import { api, errorText, Session, sessionLive, WorkbenchCommand, WorkbenchState 
 import { Empty, ErrorBox } from './components';
 import { Terminal } from './Terminal';
 import { Monitor } from './Monitor';
+import { ChatEntry } from './ChatEntry';
 import { sessionAddress } from './api';
 import { CommandReview } from './CommandReview';
 import { useChatSubmit } from './useChatSubmit';
 
-const roles: Record<string, string> = {
-  user: '你',
-  assistant: 'AI 助手',
-  assistant_stream: 'AI 助手',
-  proposal: '命令建议',
-  system: '系统',
-  error: '错误',
-};
 export function Workbench({
   session,
   active,
@@ -127,19 +120,18 @@ export function Workbench({
             />
           )}
           {state?.messages.map((m, index) => (
-            <article key={index} className={'chat-message ' + m.role}>
-              <header>
-                <strong>{roles[m.role] || '系统'}</strong>
-                <time>
-                  {new Date(m.time).toLocaleTimeString('zh-CN', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </time>
-              </header>
-              <div className="chat-content">{m.content}</div>
-            </article>
+            <ChatEntry
+              key={m.time + ':' + index}
+              message={m}
+              pending={m.proposal?.id === state.proposal?.id && !!state.proposal}
+            />
           ))}
+          {state?.busy && !state.messages.some((m) => m.role === 'assistant_stream') && (
+            <div className="chat-working" role="status">
+              <span className="activity-spinner" />
+              {status}
+            </div>
+          )}
         </div>
         {!follow && (
           <button className="chat-follow button small" onClick={() => setFollow(true)}>

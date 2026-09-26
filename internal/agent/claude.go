@@ -47,6 +47,7 @@ type claudeResult struct {
 // default and must be explicitly enabled; aissh remains solely responsible for
 // executing approved commands over SSH.
 type ClaudeProvider struct {
+	Streaming          bool // Desktop-only incremental event output.
 	Path               string
 	Model              string
 	Timeout            time.Duration
@@ -185,13 +186,13 @@ func (p *ClaudeProvider) Stream(ctx context.Context, request Request, callbacks 
 	if !created {
 		prompt = buildCodexContinuationPrompt(request, input)
 	}
-	result, returnedSessionID, err := p.invoke(ctx, prompt, workspace, workspaceWritable, sessionID)
+	result, returnedSessionID, err := p.invoke(ctx, prompt, workspace, workspaceWritable, sessionID, callbacks)
 	if err != nil && !created && codexSessionMissing(err) {
 		p.mu.Lock()
 		delete(p.sessions, sessionID)
 		p.mu.Unlock()
 		prompt = buildCodexPrompt(request, history, input)
-		result, returnedSessionID, err = p.invoke(ctx, prompt, workspace, workspaceWritable, "")
+		result, returnedSessionID, err = p.invoke(ctx, prompt, workspace, workspaceWritable, "", callbacks)
 		created = true
 	}
 	if err != nil {
@@ -368,7 +369,7 @@ func (p *ClaudeProvider) requestText(session *codexSession, request Request) str
 	}
 }
 
-func (p *ClaudeProvider) invoke(parent context.Context, prompt, workspace string, workspaceWritable bool, sessionID string) (codexResponse, string, error) {
+func (p *ClaudeProvider) invoke(parent context.Context, prompt, workspace string, workspaceWritable bool, sessionID string, callbacks ...Callbacks) (codexResponse, string, error) {
 	timeout := p.Timeout
 	if timeout <= 0 {
 		timeout = 90 * time.Second
@@ -404,7 +405,15 @@ func (p *ClaudeProvider) invoke(parent context.Context, prompt, workspace string
 	if strings.TrimSpace(sessionID) != "" {
 		args = append(args, "--resume", strings.TrimSpace(sessionID))
 	}
-	stdout, stderr, runErr := p.run(ctx, p.Path, args, claudeWorkingDirectory(workspace), prompt)
+	var stdout, stderr []byte
+	var runErr error
+	if p.Streaming && len(callbacks) > 0 {
+		args[2] = "stream-json"
+		args = append(args, "--verbose", "--include-partial-messages")
+		stdout, stderr, runErr = runClaudeStreaming(ctx, p.Path, args, claudeWorkingDirectory(workspace), prompt, callbacks[0])
+	} else {
+		stdout, stderr, runErr = p.run(ctx, p.Path, args, claudeWorkingDirectory(workspace), prompt)
+	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return codexResponse{}, "", fmt.Errorf("%s", p.localizer().T("本机 Claude 调用超时（%s）", timeout))
 	}

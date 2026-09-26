@@ -42,6 +42,7 @@ func (a *App) executeResource(command, proposalID, sessionID string, approved bo
 		if err != nil {
 			message = err.Error()
 		}
+		a.updateSSHActivity(proposalID, "failed", message)
 		a.appendPersistentChat(chatMessage{Role: "error", Content: message, Time: time.Now()})
 		a.agentBusy = false
 		a.proposal = nil
@@ -51,6 +52,7 @@ func (a *App) executeResource(command, proposalID, sessionID string, approved bo
 	}
 	a.agentBusy = true
 	a.agentStatus = "正在访问已绑定的系统"
+	a.updateSSHActivity(proposalID, "running", "")
 	a.proposal = nil
 	a.approvalInput = nil
 	a.approvalStatus = ""
@@ -67,6 +69,9 @@ func (a *App) executeResource(command, proposalID, sessionID string, approved bo
 			// Saved grants authorize this operation locally. Notify stateful
 			// providers before submitting its result, just as manual approval does.
 			if _, err := a.agent.Action(a.ctx, agent.Request{Event: "approve", SessionID: sessionID, ProposalID: proposalID}); err != nil {
+				if a.config.DesktopUI {
+					a.sendAgentEvent(sshActivityEvent{proposalID, "failed", a.safeText(err.Error())})
+				}
 				a.events <- executionResultEvent{err: fmt.Errorf("%s", a.safeText(err.Error()))}
 				return
 			}
@@ -77,12 +82,20 @@ func (a *App) executeResource(command, proposalID, sessionID string, approved bo
 			result = err.Error()
 			completion = "操作失败"
 		}
+		if a.config.DesktopUI {
+			status := "completed"
+			if err != nil {
+				status = "failed"
+			}
+			a.sendAgentEvent(sshActivityEvent{proposalID, status, a.safeText(result)})
+		}
 		request := agent.Request{Event: "result", SessionID: sessionID, ProposalID: proposalID, Output: result, Completion: completion, SystemContext: map[string]string{"response_language": language}}
 		a.prepareAgentRequest(&request)
 		turn, streamErr := a.agent.Stream(a.ctx, request, agent.Callbacks{
-			OnStatus:  func(s string) { a.events <- agentStatusEvent{status: a.safeText(s)} },
-			OnThought: func(s string) { a.events <- agentThoughtEvent{content: a.safeText(s)} },
-			OnAnswer:  func(s string) { a.events <- agentAnswerEvent{content: s} },
+			OnStatus:   func(s string) { a.sendAgentEvent(agentStatusEvent{status: a.safeText(s)}) },
+			OnThought:  func(s string) { a.sendAgentEvent(agentThoughtEvent{content: a.safeText(s)}) },
+			OnAnswer:   func(s string) { a.sendAgentEvent(agentAnswerEvent{content: s}) },
+			OnActivity: func(value agent.Activity) { a.sendAgentEvent(agentActivityEvent{activity: value}) },
 		})
 		if streamErr != nil {
 			streamErr = fmt.Errorf("%s", a.safeText(streamErr.Error()))
