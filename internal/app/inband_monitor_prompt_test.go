@@ -15,57 +15,42 @@ func monitorScreenText(a *App) string {
 		}
 		text.WriteByte('\n')
 	}
-	return text.String()
+	return strings.ReplaceAll(text.String(), "\ue000", "")
 }
 
-func TestRepeatedInBandMonitorsDoNotAddBlankLines(t *testing.T) {
-	for _, bottom := range []bool{false, true} {
-		for _, prefix := range []string{
-			"\r\n", "\n", "\r\n\x1b[2K\r\x1b[28;1H",
-			"\x1b[?25l\x1b[28;1H\x1b[32m",
-			"\r\n\x1b]0;server\x07\x1b[28;1H",
-			"\r\n\x1b]0;server\x1b\\\x1b[28;1H",
-		} {
-			for _, bytewise := range []bool{false, true} {
-				t.Run(fmt.Sprintf("bottom=%v/prefix=%q/bytewise=%v", bottom, prefix, bytewise), func(t *testing.T) {
-					a, terminal := newMonitorTestApp(t)
-					if bottom {
-						a.processSSHOutput([]byte("\r\n" + strings.Repeat("existing output\r\n", a.contentRows) + "root@server:~# "))
+func TestRepeatedMonitorOutputRemainsVisibleAcrossChunkedPrompts(t *testing.T) {
+	for _, bytewise := range []bool{false, true} {
+		t.Run(fmt.Sprint(bytewise), func(t *testing.T) {
+			a, _ := newMonitorTestApp(t)
+			a.panels.ByID("system").Command = "printf 'HOST=server\\n'"
+			a.ensureMonitorAudit(a.panelMonitorAudit(a.panels.ByID("system")))
+			a.approveProposal()
+			for tick := 0; tick < 20; tick++ {
+				a.scheduleInBandMonitor(time.Now().Add(time.Duration(tick+1) * time.Minute))
+				if a.inBandMonitor == nil {
+					t.Fatalf("monitor stopped at tick %d", tick)
+				}
+				marker := a.inBandMonitor.marker
+				response := marker + "BEGIN__\r\nHOST=server\r\n" + marker + "END__:0__\r\nroot@server:~# "
+				if bytewise {
+					for _, b := range []byte(response) {
+						a.processSSHOutput([]byte{b})
 					}
-					cursor := a.virtual.Cursor()
-					a.inlineAI = &inlineAIState{Prompt: "检查服务", Response: "服务正常", Done: true, AnchorX: cursor.X, AnchorY: cursor.Y}
-					answer := a.inlineAI
-					before := monitorScreenText(a)
-					history := len(a.terminalHistory)
-					for tick := 0; tick < 40; tick++ {
-						a.scheduleInBandMonitor(time.Now().Add(time.Duration(tick+1) * time.Minute))
-						if a.inBandMonitor == nil {
-							t.Fatalf("monitor stopped at tick %d", tick)
-						}
-						marker := a.inBandMonitor.marker
-						response := marker + "BEGIN__\r\nHOST=server\r\n" + marker + "END__:0__" + prefix + "root@server:~# \x1b[0m\x1b[?25h"
-						if bytewise {
-							for _, b := range []byte(response) {
-								a.processSSHOutput([]byte{b})
-							}
-						} else {
-							a.processSSHOutput([]byte(response))
-						}
-						if a.inBandMonitor != nil || !a.atPrompt {
-							t.Fatalf("monitor did not restore the shell at tick %d", tick)
-						}
-						after := a.virtual.Cursor()
-						if after.X != cursor.X || after.Y != cursor.Y || monitorScreenText(a) != before || len(a.terminalHistory) != history {
-							t.Fatalf("tick %d changed the terminal: cursor=(%d,%d) want=(%d,%d), history=%d want=%d", tick, after.X, after.Y, cursor.X, cursor.Y, len(a.terminalHistory), history)
-						}
-						if a.inlineAI != answer || answer.AnchorY != cursor.Y {
-							t.Fatalf("monitor moved the AI reply at tick %d", tick)
-						}
-						terminal.Reset()
-					}
-				})
+				} else {
+					a.processSSHOutput([]byte(response))
+				}
+				if a.inBandMonitor != nil || !a.atPrompt {
+					t.Fatal("fresh prompt did not restore input")
+				}
+				screen := monitorScreenText(a)
+				if !strings.Contains(screen, "HOST=server") || !strings.Contains(screen, "退出码：0") || strings.Contains(screen, marker) {
+					t.Fatalf("missing visible result: %s", screen)
+				}
 			}
-		}
+			if len(a.terminalHistory) == 0 {
+				t.Fatal("monitor runs were missing from scrollback")
+			}
+		})
 	}
 }
 

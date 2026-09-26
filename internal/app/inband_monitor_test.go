@@ -86,6 +86,7 @@ func TestScheduleInBandMonitorUsesPrimaryPTY(t *testing.T) {
 	application.atPrompt = true
 	application.lineReliable = true
 
+	approveMonitorFixture(t, application)
 	application.scheduleMonitors()
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
@@ -322,6 +323,7 @@ func newMonitorTestApp(t *testing.T) (*App, *monitorTestPTY) {
 	terminal := &monitorTestPTY{}
 	a.sshPTY = terminal
 	a.monitorViaPrimary = true
+	approveMonitorFixture(t, a)
 	return a, terminal
 }
 
@@ -478,5 +480,18 @@ func TestInBandMonitorWaitsUntilTerminalInputIsIdle(t *testing.T) {
 	a.scheduleInBandMonitor(a.terminalInputAt.Add(time.Second))
 	if a.inBandMonitor == nil {
 		t.Fatal("monitor did not resume after input became idle")
+	}
+}
+
+// Existing transport tests begin with an explicitly reviewed built-in collector.
+func approveMonitorFixture(t *testing.T, a *App) {
+	t.Helper()
+	a.ensureMonitorAudit(a.panelMonitorAudit(a.panels.ByID("system")))
+	if a.monitorReview == nil {
+		t.Fatal("fixture did not request audit")
+	}
+	a.approveProposal()
+	if a.proposal != nil {
+		t.Fatalf("fixture approval failed: %s", a.approvalStatus)
 	}
 }

@@ -106,6 +106,9 @@ func (a *App) cancelWidgetCandidate(id string) {
 }
 func (a *App) expireWidgetCandidates(now time.Time) {
 	for id, c := range a.widgetCandidates {
+		if a.monitorReview != nil && a.monitorReview.PanelID == id {
+			c.expires = now.Add(90 * time.Second)
+		}
 		if now.After(c.expires) {
 			a.widgetNotice("组件预检超时，原版本保持运行：" + c.panel.Title)
 			a.cancelWidgetCandidate(id)

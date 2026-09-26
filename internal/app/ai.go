@@ -56,7 +56,7 @@ func (a *App) startAI(prompt string, foreground bool) {
 	if prompt == "" {
 		return
 	}
-	if a.config.DesktopUI && (a.proposal != nil || a.execution != nil || a.executionRecovery) {
+	if a.monitorReview != nil || a.config.DesktopUI && (a.proposal != nil || a.execution != nil || a.executionRecovery) {
 		a.chat = append(a.chat, chatMessage{Role: "system", Content: "请先处理当前命令建议或等待执行完成。", Time: time.Now()})
 		return
 	}
@@ -450,6 +450,10 @@ func (a *App) approveProposal() {
 		a.approvalStatus = a.t("当前不在安全的 Shell 提示符，暂时不能执行；请输入 no 拒绝")
 		return
 	}
+	if a.monitorReview != nil {
+		a.decideMonitorAudit(true)
+		return
+	}
 	proposal := *a.proposal
 	a.agentBusy = true
 	a.agentStatus = a.t("正在批准命令")
@@ -530,6 +534,10 @@ func (a *App) finishApproval(event approvalEvent) {
 
 func (a *App) rejectProposal() {
 	if a.proposal == nil || a.agentBusy {
+		return
+	}
+	if a.monitorReview != nil {
+		a.decideMonitorAudit(false)
 		return
 	}
 	proposal := *a.proposal

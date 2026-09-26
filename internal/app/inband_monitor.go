@@ -16,6 +16,10 @@ import (
 var inBandMonitorScreenRestore = []byte("\x1b[2K\r")
 
 type inBandMonitorState struct {
+	visible         bool
+	shown           int
+	after           []byte
+	auditID         string
 	pipelineID      string
 	timeout         time.Duration
 	exitCode        *int
@@ -56,6 +60,12 @@ func (a *App) scheduleInBandMonitor(now time.Time) {
 			a.monitorLast[item.ID] = now
 			continue
 		}
+		if !a.ensureMonitorAudit(a.panelMonitorAudit(item)) {
+			if a.proposal != nil {
+				return
+			}
+			continue
+		}
 		a.startInBandMonitor(item, now)
 		return
 	}
@@ -63,7 +73,7 @@ func (a *App) scheduleInBandMonitor(now time.Time) {
 
 func (a *App) canStartInBandMonitor() bool {
 	return !a.monitorPrimaryPaused && !a.monitorAwaitingPrompt && a.monitorWorkspaceVisible() &&
-		a.execution == nil && a.proposal == nil && a.inBandMonitor == nil && len(a.monitorDeferredInput) == 0 && a.atPrompt && !a.sensitive &&
+		!a.executionRecovery && a.execution == nil && a.proposal == nil && a.inBandMonitor == nil && len(a.monitorDeferredInput) == 0 && a.atPrompt && !a.sensitive &&
 		!a.agentBusy && !a.terminalDone && a.zmodem == nil && a.sshPTY != nil && len(a.lineInput) == 0 &&
 		a.lineReliable && !a.aiLineCapture && !a.terminalPasteMode
 }
@@ -72,10 +82,25 @@ func (a *App) startInBandMonitor(item *panel.Panel, now time.Time) {
 	a.startInBandCollection(item, now, "", 0)
 }
 func (a *App) startInBandCollection(item *panel.Panel, now time.Time, pipelineID string, timeout time.Duration) {
+	r := a.panelMonitorAudit(item)
+	if pipelineID != "" {
+		b := a.pipelineBatches[pipelineID]
+		if b == nil || b.index >= len(b.sources) {
+			return
+		}
+		r = a.pipelineMonitorAudit(b)
+	}
+	if !a.ensureMonitorAudit(r) {
+		return
+	}
 	a.monitorSequence++
 	item.RunID++
-	marker := fmt.Sprintf("__AISSH_MONITOR_%d_", a.monitorSequence)
-	state := &inBandMonitorState{pipelineID: pipelineID, timeout: timeout,
+	token, err := newExecutionMarker()
+	if err != nil {
+		return
+	}
+	marker := "__AISSH_MONITOR_" + token + "_"
+	state := &inBandMonitorState{visible: true, auditID: a.monitorDecisions[r.scope()].proposalID, pipelineID: pipelineID, timeout: timeout,
 		panelID: item.ID,
 		binding: item.BindingID, revision: item.SourceRevision, runID: item.RunID,
 		command:   item.Command,
@@ -89,8 +114,9 @@ func (a *App) startInBandCollection(item *panel.Panel, now time.Time, pipelineID
 	a.monitorActive[item.ID] = true
 	a.atPrompt = false
 	a.promptIdleSince = time.Time{}
-	// The visible prompt is intentionally left untouched while the hidden query
-	// runs. Make prompt detection wait for the fresh prompt emitted afterwards.
+	a.renderSSHOutput([]byte("\r\n" + strings.ReplaceAll(a.safeText(fmt.Sprintf("[监控 %s · %s]\n$ %s\n", firstText(item.Title, r.Title, r.PanelID), now.Format("15:04:05"), item.Command)), "\n", "\r\n")))
+	a.updateSSHActivity(state.auditID, "running", "正在 SSH 终端采集")
+	// Only the fresh prompt after the completion marker can release user input.
 	a.outputTail.Append("\n[aissh monitor]\n")
 	if _, err := a.writeSSH([]byte(command)); err != nil {
 		a.pauseInBandMonitor(fmt.Errorf("%s: %w", a.t("主会话监控已暂停"), err))
@@ -129,6 +155,9 @@ func (a *App) processInBandMonitorOutput(data []byte) bool {
 		return true
 	}
 	visible, complete, content, err := state.consume(data)
+	if state.visible {
+		a.renderSSHOutput(visible)
+	}
 	if !complete {
 		return true
 	}
@@ -143,9 +172,26 @@ func (a *App) processInBandMonitorOutput(data []byte) bool {
 	if state.pipelineID != "" {
 		delete(a.monitorActive, state.panelID)
 	}
-	a.monitorPrompt = &monitorPromptState{}
-	if len(visible) > 0 {
-		a.processSSHOutput(visible)
+	if state.visible {
+		status, detail := "completed", "退出状态未知"
+		if state.exitCode != nil {
+			detail = fmt.Sprintf("退出码：%d", *state.exitCode)
+		}
+		if err != nil {
+			status = "failed"
+		}
+		a.renderSSHOutput([]byte("\r\n[监控完成 · " + detail + "]\r\n"))
+		a.updateSSHActivity(state.auditID, status, detail)
+		a.outputTail.value = ""
+		a.pendingError, a.errorCarry = nil, ""
+		// consume keeps only the fresh prompt separate from collector bytes.
+		a.monitorPrompt = &monitorPromptState{}
+		a.processSSHOutput(state.after)
+	} else {
+		a.monitorPrompt = &monitorPromptState{}
+		if len(visible) > 0 {
+			a.processSSHOutput(visible)
+		}
 	}
 	a.flushDeferredMonitorInput()
 	return true
@@ -173,7 +219,13 @@ func (state *inBandMonitorState) consume(data []byte) (visible []byte, complete 
 	endMarker := []byte(state.marker + "END__:")
 	endIndex, statusStart := findMonitorMarker(output.text, endMarker)
 	if endIndex < 0 {
-		return nil, false, "", nil
+		if state.visible {
+			end := output.beforeMarkerSuffix(endMarker)
+			if end > state.shown {
+				visible = state.visibleSample(output, end)
+			}
+		}
+		return visible, false, "", nil
 	}
 	statusEndOffset, completionEnd := findMonitorMarker(output.text[statusStart:], []byte("__"))
 	if statusEndOffset < 0 {
@@ -192,7 +244,18 @@ func (state *inBandMonitorState) consume(data []byte) (visible []byte, complete 
 	// printable delimiter and restore the local prompt row ourselves. The
 	// remote marker remains on its own line so a repaint cannot erase it.
 	rawEnd := output.ends[statusStart+completionEnd-1]
-	visible = append(append([]byte(nil), inBandMonitorScreenRestore...), state.buffer[rawEnd:]...)
+	if state.visible {
+		end := 0
+		if endIndex > 0 {
+			end = output.ends[endIndex-1]
+		}
+		if end > state.shown {
+			visible = state.visibleSample(output, end)
+		}
+		state.after = append([]byte(nil), state.buffer[rawEnd:]...)
+	} else {
+		visible = append(append([]byte(nil), inBandMonitorScreenRestore...), state.buffer[rawEnd:]...)
+	}
 	if parseErr != nil {
 		return visible, true, "", fmt.Errorf("invalid monitor exit status %q", statusText)
 	}
@@ -206,6 +269,27 @@ func (state *inBandMonitorState) consume(data []byte) (visible []byte, complete 
 		return visible, true, "", fmt.Errorf("%s", message)
 	}
 	return visible, true, string(rawContent), nil
+}
+
+// A collector produces a text snapshot. Render its decoded text as new lines,
+// not ConPTY cursor coordinates which could overwrite earlier audit records.
+func (state *inBandMonitorState) visibleSample(output monitorOutputText, end int) []byte {
+	var visible []byte
+	for index, rawEnd := range output.ends {
+		if rawEnd <= state.shown || rawEnd > end {
+			continue
+		}
+		value := output.text[index]
+		if value == '\r' {
+			continue
+		}
+		if value == '\n' {
+			visible = append(visible, '\r')
+		}
+		visible = append(visible, value)
+	}
+	state.shown = end
+	return visible
 }
 
 func trimInBandWrapperNewlines(value []byte) []byte {
@@ -262,6 +346,10 @@ func (a *App) pauseInBandMonitor(err error) {
 		return
 	}
 	a.inBandMonitor = nil
+	if state.visible {
+		a.renderSSHOutput([]byte("\r\n[监控采集暂停 · " + a.safeText(err.Error()) + " · 退出状态未知]\r\n"))
+		a.updateSSHActivity(state.auditID, "unknown", a.safeText(err.Error()))
+	}
 	a.monitorPrimaryPaused = true
 	a.monitorAwaitingPrompt = true
 	a.monitorDeferredInput = append(a.monitorDeferredInput, state.pendingInput...)

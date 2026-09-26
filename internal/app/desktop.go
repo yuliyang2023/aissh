@@ -318,11 +318,13 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 			if err := a.panels.Close(command.PanelID, panel.OriginUser); err != nil {
 				return err
 			}
+			a.resetMonitorAudit(command.PanelID, false)
 			a.cancelWidgetCandidate(command.PanelID)
 			a.cancelPipeline(command.PanelID)
 			delete(a.monitorActive, command.PanelID)
 			delete(a.monitorLast, command.PanelID)
 		} else {
+			a.resetMonitorAudit(command.PanelID, true)
 			a.monitorLast[command.PanelID] = time.Time{}
 		}
 	default:

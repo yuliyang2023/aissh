@@ -412,7 +412,7 @@ bin/aissh --help
 - High-risk, unknown, changed, incomplete, or failed risk reviews always fall back to manual confirmation.
 - High-risk commands are clearly highlighted in both views.
 - Local Codex and Claude Code inspect the workspace read-only by default; writes require explicit `--workspace-write`.
-- AI-created monitors are restricted to read-only commands.
+- AI-created monitors are restricted to read-only commands. All collectors, including built-ins, alerts and restored widgets, require manual review before their first run and after configuration changes. Approval covers the displayed schedule; every run shows its command, output and exit status in the SSH terminal.
 - User-created monitor data is not shared with AI by default.
 - Local code is never uploaded or deployed automatically, and is not modified by default.
 - Saved secrets are resolved only for their bound SSH/service/model destination; they are not injected into arbitrary shell commands. Known secret values are filtered from model requests and saved aissh chat history.

@@ -101,3 +101,32 @@ func (output monitorOutputText) suffixStart(characters int) int {
 	}
 	return output.ends[start-1]
 }
+
+// Return the raw boundary before a possible split marker. Ordinary short
+// samples can stream immediately; only bytes which might be framing wait.
+func (output monitorOutputText) beforeMarkerSuffix(marker []byte) int {
+	for start := 0; start < len(output.text); start++ {
+		if output.text[start] != marker[0] {
+			continue
+		}
+		matched := 0
+		for pos := start; pos < len(output.text); pos++ {
+			v := output.text[pos]
+			if v == '\r' || v == '\n' {
+				continue
+			}
+			if matched >= len(marker) || v != marker[matched] {
+				matched = -1
+				break
+			}
+			matched++
+		}
+		if matched > 0 {
+			if start == 0 {
+				return 0
+			}
+			return output.ends[start-1]
+		}
+	}
+	return output.parsed
+}

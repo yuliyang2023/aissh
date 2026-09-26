@@ -1,9 +1,8 @@
 package app
 
-// The hidden query advances the remote terminal, but the local SSH pane keeps
-// its original prompt row. Consume the monitor's trailing line breaks and
-// cursor moves even when they arrive after the completion marker in later
-// reads. Prompt text, styling and terminal modes still reach the local VT.
+// The local collection transcript has different rows from the remote wrapper.
+// Consume trailing line breaks and cursor moves, including split reads, so the
+// next prompt cannot overwrite the transcript. Preserve text, styles and modes.
 type monitorPromptState struct {
 	pending []byte
 	styles  []byte

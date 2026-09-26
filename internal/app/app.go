@@ -20,7 +20,6 @@ import (
 	app_i18n "git.example.com/ai/wrd-ai-cli/internal/i18n"
 	"git.example.com/ai/wrd-ai-cli/internal/monitor"
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
-	"git.example.com/ai/wrd-ai-cli/internal/policy"
 	"git.example.com/ai/wrd-ai-cli/internal/redact"
 	"git.example.com/ai/wrd-ai-cli/internal/resources"
 	"git.example.com/ai/wrd-ai-cli/internal/sshauth"
@@ -121,6 +120,8 @@ type App struct {
 	inBandMonitor           *inBandMonitorState
 	monitorPrompt           *monitorPromptState
 	monitorDeferredInput    []byte
+	monitorReview           *monitorAudit
+	monitorDecisions        map[string]monitorDecision
 	monitorSequence         uint64
 	monitorLayout           monitorLayoutMode
 	monitorLast             map[string]time.Time
@@ -829,7 +830,7 @@ func (a *App) handleOutput(data []byte) {
 			a.outputTail.value = ""
 		}
 	}
-	if !a.executionRecovery && (a.execution == nil || a.execution.finished()) && a.safePromptScreen() && trigger.LooksLikePrompt(a.outputTail.String()) {
+	if a.inBandMonitor == nil && !a.executionRecovery && (a.execution == nil || a.execution.finished()) && a.safePromptScreen() && trigger.LooksLikePrompt(a.outputTail.String()) {
 		if !a.atPrompt {
 			a.promptIdleSince = time.Now()
 		}
@@ -854,37 +855,7 @@ func (a *App) scheduleMonitors() {
 	a.expireWidgetCandidates(now)
 	a.schedulePipelines(now)
 	a.continuePipelineAI()
-	if a.monitorViaPrimary {
-		a.scheduleInBandMonitor(now)
-		return
-	}
-	for _, item := range a.panels.Panels() {
-		if item.Kind != panel.KindMonitor && item.Kind != panel.KindTable && item.Kind != panel.KindLog {
-			continue
-		}
-		if item.Pipeline != nil || item.Command == "" || a.monitorActive[item.ID] {
-			continue
-		}
-		interval := item.Interval
-		if interval < time.Second {
-			interval = time.Second
-		}
-		if last := a.monitorLast[item.ID]; !last.IsZero() && now.Sub(last) < interval {
-			continue
-		}
-		if err := policy.ValidateReadOnlyMonitorCommand(item.Command); err != nil {
-			a.panels.SetError(item.ID, fmt.Errorf("%s", a.t("监控命令被只读策略拒绝：%s", err.Error())))
-			a.monitorLast[item.ID] = now
-			continue
-		}
-		a.monitorActive[item.ID] = true
-		item.RunID++
-		panelID, command, binding, revision, runID := item.ID, item.Command, item.BindingID, item.SourceRevision, item.RunID
-		go func() {
-			content, err := a.monitor.Run(a.ctx, command)
-			a.events <- monitorResultEvent{panelID: panelID, command: command, content: content, err: err, binding: binding, revision: revision, runID: runID}
-		}()
-	}
+	a.scheduleInBandMonitor(now)
 }
 
 func (a *App) applyMonitorResult(value monitorResultEvent) {

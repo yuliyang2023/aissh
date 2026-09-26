@@ -104,6 +104,16 @@ func (a *App) processVisibleSSHOutput(data []byte) {
 	if len(data) == 0 || a.virtual == nil {
 		return
 	}
+	a.renderSSHOutput(data)
+	a.handleOutput(data)
+	a.flushDeferredMonitorInput()
+}
+
+// Render collector output without treating it as a prompt or AI context.
+func (a *App) renderSSHOutput(data []byte) {
+	if len(data) == 0 || a.virtual == nil {
+		return
+	}
 	if a.config.DesktopUI {
 		// Preserve the original bytes and terminal modes so xterm owns scrollback,
 		// selection and mouse hit testing. Execution/monitor markers are already
@@ -117,8 +127,7 @@ func (a *App) processVisibleSSHOutput(data []byte) {
 	a.appendTerminalHistory(historyLines)
 	a.scrollInlineBlocks(scrolls)
 	a.resolveInlineResizeAnchors()
-	a.handleOutput(data)
-	a.flushDeferredMonitorInput()
+	a.dirty = true
 }
 
 func (a *App) rememberZmodemTail(data []byte) {

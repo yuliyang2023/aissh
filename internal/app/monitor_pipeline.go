@@ -28,6 +28,9 @@ type pipelineDraft struct {
 	plan                 *monitorplan.Plan
 	mapID                string
 	restore              *widgets.Definition
+	title                string
+	interval             time.Duration
+	allowAIRead          bool
 }
 type pipelineBatch struct {
 	id, panelID, draftID, candidateID, binding string
@@ -71,6 +74,10 @@ func (a *App) cancelPipeline(id string) {
 	}
 }
 func (a *App) invalidatePipelines() {
+	a.monitorDecisions = nil
+	if a.monitorReview != nil {
+		a.monitorReview, a.proposal = nil, nil
+	}
 	a.pipelineGeneration++
 	for id := range a.pipelineDrafts {
 		a.cancelPipeline(id)
@@ -169,9 +176,13 @@ func (a *App) executePipelineAction(operation string, spec agent.PanelSpec) (*pa
 			revision = old.SourceRevision + 1
 		}
 		draft := &pipelineDraft{id: catalog.NewID(), panelID: spec.ID, session: a.pipelineSession, generation: a.pipelineGeneration, revision: revision, expires: time.Now().Add(5 * time.Minute), sources: append([]monitorplan.Source(nil), req.Sources...)}
+		draft.title, draft.interval, draft.allowAIRead = spec.Title, 5*time.Second, spec.AllowAIRead
+		if spec.IntervalMS > 0 {
+			draft.interval = time.Duration(max(1000, min(spec.IntervalMS, 300000))) * time.Millisecond
+		}
 		a.pipelineDrafts[spec.ID] = draft
 		a.newPipelineBatch(spec.ID, draft.sources, draft.id, "", revision, "")
-		return nil, "正在当前 SSH 连接首采：" + spec.ID + "；采集回执到达后才可提交 map", nil
+		return nil, "等待监控脚本审计后在当前 SSH 终端首采：" + spec.ID + "；采集回执到达后才可提交 map", nil
 	case "map":
 		draft := a.pipelineDrafts[spec.ID]
 		if req == nil || req.DataPlan == nil || len(req.Refs) == 0 {
@@ -392,6 +403,9 @@ func (a *App) schedulePipelines(now time.Time) {
 	}
 	a.initPipelines()
 	for id, d := range a.pipelineDrafts {
+		if a.monitorReview != nil && a.monitorReview.PanelID == id {
+			d.expires = now.Add(5 * time.Minute)
+		}
 		if now.After(d.expires) {
 			a.cancelPipeline(id)
 		}
@@ -425,10 +439,7 @@ func (a *App) schedulePipelines(now time.Time) {
 		if b == nil || b.running {
 			continue
 		}
-		if now.Sub(b.created) > 90*time.Second {
-			a.failPipelineBatch(b, "采集等待超时，请确认 SSH 位于空闲提示符")
-			continue
-		}
+
 		if b.index >= len(b.sources) {
 			continue
 		}
@@ -437,27 +448,22 @@ func (a *App) schedulePipelines(now time.Time) {
 			a.failPipelineBatch(b, "只读策略拒绝："+err.Error())
 			continue
 		}
-		if a.monitorViaPrimary {
-			if !a.canStartInBandMonitor() || now.Sub(a.terminalInputAt) < 750*time.Millisecond {
-				continue
-			}
-			b.running = true
-			item := &panel.Panel{ID: "pipeline-" + b.id, Command: source.Command}
-			a.startInBandCollection(item, now, b.id, time.Duration(source.TimeoutMS)*time.Millisecond)
-			return
+		if !a.ensureMonitorAudit(a.pipelineMonitorAudit(b)) {
+			// Human review time is not an SSH collection timeout.
+			b.created = now
+			continue
+		}
+		if now.Sub(b.created) > 90*time.Second {
+			a.failPipelineBatch(b, "采集等待超时，请确认 SSH 位于空闲提示符")
+			continue
+		}
+		if !a.canStartInBandMonitor() || now.Sub(a.terminalInputAt) < 750*time.Millisecond {
+			continue
 		}
 		b.running = true
-		ctx, cancel := context.WithCancel(a.pipelineContext())
-		b.cancel = cancel
-		runner := a.monitor
-		runner.Timeout = time.Duration(source.TimeoutMS) * time.Millisecond
-		go func(id string, source monitorplan.Source) {
-			capture, err := runner.Capture(ctx, source.Command)
-			select {
-			case a.events <- monitorResultEvent{pipelineID: id, capture: &capture, err: err}:
-			case <-ctx.Done():
-			}
-		}(b.id, source)
+		item := &panel.Panel{ID: "pipeline-" + b.id, Title: b.panelID + "/" + source.ID, Command: source.Command}
+		a.startInBandCollection(item, now, b.id, time.Duration(source.TimeoutMS)*time.Millisecond)
+		return
 	}
 }
 func (a *App) failPipelineBatch(b *pipelineBatch, message string) {
@@ -624,7 +630,8 @@ func (a *App) restorePipeline(d widgets.Definition) error {
 	if d.ID == "" {
 		d.ID = "widget-" + catalog.NewID()
 	}
-	spec := agent.PanelSpec{ID: d.ID, ExpectedRevision: d.Revision, Purpose: "realtime", Pipeline: &monitorplan.Request{ProtocolVersion: 2, Sources: savedPipelineSources(d)}}
+	a.resetMonitorAudit(d.ID, false)
+	spec := agent.PanelSpec{ID: d.ID, Title: d.Title, IntervalMS: int(d.IntervalMS), AllowAIRead: d.AllowAIRead, ExpectedRevision: d.Revision, Purpose: "realtime", Pipeline: &monitorplan.Request{ProtocolVersion: 2, Sources: savedPipelineSources(d)}}
 	_, message, err := a.executePanelAction(agent.PanelAction{Action: "probe", Panel: spec})
 	if err != nil {
 		return err

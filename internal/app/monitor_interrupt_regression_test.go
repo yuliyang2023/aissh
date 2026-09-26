@@ -27,6 +27,7 @@ func TestMonitorTimeoutNeverInjectsInterruptAfterPromptReturns(t *testing.T) {
 	a.monitorViaPrimary = true
 	a.atPrompt = true
 	a.lineReliable = true
+	approveMonitorFixture(t, a)
 	now := time.Now()
 	for tick := 0; tick < 5; tick++ {
 		a.scheduleInBandMonitor(now.Add(time.Duration(tick+1) * time.Hour))

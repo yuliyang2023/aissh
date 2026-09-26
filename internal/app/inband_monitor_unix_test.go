@@ -3,9 +3,11 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,7 +15,7 @@ import (
 	"github.com/hinshun/vt10x"
 )
 
-func TestRepeatedInBandMonitorsKeepInteractiveShellInPlace(t *testing.T) {
+func TestRepeatedApprovedMonitorsRunInInteractiveTerminal(t *testing.T) {
 	shell, err := exec.LookPath("bash")
 	if err != nil {
 		t.Skip("bash unavailable")
@@ -75,9 +77,15 @@ func TestRepeatedInBandMonitorsKeepInteractiveShellInPlace(t *testing.T) {
 	for !a.atPrompt {
 		read()
 	}
-	cursor := a.virtual.Cursor()
+	var transcript bytes.Buffer
+	a.config.DesktopUI = true
+	a.screenOut = &transcript
+	a.scheduleMonitors()
+	if a.inBandMonitor != nil || a.monitorReview == nil {
+		t.Fatal("real shell was used before review")
+	}
+	a.approveProposal()
 	before := monitorScreenText(a)
-	history := len(a.terminalHistory)
 	for tick := 0; tick < 20; tick++ {
 		a.scheduleInBandMonitor(time.Now().Add(time.Duration(tick+1) * time.Minute))
 		if a.inBandMonitor == nil {
@@ -86,9 +94,19 @@ func TestRepeatedInBandMonitorsKeepInteractiveShellInPlace(t *testing.T) {
 		for a.inBandMonitor != nil || a.monitorAwaitingPrompt {
 			read()
 		}
-		after := a.virtual.Cursor()
-		if after.X != cursor.X || after.Y != cursor.Y || monitorScreenText(a) != before || len(a.terminalHistory) != history {
-			t.Fatalf("tick %d moved the live shell: cursor=(%d,%d) want=(%d,%d), history=%d want=%d", tick, after.X, after.Y, cursor.X, cursor.Y, len(a.terminalHistory), history)
+		if screen := monitorScreenText(a); screen == before || !strings.Contains(screen, "HOST=server") || !strings.Contains(screen, "退出码：0") {
+			t.Fatalf("tick %d missing visible command/result: %s", tick, screen)
+		}
+		if tick == 0 {
+			t.Logf("Visible output from the real Shell/PTY:\n%s", transcript.String())
+		}
+	}
+	if strings.Count(transcript.String(), "[监控完成 · 退出码：0]") != 20 {
+		t.Fatal("not every recurring execution was visible")
+	}
+	if target := os.Getenv("AISSH_MONITOR_AUDIT_TRANSCRIPT"); target != "" {
+		if err := os.WriteFile(target, transcript.Bytes(), 0600); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

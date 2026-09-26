@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/creack/pty"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,7 +16,6 @@ import (
 
 	"git.example.com/ai/wrd-ai-cli/internal/agent"
 	"git.example.com/ai/wrd-ai-cli/internal/credentialui"
-	"git.example.com/ai/wrd-ai-cli/internal/monitor"
 	"git.example.com/ai/wrd-ai-cli/internal/monitorplan"
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
 	"git.example.com/ai/wrd-ai-cli/internal/widgets"
@@ -37,14 +38,26 @@ func pipelineTestApp(t *testing.T) *App {
 	if err := os.Symlink("/bin/sh", filepath.Join(dir, "sh")); err != nil {
 		t.Fatal(err)
 	}
-	// An SSH process fixture executes the real wrapped command with a PATH that
-	// has no Python, jq, ps or other collection/serialization dependencies.
-	script := "#!/bin/sh\nPATH=" + quotePOSIXShell(dir) + "\nexport PATH\nfor arg do command=$arg; done\nexec /bin/sh -c \"$command\"\n"
-	path := filepath.Join(dir, "ssh")
-	if err := os.WriteFile(path, []byte(script), 0700); err != nil {
+	// Real interactive PTY, with no Python/jq/ps in the collector PATH.
+	cmd := exec.CommandContext(a.ctx, "/bin/bash", "--noprofile", "--norc", "-i")
+	cmd.Env = append(os.Environ(), "PATH="+dir, "PS1=root@server:~# ", "PS2=> ", "PROMPT_COMMAND=", "HISTFILE=/dev/null", "TERM=xterm")
+	terminal, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(a.mainCols), Rows: uint16(a.contentRows)})
+	if err != nil {
 		t.Fatal(err)
 	}
-	a.monitor = monitor.Runner{SSHPath: path, Parsed: a.parsed, RawOutput: true}
+	a.sshPTY, a.sshCommand = terminal, cmd
+	a.startOutputReader()
+	t.Cleanup(func() { a.cancel(); terminal.Close() })
+	deadline := time.After(5 * time.Second)
+	for !a.atPrompt {
+		select {
+		case e := <-a.events:
+			a.handleEvent(e)
+		case <-deadline:
+			t.Fatal("no shell prompt")
+		}
+	}
+
 	return a
 }
 func pipelineSource() monitorplan.Source {
@@ -64,6 +77,9 @@ func pipelinePump(t *testing.T, a *App, done func() bool) {
 	deadline := time.After(10 * time.Second)
 	for !done() {
 		a.schedulePipelines(time.Now())
+		if a.monitorReview != nil {
+			a.approveProposal()
+		}
 		select {
 		case e := <-a.events:
 			a.handleEvent(e)
@@ -412,6 +428,9 @@ func TestPipelineAutomaticallyResumesAIAtActualCaptureAndMappingReceipts(t *test
 	deadline := time.After(10 * time.Second)
 	for a.widgetCandidates["auto-pipeline"] == nil || a.widgetCandidates["auto-pipeline"].artifact == nil || a.agentBusy {
 		a.schedulePipelines(time.Now())
+		if a.monitorReview != nil {
+			a.approveProposal()
+		}
 		a.continuePipelineAI()
 		select {
 		case e := <-a.events:
