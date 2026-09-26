@@ -56,11 +56,12 @@ func runPet(assets fs.FS) error {
 	return wails.Run(&options.App{
 		Title: "监控小猫", Width: 320, Height: 330, DisableResize: true, Frameless: true, AlwaysOnTop: true,
 		BackgroundColour: options.NewRGBA(0, 0, 0, 0), AssetServer: &assetserver.Options{Assets: assets},
-		Mac:       &mac.Options{WebviewIsTransparent: true, WindowIsTranslucent: true},
+		Mac:       &mac.Options{WebviewIsTransparent: true, DisableZoom: true},
 		Windows:   &windows.Options{WebviewIsTransparent: true, WindowIsTranslucent: true, DisableWindowIcon: true},
 		Linux:     &linux.Options{WindowIsTranslucent: true},
 		OnStartup: func(ctx context.Context) { desktop.PetStartup(bridge, ctx) },
 		OnDomReady: func(ctx context.Context) {
+			configurePetWindow()
 			if screens, err := wailsruntime.ScreenGetAll(ctx); err == nil {
 				for _, screen := range screens {
 					if screen.IsPrimary {

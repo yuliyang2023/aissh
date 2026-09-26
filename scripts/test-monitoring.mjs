@@ -117,17 +117,24 @@ export async function testMonitoring(page, out) {
 export async function testPet(page, out) {
   await page.setViewportSize({ width: 320, height: 330 });
   await page.locator('.desktop-pet').waitFor();
+  await page.locator('.desktop-pet.watching').waitFor();
   assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgba(0, 0, 0, 0)');
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: path.join(out, 'desktop-pet-idle.png'), omitBackground: true });
+  await page.locator('.pet-character').hover();
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.pet-tools')).opacity === '1');
   await page.evaluate((item) => {
     window.__monitoring.incidents = [item];
     window.__monitoring.notices = [{ sequence: 1, kind: 'firing', incident: item, time: new Date().toISOString() }];
   }, incident('session-1'));
   await page.getByText('根目录磁盘使用率', { exact: true }).waitFor();
-  await page.screenshot({ path: path.join(out, 'desktop-pet-alert.png') });
+  await page.locator('.desktop-pet.critical').waitFor();
+  await page.screenshot({ path: path.join(out, 'desktop-pet-alert.png'), omitBackground: true });
   await page.locator('.pet-bubble-open').click();
   assert.deepEqual(await page.evaluate(() => window.__petActions.at(-1)), { kind: 'open', id: 'session-1' });
   await page.getByRole('button', { name: '静音 15 分钟' }).click();
   await page.getByText('安静陪伴中').waitFor();
+  await page.locator('.desktop-pet.resting').waitFor();
   assert.equal(await page.locator('.pet-bubble').count(), 0);
   await page.getByRole('button', { name: '恢复提醒' }).click();
   await page.evaluate(() => {
@@ -137,8 +144,18 @@ export async function testPet(page, out) {
   await page.getByText('已经恢复啦').waitFor();
   await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
   await page.screenshot({ path: path.join(out, 'desktop-pet-recovered-dark.png') });
+  assert.equal(await page.locator('.pet-tail').evaluate(el => getComputedStyle(el).animationName), 'none');
   assert.equal(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight), true);
+  await page.evaluate(() => { window.__monitoring.liveSessions = 0; });
+  await page.getByText('到告警监控添加任务').waitFor();
+  await page.locator('.desktop-pet.resting').waitFor();
+  await page.getByRole('button', { name: '收起气泡' }).click();
+  await page.screenshot({ path: path.join(out, 'desktop-pet-resting.png'), omitBackground: true });
+  await page.locator('.pet-status').focus();
+  await page.keyboard.press('Tab');
+  assert.equal(await page.getByRole('button', { name: '打开告警监控' }).evaluate(el => el === document.activeElement), true);
+  assert.equal(await page.locator('.pet-tools').evaluate(el => getComputedStyle(el).opacity), '1');
   await page.getByRole('button', { name: '隐藏桌宠' }).click();
   assert.equal(await page.evaluate(() => window.__petActions.at(-1).kind), 'hide');
-  console.log('PASS: transparent pet, alert/recovery bubbles, navigation, snooze and hide');
+  console.log('PASS: pixel pet, hover/keyboard tools, alert/resting moods, reduced motion, alert/recovery bubbles, navigation, snooze and hide');
 }

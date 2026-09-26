@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { BellOff, ExternalLink, X } from 'lucide-react';
+import { PixelCat, PixelIcon, PetMood } from './PixelCat';
 import { AlertNotice, MonitoringState } from './monitoring-api';
 import { errorText } from './api';
 
@@ -58,15 +58,17 @@ export function DesktopPet() {
   const active = state?.incidents.filter((i) => i.status === 'firing') || [];
   const muted = !!state && Date.parse(state.snoozedUntil) > Date.now();
   const resting = muted || !state?.policy.enabled || !state.liveSessions;
-  const mood = error
+  const mood: PetMood = error
     ? 'warning'
-    : active.some((i) => i.severity === 'critical')
-      ? 'critical'
-      : active.length
-        ? 'warning'
-        : resting
-          ? 'resting'
-          : 'watching';
+    : muted || !state?.policy.enabled
+      ? 'resting'
+      : active.some((i) => i.severity === 'critical')
+        ? 'critical'
+        : active.length
+          ? 'warning'
+          : resting
+            ? 'resting'
+            : 'watching';
   const visibleBubble =
     !muted &&
     state?.policy.enabled &&
@@ -103,7 +105,7 @@ export function DesktopPet() {
                 aria-label="收起气泡"
                 onClick={() => setBubble(null)}
               >
-                <X size={12} />
+                <PixelIcon kind="close" />
               </button>
               <button
                 className="pet-bubble-open"
@@ -125,61 +127,8 @@ export function DesktopPet() {
           )
         )}
       </div>
-      <div className="pet-character" title="拖动小猫移动窗口">
-        <svg viewBox="0 0 180 126" role="img" aria-label="监控小猫">
-          <ellipse cx="91" cy="117" rx="55" ry="6" fill="#000" opacity=".1" />
-          <path
-            className="pet-tail"
-            d="M132 106 Q172 110 160 81"
-            fill="none"
-            stroke="#bbb2e3"
-            strokeWidth="13"
-            strokeLinecap="round"
-          />
-          <path
-            d="M51 79 Q37 108 62 115 L125 115 Q142 101 125 79Z"
-            fill="#dcd5f5"
-            stroke="#71638e"
-            strokeWidth="2.5"
-          />
-          <path
-            d="M42 54 L43 13 Q44 5 51 10 L75 30 Q94 25 111 30 L135 10 Q142 5 142 14 L143 57 Q150 94 96 98 Q39 98 42 54Z"
-            fill="#eee9fb"
-            stroke="#71638e"
-            strokeWidth="2.5"
-            strokeLinejoin="round"
-          />
-          <path d="M51 20 L52 43 L68 33Z M132 20 L117 34 L134 44Z" fill="#d4a6bf" />
-          <g
-            className="pet-eyes"
-            fill="none"
-            stroke="#514968"
-            strokeWidth="4.5"
-            strokeLinecap="round"
-          >
-            <path d="M69 56 L69 63 M116 56 L116 63" />
-          </g>
-          <path d="M89 67 Q94 64 99 67 L94 72Z" fill="#ba839f" />
-          <path
-            d="M94 72 Q88 81 83 74 M94 72 Q99 81 105 74"
-            fill="none"
-            stroke="#71638e"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-          />
-          <ellipse cx="60" cy="74" rx="9" ry="4" fill="#eecbdc" />
-          <ellipse cx="128" cy="74" rx="9" ry="4" fill="#eecbdc" />
-          <path d="M68 96 L68 111 M117 96 L117 111" stroke="#b2a5d3" strokeWidth="2" />
-          <circle
-            className="pet-badge"
-            cx="94"
-            cy="100"
-            r="8"
-            fill="#61a78b"
-            stroke="#fff"
-            strokeWidth="2"
-          />
-        </svg>
+      <div className="pet-character" title="拖动小猫移动位置">
+        <PixelCat mood={mood} />
       </div>
       <button className="pet-status" disabled={busy} onClick={() => void action('open')}>
         <span />
@@ -192,7 +141,7 @@ export function DesktopPet() {
           title="打开告警监控"
           onClick={() => void action('open')}
         >
-          <ExternalLink size={14} />
+          <PixelIcon kind="open" />
         </button>
         <button
           disabled={busy}
@@ -200,7 +149,7 @@ export function DesktopPet() {
           title={muted ? '恢复提醒' : '静音 15 分钟'}
           onClick={() => void action(muted ? 'resume' : 'snooze')}
         >
-          <BellOff size={14} />
+          <PixelIcon kind={muted ? 'muted' : 'sound'} />
         </button>
         <button
           disabled={busy}
@@ -208,7 +157,7 @@ export function DesktopPet() {
           title="隐藏桌宠，后台监控继续"
           onClick={() => void action('hide')}
         >
-          <X size={14} />
+          <PixelIcon kind="close" />
         </button>
       </div>
     </main>
