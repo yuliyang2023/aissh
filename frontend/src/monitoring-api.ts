@@ -107,6 +107,6 @@ export function conditionSummary(c: MonitorCondition) {
   return `${when}，持续 ${c.forSeconds} 秒提醒；连续恢复 ${c.recoverySeconds} 秒后通知`;
 }
 export const realtimePrompt = (text: string) =>
-  `请为当前 SSH 服务器创建只读实时展示面板，通过 panelActions 设置 purpose=realtime、alert=null，只展示数据。不要创建或修改告警任务。不限于内置采集器，信息不足请先询问，说明刷新周期和仅当前连接生效的范围。我的需求：${text.trim()}`;
+  `请为当前 SSH 服务器创建只读实时展示面板，通过 panelActions 设置 purpose=realtime、alert=null，只展示数据。遵循 monitorWidgetV2：先 probe 在当前 SSH 实际采集，收到 captureId 回执后再 map，由客户端本地解析和映射；收到 mapId 和真实 Dataset 后再 create，绑定数据并生成自定义 TSX 组件（view.kind=custom、sdkVersion=2），通过真实数据预检后生效。每个阶段单独返回并等待回执；不要伪造采样、凭据或实时指标，不要依赖远端 Python/jq 生成 JSON。按指标设计卡片、图表、状态或表格。不要创建或修改告警任务。信息不足请先询问，说明刷新周期和仅当前连接生效的范围；是否成功以客户端回执为准。我的需求：${text.trim()}`;
 export const alertMonitorPrompt = (text: string) =>
   `请为当前 SSH 服务器创建独立的只读告警任务，通过 panelActions 设置 purpose=alert 和有效且启用的 panel.alert，使用独立 ID、采集命令和检查周期。不要创建或修改实时展示面板。不限于内置采集器，信息不足请先询问，说明异常条件、恢复条件和仅当前连接生效的范围。我的需求：${text.trim()}`;

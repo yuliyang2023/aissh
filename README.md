@@ -2,6 +2,8 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
+Native iPhone client: see [iOS setup and usage](ios/README.md). SSH and AI connect directly from the phone; no desktop relay is required.
+
 > Bring an AI assistant, live observability, and human-controlled execution into the SSH workflow you already know.
 
 `aissh` is a local-first AI workspace for SSH. It keeps the native OpenSSH experience while bringing troubleshooting,
