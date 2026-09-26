@@ -12,6 +12,14 @@ import (
 )
 
 func TestNewDialogConversationSavesWithDefaultAIAndNoSSH(t *testing.T) {
+	documentServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/openapi.json" {
+			t.Error("exploration requested a business path", r.URL)
+			return
+		}
+		_, _ = w.Write([]byte(`{"openapi":"3.0.3","paths":{"/assets":{"get":{"summary":"List assets"}}}}`))
+	}))
+	defer documentServer.Close()
 	s, host, _ := conversationService(t)
 	if err := s.history.Append("profile:"+host.ID, history.Message{ConversationID: "ssh-only", Role: "user", Content: "private SSH context"}); err != nil {
 		t.Fatal(err)
@@ -39,7 +47,12 @@ func TestNewDialogConversationSavesWithDefaultAIAndNoSSH(t *testing.T) {
 				t.Error("lost earlier user fact")
 			}
 			response["type"] = "command_proposal"
-			response["proposal"] = map[string]string{"command": `@knowledge {"action":"save_system","system":{"name":"CMDB","kind":"http","endpoint":"https://cmdb.example.com","description":"资产管理"},"quote":"地址是 https://cmdb.example.com"}`, "explanation": "创建系统", "expectedEffect": "保存到本机", "risk": "low"}
+			op, _ := json.Marshal(map[string]any{"action": "save_system", "system": map[string]string{"name": "CMDB", "kind": "http", "endpoint": documentServer.URL, "description": "资产管理"}, "quote": "地址是 " + documentServer.URL})
+			response["proposal"] = map[string]string{"command": "@knowledge " + string(op), "explanation": "创建系统", "expectedEffect": "保存到本机", "risk": "low"}
+		case 2:
+			if !strings.Contains(string(encoded), "List assets") {
+				t.Error("creation assistant did not receive discovery report")
+			}
 		case 3:
 			response["type"] = "command_proposal"
 			response["proposal"] = map[string]string{"command": `@knowledge {"action":"upsert_record","title":"资产归属","key":{"IP":"192.0.2.10"},"values":{"部门":"研发部"},"quote":"192.0.2.10 属于研发部"}`, "explanation": "保存记录", "expectedEffect": "建立数据表", "risk": "low"}
@@ -60,13 +73,16 @@ func TestNewDialogConversationSavesWithDefaultAIAndNoSSH(t *testing.T) {
 	if err != nil || first.Error != "" || len(first.Messages) != 2 || len(first.Receipts) != 0 {
 		t.Fatalf("question: %+v %v", first, err)
 	}
-	second, err := s.AskCatalogAssistant(CatalogChatInput{Mode: "system", ConversationID: "new-system", Prompt: "地址是 https://cmdb.example.com"})
+	second, err := s.AskCatalogAssistant(CatalogChatInput{Mode: "system", ConversationID: "new-system", Prompt: "地址是 " + documentServer.URL})
 	if err != nil || second.Error != "" || len(second.Receipts) != 1 || len(second.Messages) != 5 {
 		t.Fatalf("creation: %+v %v", second, err)
 	}
 	d, _ := s.Snapshot()
 	if len(d.Resources) != 1 || d.Resources[0].Name != "CMDB" || d.Resources[0].Grant != "ask" {
 		t.Fatalf("system not saved: %+v", d.Resources)
+	}
+	if d.Resources[0].Discovery == nil || d.Resources[0].Discovery.Status != "ready" {
+		t.Fatal("system creation did not persist exploration")
 	}
 	third, err := s.AskCatalogAssistant(CatalogChatInput{Mode: "knowledge", ConversationID: "new-knowledge", Prompt: "192.0.2.10 属于研发部"})
 	if err != nil || third.Error == "" || len(third.Receipts) != 1 {

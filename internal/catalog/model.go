@@ -41,18 +41,24 @@ type Host struct {
 }
 
 type Resource struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Kind         string `json:"kind"` // http, postgres, mysql, redis
-	Endpoint     string `json:"endpoint"`
-	Database     string `json:"database"`
-	CredentialID string `json:"credentialId"`
-	HostID       string `json:"hostId"` // SSH session this resource belongs to
-	Route        string `json:"route"`  // local or ssh
-	AllowLocal   bool   `json:"allowLocal"`
-	Grant        string `json:"grant"` // ask, session, read
-	TLS          bool   `json:"tls"`
-	Description  string `json:"description,omitempty"`
+	SystemID      string             `json:"systemId,omitempty"`
+	SystemName    string             `json:"systemName,omitempty"`
+	Environment   string             `json:"environment,omitempty"`
+	Managed       bool               `json:"managed"` // backend-owned policy gate
+	ID            string             `json:"id"`
+	Name          string             `json:"name"`
+	Kind          string             `json:"kind"` // http, postgres, mysql, redis
+	Endpoint      string             `json:"endpoint"`
+	Database      string             `json:"database"`
+	CredentialID  string             `json:"credentialId"`
+	HostID        string             `json:"hostId"` // SSH session this resource belongs to
+	Route         string             `json:"route"`  // local or ssh
+	AllowLocal    bool               `json:"allowLocal"`
+	Grant         string             `json:"grant"` // ask, session, read
+	TLS           bool               `json:"tls"`
+	Description   string             `json:"description,omitempty"`
+	DiscoveryPath string             `json:"discoveryPath,omitempty"` // optional OpenAPI JSON path inside Endpoint
+	Discovery     *ResourceDiscovery `json:"discovery,omitempty"`
 }
 
 type AIProfile struct {
@@ -251,8 +257,19 @@ func (d Data) validate() error {
 		if err := check(r.ID, r.Name); err != nil {
 			return err
 		}
+		if r.SystemID != "" {
+			if err := ValidateID(r.SystemID); err != nil {
+				return err
+			}
+		}
+		if !textField(r.SystemName) || !textField(r.Environment) {
+			return errors.New("系统名称或环境无效")
+		}
 		if len(r.Description) > 8192 || strings.ContainsRune(r.Description, 0) {
 			return errors.New("系统说明不能超过 8 KB 或包含无效字符")
+		}
+		if !textField(r.DiscoveryPath) {
+			return errors.New("接口文档路径无效")
 		}
 		if r.Kind != "http" && r.Kind != "postgres" && r.Kind != "mysql" && r.Kind != "redis" {
 			return errors.New("不支持的系统类型")

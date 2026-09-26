@@ -41,7 +41,6 @@ import {
   newCredential,
   newHost,
   newResource,
-  Operation,
   Resource,
   Session,
   sessionLive,
@@ -57,6 +56,7 @@ import { Conversations, conversationKey } from './Conversations';
 import { NewConversation, NewConversationInput } from './NewConversation';
 import { primaryModifier } from './platform';
 import { KnowledgeLibrary } from './Knowledge';
+import { ResourceGuide, discoveryStatus } from './ResourceGuide';
 import { Monitoring } from './Monitoring';
 
 type SettingsPage = 'hosts' | 'credentials' | 'ai' | 'removedHosts';
@@ -139,8 +139,7 @@ export function App() {
   const [imports, setImports] = useState<Host[] | null>(null);
   const [importSelection, setImportSelection] = useState<Set<number>>(new Set());
   const [result, setResult] = useState<{ name: string; content: string } | null>(null);
-  const [operation, setOperation] = useState<Resource | null>(null);
-  const [operationText, setOperationText] = useState('');
+  const [resourceGuide, setResourceGuide] = useState('');
   const [sessions, setSessions] = useState<Session[]>([]);
   // Keep session hosts available for listing and restoration after their saved host is deleted.
   const sidebarHosts = [
@@ -468,13 +467,12 @@ export function App() {
       setBusy('');
     }
   }
-  async function resourceAction(resource: Resource, op?: Operation) {
+  async function resourceAction(resource: Resource) {
     setBusy(resource.id);
     setError('');
     try {
       if (resource.route === 'ssh' && !(await ensureTrust(resource.hostId))) return;
-      const text = op ? await api.RunResource(op) : await api.TestResource(resource.id);
-      setOperation(null);
+      const text = await api.TestResource(resource.id);
       setResult({ name: resource.name, content: text });
     } catch (e) {
       setError(errorText(e));
@@ -1354,6 +1352,7 @@ export function App() {
                                       <span className="inline-kind">{kinds[r.kind]}</span>
                                     </strong>
                                     <small className="mono">{r.endpoint}</small>
+                                    <small className="cell-small">{discoveryStatus(r)}</small>
                                     {r.description && (
                                       <small className="system-description" title={r.description}>
                                         {r.description}
@@ -1374,13 +1373,7 @@ export function App() {
                                     ? hostName(r.hostId) + ' · SSH 隧道'
                                     : '本机直接访问'}
                                 </span>
-                                <small className="cell-small">
-                                  {r.grant === 'read'
-                                    ? '自动执行只读操作'
-                                    : r.grant === 'session'
-                                      ? '本次会话授权'
-                                      : '每次操作确认'}
-                                </small>
+                                <small className="cell-small">按接口权限与风险规则执行</small>
                               </td>
                               <td>
                                 <div className="row-actions">
@@ -1398,15 +1391,15 @@ export function App() {
                                   </button>
                                   <button
                                     className="button small"
+                                    onClick={() => setResourceGuide(r.id)}
+                                  >
+                                    <BookOpen size={13} />
+                                    操作目录
+                                  </button>
+                                  <button
+                                    className="button small"
                                     onClick={() => {
-                                      setOperation(r);
-                                      setOperationText(
-                                        r.kind === 'http'
-                                          ? '/'
-                                          : r.kind === 'redis'
-                                            ? 'INFO'
-                                            : 'SELECT 1',
-                                      );
+                                      setResourceGuide(r.id);
                                     }}
                                   >
                                     <Play size={12} />
@@ -1653,6 +1646,19 @@ export function App() {
           createCredential={createCredential}
         />
       )}
+      {resourceGuide && data.resources.some((r) => r.id === resourceGuide) && (
+        <ResourceGuide
+          data={data}
+          resource={data.resources.find((r) => r.id === resourceGuide)!}
+          onClose={() => setResourceGuide('')}
+          onExplore={async () => {
+            const resource = data.resources.find((r) => r.id === resourceGuide)!;
+            if (resource.route === 'ssh' && !(await ensureTrust(resource.hostId))) return;
+            await api.StartResourceDiscovery(resource.id);
+            setData(await api.Snapshot());
+          }}
+        />
+      )}
       {editor?.kind === 'ai' && (
         <AIEditor
           item={editor.value}
@@ -1814,59 +1820,6 @@ export function App() {
               </button>
             </div>
           </div>
-        </Modal>
-      )}
-      {operation && (
-        <Modal
-          title={'访问 ' + operation.name}
-          subtitle="点击执行将批准本次只读操作使用绑定的凭据。"
-          onClose={() => setOperation(null)}
-        >
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const op: Operation = {
-                resourceId: operation.id,
-                action:
-                  operation.kind === 'http'
-                    ? 'http.get'
-                    : operation.kind === 'redis'
-                      ? 'redis.read'
-                      : 'database.query',
-              };
-              if (operation.kind === 'http') op.path = operationText;
-              else if (operation.kind === 'redis') op.args = operationText.trim().split(/\s+/);
-              else op.query = operationText;
-              void resourceAction(operation, op);
-            }}
-          >
-            <label className="field">
-              <span>
-                {operation.kind === 'http'
-                  ? 'GET 路径'
-                  : operation.kind === 'redis'
-                    ? '只读命令'
-                    : '只读 SQL'}
-              </span>
-              <textarea
-                required
-                autoFocus
-                rows={5}
-                value={operationText}
-                onChange={(e) => setOperationText(e.target.value)}
-              />
-            </label>
-            <ErrorBox error={error} />
-            <div className="form-actions">
-              <button type="button" className="button" onClick={() => setOperation(null)}>
-                取消
-              </button>
-              <button type="submit" className="button primary" disabled={!!busy}>
-                <Play size={14} />
-                批准并执行
-              </button>
-            </div>
-          </form>
         </Modal>
       )}
       {closeSession && (

@@ -272,11 +272,17 @@ func (a *App) finishAgentTurn(turn agent.Turn, err error) {
 		}
 		if a.resourceProposal(turn.Proposal.Command) {
 			a.dirty = true
-			if a.config.Resources != nil && a.atPrompt && !a.sensitive && !isReviewRisk(turn.Proposal.Risk) {
+			if a.config.Resources != nil {
 				op, err := resources.Parse(strings.TrimSpace(turn.Proposal.Command))
 				if err == nil {
 					needs, checkErr := a.config.Resources.RequiresApproval(op)
-					if checkErr == nil && !needs {
+					if summary := a.config.Resources.ApprovalSummary(op); summary != "" {
+						a.approvalStatus = summary
+					}
+					if checkErr != nil {
+						a.approvalStatus = checkErr.Error()
+					}
+					if checkErr == nil && !needs && a.atPrompt && !a.sensitive && !isReviewRisk(turn.Proposal.Risk) {
 						a.executeResource(turn.Proposal.Command, turn.Proposal.ID, a.agentSessionID, false)
 						return
 					}

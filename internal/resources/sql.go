@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"git.example.com/ai/wrd-ai-cli/internal/catalog"
+	"git.example.com/ai/wrd-ai-cli/internal/externals"
 	"github.com/go-sql-driver/mysql"
 	"github.com/lib/pq"
 )
@@ -33,6 +34,9 @@ func (d pqDialer) DialContext(ctx context.Context, network, address string) (net
 }
 
 func executeSQL(ctx context.Context, r catalog.Resource, op Operation, c catalog.Credential, secret string, dial dialFunc) (string, error) {
+	return executeContractSQL(ctx, r, externals.Prepared{SQL: op.Query, ReadOnly: true}, c, secret, dial, externals.DefaultRisk())
+}
+func executeContractSQL(ctx context.Context, r catalog.Resource, op externals.Prepared, c catalog.Credential, secret string, dial dialFunc, risk externals.RiskPolicy) (string, error) {
 	var db *sql.DB
 	if r.Kind == "postgres" {
 		u := &url.URL{Scheme: "postgres", Host: r.Endpoint, Path: "/" + r.Database, User: url.UserPassword(c.Username, secret)}
@@ -76,12 +80,30 @@ func executeSQL(ctx context.Context, r catalog.Resource, op Operation, c catalog
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: op.ReadOnly})
 	if err != nil {
 		return "", err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, op.Query)
+	if !op.ReadOnly {
+		result, err := tx.ExecContext(ctx, op.SQL, op.SQLValues...)
+		if err != nil {
+			return "", err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return "", err
+		}
+		if count > int64(risk.MaxQuantity) {
+			return "", errors.New("影响行数超过风险上限，事务已回滚")
+		}
+		if err := tx.Commit(); err != nil {
+			return "", err
+		}
+		raw, _ := json.Marshal(map[string]any{"affectedRows": count, "committed": true})
+		return string(raw), nil
+	}
+	rows, err := tx.QueryContext(ctx, op.SQL, op.SQLValues...)
 	if err != nil {
 		return "", err
 	}
@@ -97,7 +119,7 @@ func executeSQL(ctx context.Context, r catalog.Resource, op Operation, c catalog
 	}{Columns: columns, Rows: [][]any{}}
 	bytesUsed := 0
 	for rows.Next() {
-		if len(result.Rows) >= 100 || bytesUsed >= 128*1024 {
+		if len(result.Rows) >= risk.MaxRows || bytesUsed >= risk.MaxResponseBytes {
 			result.Truncated = true
 			break
 		}
@@ -116,7 +138,7 @@ func executeSQL(ctx context.Context, r catalog.Resource, op Operation, c catalog
 		}
 		encoded, _ := json.Marshal(values)
 		bytesUsed += len(encoded)
-		if bytesUsed > 128*1024 {
+		if bytesUsed > risk.MaxResponseBytes {
 			result.Truncated = true
 			break
 		}

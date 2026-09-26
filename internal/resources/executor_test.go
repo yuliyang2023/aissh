@@ -50,9 +50,12 @@ func TestApprovalBindingAuthenticationAndRedaction(t *testing.T) {
 	}))
 	defer server.Close()
 	e, r := setup(t, server.URL+"/api")
-	op := Operation{ResourceID: r.ID, Action: "http.get", Path: "/health"}
+	op, _ := registerHTTP(t, e, r, "GET", "/health", "read", false)
 	if _, err := e.Execute(context.Background(), op, false); err == nil || hits != 0 {
 		t.Fatal("operation bypassed approval")
+	}
+	if need, err := e.RequiresApproval(op); err != nil || !need {
+		t.Fatal(need, err)
 	}
 	output, err := e.Execute(context.Background(), op, true)
 	if err != nil {
@@ -61,8 +64,8 @@ func TestApprovalBindingAuthenticationAndRedaction(t *testing.T) {
 	if strings.Contains(output, "private-test-token") || strings.Contains(output, "cHJpdmF0ZS") {
 		t.Fatal("secret in result")
 	}
-	if needed, err := e.RequiresApproval(op); err != nil || needed {
-		t.Fatal("session grant missing", err)
+	if needed, err := e.RequiresApproval(op); err != nil || !needed {
+		t.Fatal("exact confirmation incorrectly became session-wide permission", err)
 	}
 	r.Endpoint = server.URL + "/other"
 	if _, err := e.Store.SaveResource(r); err != nil {
@@ -79,9 +82,10 @@ func TestRedirectNeverCarriesSecretToAnotherOrigin(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, other.URL, http.StatusFound) }))
 	defer server.Close()
 	e, r := setup(t, server.URL)
-	out, err := e.Execute(context.Background(), Operation{ResourceID: r.ID, Action: "http.get"}, true)
-	if err != nil {
-		t.Fatal(err)
+	op, _ := registerHTTP(t, e, r, "GET", "/", "read", true)
+	out, err := e.Execute(context.Background(), op, false)
+	if err == nil {
+		t.Fatal("redirect reported success")
 	}
 	if hits != 0 || !strings.Contains(out, "HTTP 302") {
 		t.Fatal("redirect followed")
@@ -89,15 +93,14 @@ func TestRedirectNeverCarriesSecretToAnotherOrigin(t *testing.T) {
 }
 func TestScopeAndOperationValidation(t *testing.T) {
 	e, r := setup(t, "https://example.test/api")
-	op := Operation{ResourceID: r.ID, Action: "http.get", Path: "/"}
+	op, _ := registerHTTP(t, e, r, "GET", "/", "read", true)
 	e.HostID = "different-host"
 	if _, err := e.RequiresApproval(op); err == nil {
 		t.Fatal("cross-host binding accepted")
 	}
 	e.HostID = ""
 	for _, path := range []string{"https://evil.test/", "//evil.test/", "../other", "%2e%2e/other", "/x\\y"} {
-		op.Path = path
-		if _, err := e.RequiresApproval(op); err == nil {
+		if _, err := requestURL(r.Endpoint, path); err == nil {
 			t.Fatalf("accepted path %q", path)
 		}
 	}

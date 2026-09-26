@@ -500,6 +500,43 @@ export function ResourceEditor({
               </select>
             </Field>
           </div>
+          <div className="form-row">
+            <Field label="所属系统">
+              <select
+                value={value.systemId || ''}
+                onChange={(e) =>
+                  set((p) => ({
+                    ...p,
+                    systemId: e.target.value,
+                    systemName:
+                      data.resources.find((r) => r.systemId === e.target.value)?.systemName ||
+                      p.name,
+                  }))
+                }
+              >
+                <option value="">新建独立系统</option>
+                {Array.from(
+                  new Map(
+                    data.resources.filter((r) => r.systemId).map((r) => [r.systemId, r]),
+                  ).values(),
+                ).map((r) => (
+                  <option key={r.systemId} value={r.systemId}>
+                    {r.systemName || r.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="连接环境">
+              <select
+                value={value.environment || 'production'}
+                onChange={(e) => field('environment', e.target.value)}
+              >
+                <option value="production">生产</option>
+                <option value="test">测试</option>
+                <option value="development">开发</option>
+              </select>
+            </Field>
+          </div>
           <Field label="系统说明（可选）">
             <textarea
               value={value.description || ''}
@@ -543,6 +580,18 @@ export function ResourceEditor({
               </label>
             </div>
           )}
+          {value.kind === 'http' && (
+            <Field
+              label="接口文档路径（可选）"
+              hint="填写服务地址内的 OpenAPI / Swagger JSON 相对路径；留空自动查找常用路径。"
+            >
+              <input
+                value={value.discoveryPath || ''}
+                onChange={(e) => field('discoveryPath', e.target.value)}
+                placeholder="/openapi.json"
+              />
+            </Field>
+          )}
           <CredentialField
             label="系统凭据"
             data={data}
@@ -571,10 +620,17 @@ export function ResourceEditor({
               </select>
             </Field>
           </div>
-          <Field label="凭据使用授权">
-            <select value={value.grant} onChange={(e) => field('grant', e.target.value)}>
+          <Field
+            label="初始只读授权"
+            hint="仅用于初始化内置只读接口。保存后的授权在操作目录中管理。"
+          >
+            <select
+              disabled={value.managed}
+              value={value.grant}
+              onChange={(e) => field('grant', e.target.value)}
+            >
               <option value="ask">每次操作确认</option>
-              <option value="session">首次确认后，本次会话允许</option>
+              <option value="session">只读接口逐次确认（兼容旧配置）</option>
               <option value="read">记住此范围，自动执行只读操作</option>
             </select>
           </Field>
@@ -584,12 +640,12 @@ export function ResourceEditor({
               checked={value.allowLocal}
               onChange={(e) => field('allowLocal', e.target.checked)}
             />
-            同时允许本机工具使用此系统连接
+            允许本机查看此系统目录（新增时建立内置只读授权）
           </label>
           <div className="info-box">
             <ShieldCheck size={18} />
             <span>
-              支持 HTTP GET、数据库只读事务和 Redis 只读命令。数据库请绑定具有只读权限的账号。
+              保存后会在后台读取接口文档或元数据。候选接口需审查后单独授权；调用权限和风险规则在操作目录管理。
             </span>
           </div>
           <ErrorBox error={error} />
@@ -597,7 +653,7 @@ export function ResourceEditor({
             <button type="button" className="button" onClick={finish}>
               取消
             </button>
-            <Submit busy={busy} label="保存系统连接" />
+            <Submit busy={busy} label="保存并只读探索" />
           </div>
         </fieldset>
       </form>

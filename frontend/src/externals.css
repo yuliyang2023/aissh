@@ -1,0 +1,120 @@
+.external-console {
+  padding: 20px 24px;
+  min-height: 440px;
+}
+.external-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.external-toolbar small,
+.external-console small {
+  display: block;
+  font-size: 12px;
+  color: var(--secondary);
+  margin-top: 5px;
+}
+.external-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 18px 0;
+}
+.external-content {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.external-hint,
+.external-summary {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--secondary);
+}
+.external-operation-list {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0;
+  max-height: 460px;
+  overflow: auto;
+}
+.external-operation,
+.external-editor,
+.external-preview {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  min-width: 0;
+}
+.external-editor,
+.external-preview {
+  margin: 14px 0;
+}
+.external-operation code,
+.external-console code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.external-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.external-badges span {
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+.external-console pre {
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 280px;
+  overflow: auto;
+  background: var(--alternate);
+  padding: 12px;
+  border-radius: 6px;
+}
+.external-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.external-checks {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+.external-console details {
+  margin: 14px 0;
+}
+.external-console summary {
+  cursor: pointer;
+  font-size: 13px;
+}
+.external-console h3 {
+  font-size: 15px;
+  margin-top: 22px;
+}
+.external-console .form-row {
+  flex-wrap: wrap;
+}
+.external-blocked {
+  font-size: 12px;
+  color: #a85516;
+}
+.external-console .check {
+  margin: 8px 0;
+}
+.external-console .external-toolbar select {
+  width: auto;
+  min-width: 130px;
+}

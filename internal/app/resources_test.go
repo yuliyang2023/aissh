@@ -12,6 +12,7 @@ import (
 
 	"git.example.com/ai/wrd-ai-cli/internal/agent"
 	"git.example.com/ai/wrd-ai-cli/internal/catalog"
+	"git.example.com/ai/wrd-ai-cli/internal/externals"
 	"git.example.com/ai/wrd-ai-cli/internal/history"
 	"git.example.com/ai/wrd-ai-cli/internal/redact"
 	"git.example.com/ai/wrd-ai-cli/internal/resources"
@@ -54,10 +55,24 @@ func TestGrantedResourceUsesAdapterAndReturnsResultToAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	external := externals.NewStore(store)
+	st, err := external.Ensure(r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := externals.Definition{ID: "read-status", Name: "Read service status", Kind: "http", Lifecycle: "active", InputSchema: externals.EmptyInput(), Request: externals.Request{Method: "GET", Path: "/"}, Assessment: externals.Assessment{Effects: externals.Effects{Access: "read"}, Risk: "low"}}
+	st, err = external.SaveOperation(r.ID, st.Revision, def, "review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = external.SavePermissions(r.ID, st.Revision, st.Permissions, []externals.Grant{{Name: "reader", Subject: externals.Subject{Kind: "local"}, Operations: map[string]uint64{def.ID: 1}, Permissions: []string{"read"}, AutoRead: true}}, "grant")
+	if err != nil {
+		t.Fatal(err)
+	}
 	provider := &resourceFlowProvider{}
 	pty := &resourceTestPTY{}
 	a := &App{ctx: context.Background(), config: Config{Resources: resources.New(store, "", "", nil)}, agent: provider, sshPTY: pty, events: make(chan interface{}, 10)}
-	op := resources.Operation{ResourceID: r.ID, Action: "http.get", Path: "/"}
+	op := resources.Operation{ResourceID: r.ID, Action: "system.invoke", OperationID: def.ID, OperationRevision: 1, Arguments: map[string]any{}}
 	a.executeResource(op.Command(), "proposal", "session", false)
 	select {
 	case event := <-a.events:

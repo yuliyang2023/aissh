@@ -1,5 +1,6 @@
 import type { WidgetArtifact, WidgetData, WidgetMeta, WidgetCandidate } from './widgets/protocol';
 import type { SavedWidget } from './widgets/WidgetLibrary';
+import type { ExternalBackend } from './externals-api';
 import type { AlertPolicy, MonitoringState, PetBackend, MonitorCondition } from './monitoring-api';
 
 export interface Credential {
@@ -24,6 +25,10 @@ export interface Host {
   workspace: string;
 }
 export interface Resource {
+  systemId?: string;
+  systemName?: string;
+  environment?: string;
+  managed?: boolean;
   id: string;
   name: string;
   kind: 'http' | 'postgres' | 'mysql' | 'redis';
@@ -36,6 +41,24 @@ export interface Resource {
   grant: 'ask' | 'session' | 'read';
   tls: boolean;
   description?: string;
+  discoveryPath?: string;
+  discovery?: ResourceDiscovery;
+}
+export interface ResourceCapability {
+  name: string;
+  risk: 'read' | 'write' | 'dangerous' | 'unknown';
+  method?: string;
+  path?: string;
+  parameters?: string;
+  evidence: string;
+  example?: string;
+}
+export interface ResourceDiscovery {
+  status: 'ready' | 'partial' | 'failed' | 'stale';
+  exploredAt: string;
+  summary: string;
+  notes: string[];
+  operations: ResourceCapability[] | null;
 }
 export interface Knowledge {
   id: string;
@@ -201,6 +224,9 @@ export interface HostCheck {
   token: string;
 }
 export interface Operation {
+  operationId?: string;
+  operationRevision?: number;
+  arguments?: Record<string, unknown>;
   resourceId: string;
   action: string;
   path?: string;
@@ -215,7 +241,7 @@ export interface CreationReceipt {
   row?: number;
   detail: string;
 }
-type Backend = {
+type Backend = ExternalBackend & {
   GetMonitoring(): Promise<MonitoringState>;
   SaveAlertPolicy(policy: AlertPolicy): Promise<void>;
   AcknowledgeAlert(id: string): Promise<void>;
@@ -280,6 +306,7 @@ type Backend = {
   CloseSession(id: string): Promise<void>;
   RunResource(op: Operation): Promise<string>;
   TestResource(id: string): Promise<string>;
+  ExploreResource(id: string): Promise<ResourceDiscovery>;
   ResolveCredentialRequest(id: string, accepted: boolean): Promise<void>;
 };
 declare global {

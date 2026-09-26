@@ -46,7 +46,7 @@ func (s *Store) Load() (Data, error) {
 	if err := decoder.Decode(&data); err != nil {
 		return data, errors.New("连接配置损坏；请从备份恢复 connections.json")
 	}
-	if data.Version != 1 {
+	if data.Version != 1 && data.Version != 2 {
 		return data, errors.New("不支持此连接配置版本，请升级 aissh")
 	}
 	if err := data.validate(); err != nil {
@@ -96,6 +96,11 @@ func (s *Store) mutateData(fn func(*Data) error, bumpRevision bool) error {
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(d); err != nil {
 		return err
+	}
+	if info, err := f.Stat(); err != nil {
+		return err
+	} else if info.Size() > 4*1024*1024 {
+		return errors.New("连接配置与操作目录超过 4 MB，请清理不再使用的系统")
 	}
 	if err := f.Sync(); err != nil {
 		return err
@@ -227,6 +232,21 @@ func (s *Store) SaveResource(r Resource) (Resource, error) {
 	}
 	err := s.mutate(func(d *Data) error {
 		i := slices.IndexFunc(d.Resources, func(v Resource) bool { return v.ID == r.ID })
+		r.Managed = i >= 0 && d.Resources[i].Managed
+		if r.SystemID == "" {
+			r.SystemID = r.ID
+		}
+		if r.SystemName == "" {
+			r.SystemName = r.Name
+		}
+		if r.Environment == "" {
+			r.Environment = "production"
+		}
+		// Discovery is backend-owned; a form cannot forge operation classifications.
+		r.Discovery = nil
+		if i >= 0 && ResourceBinding(d.Resources[i], *d) == ResourceBinding(r, *d) {
+			r.Discovery = d.Resources[i].Discovery
+		}
 		if i < 0 {
 			d.Resources = append(d.Resources, r)
 		} else {
@@ -397,4 +417,48 @@ func (s *Store) CleanupSecrets() error {
 		return errors.New("配置已更新，部分旧凭据等待清理；请解锁系统凭据库后点击「清理旧凭据」")
 	}
 	return nil
+}
+
+// EnableExternalPolicies commits a version gate only after the independent
+// operation catalog exists. Older clients refuse version 2 instead of bypassing it.
+func (s *Store) EnableExternalPolicies(id string) error {
+	return s.mutate(func(d *Data) error {
+		i := slices.IndexFunc(d.Resources, func(r Resource) bool { return r.ID == id })
+		if i < 0 {
+			return errors.New("系统连接不存在")
+		}
+		if d.Version == 1 {
+			b, err := json.MarshalIndent(d, "", "  ")
+			if err != nil {
+				return err
+			}
+			f, err := os.OpenFile(filepath.Join(s.Dir, "connections.v1.backup.json"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+			if err != nil && !errors.Is(err, os.ErrExist) {
+				return err
+			}
+			if err == nil {
+				_, err = f.Write(b)
+				if err == nil {
+					err = f.Sync()
+				}
+				f.Close()
+				if err != nil {
+					return err
+				}
+			}
+		}
+		d.Version = 2
+		d.Resources[i].Managed = true
+		d.Resources[i].Discovery = nil
+		if d.Resources[i].SystemID == "" {
+			d.Resources[i].SystemID = id
+		}
+		if d.Resources[i].SystemName == "" {
+			d.Resources[i].SystemName = d.Resources[i].Name
+		}
+		if d.Resources[i].Environment == "" {
+			d.Resources[i].Environment = "production"
+		}
+		return nil
+	})
 }

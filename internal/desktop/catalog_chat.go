@@ -84,6 +84,7 @@ func (s *Service) AskCatalogAssistant(in CatalogChatInput) (CatalogChatResponse,
 		contextText.WriteByte('\n')
 	}
 	assistant := knowledgeai.Assistant{Store: s.store, Mode: in.Mode, Prompt: filter.Text(in.Prompt), UserFacts: facts.String(), ConversationID: in.ConversationID, Filter: filter}
+	assistant.ExploreSystem = s.exploreConversationSystem
 	ctx, cancel := context.WithTimeout(s.ctx, 3*time.Minute)
 	defer cancel()
 	turn, runErr := assistant.Run(ctx, provider, contextText.String(), func(status string) { s.emit("catalog-create:"+in.ConversationID, filter.Text(status)) })

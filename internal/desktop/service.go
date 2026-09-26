@@ -14,6 +14,7 @@ import (
 
 	"git.example.com/ai/wrd-ai-cli/internal/alerts"
 	"git.example.com/ai/wrd-ai-cli/internal/catalog"
+	"git.example.com/ai/wrd-ai-cli/internal/externals"
 	"git.example.com/ai/wrd-ai-cli/internal/history"
 	"git.example.com/ai/wrd-ai-cli/internal/resources"
 	"git.example.com/ai/wrd-ai-cli/internal/sshauth"
@@ -23,6 +24,9 @@ import (
 type Service struct {
 	widgetMu sync.Mutex
 
+	externalMu         sync.Mutex
+	externalCalls      map[string]pendingExternalCall
+	externalJobs       map[string]context.CancelFunc
 	store              *catalog.Store
 	history            *history.Store
 	ctx                context.Context
@@ -88,6 +92,19 @@ func Shutdown(s *Service) {
 
 func (s *Service) Snapshot() (catalog.Data, error) {
 	d, err := s.store.Load()
+	for i, r := range d.Resources {
+		if r.Managed {
+			if report, readErr := externals.NewStore(s.store).Discovery(r.ID); readErr == nil && report != nil {
+				r.Discovery = report
+				d.Resources[i].Discovery = report
+			}
+		}
+		if r.Discovery != nil && catalog.CurrentResourceDiscovery(r, d) == nil {
+			copy := *r.Discovery
+			copy.Status, copy.Summary, copy.Operations = "stale", "连接、凭据或 SSH 路径已改变，请重新探索。", nil
+			d.Resources[i].Discovery = &copy
+		}
+	}
 	for i := range d.Credentials {
 		d.Credentials[i].SecretRef = ""
 	}
@@ -100,7 +117,26 @@ func (s *Service) SaveCredential(in catalog.CredentialInput) (catalog.Credential
 }
 func (s *Service) SaveHost(h catalog.Host) (catalog.Host, error) { return s.store.SaveHost(h) }
 func (s *Service) SaveResource(r catalog.Resource) (catalog.Resource, error) {
-	return s.store.SaveResource(r)
+	saved, err := s.store.SaveResource(r)
+	if err != nil {
+		return saved, err
+	}
+	if _, err := externals.NewStore(s.store).Ensure(saved.ID); err != nil {
+		return saved, err
+	}
+	d, err := s.store.Load()
+	if err != nil {
+		return saved, err
+	}
+	saved, _ = d.Resource(saved.ID)
+	report, _ := externals.NewStore(s.store).Discovery(saved.ID)
+	if report == nil || report.Binding != catalog.ResourceBinding(saved, d) {
+		if _, err := s.StartResourceDiscovery(saved.ID); err != nil {
+			return saved, err
+		}
+	}
+	saved.Discovery = report
+	return saved, nil
 }
 func (s *Service) SaveAIProfile(p catalog.AIProfile, makeDefault bool) (catalog.AIProfile, error) {
 	return s.store.SaveAIProfile(p, makeDefault)
@@ -166,46 +202,14 @@ func (s *Service) TestHost(id string) error {
 	return sshauth.TestConnection(s.ctx, s.store, id, helper)
 }
 func (s *Service) RunResource(op resources.Operation) (string, error) {
-	helper, err := cliPath()
-	if err != nil {
-		return "", err
-	}
-	// A click on the desktop's explicit Execute button approves this operation.
-	// SSH-only resources are tested in their bound scope, without changing the
-	// persistent permission for local AI tools.
-	d, err := s.store.Load()
-	if err != nil {
-		return "", err
-	}
-	r, err := d.Resource(op.ResourceID)
-	if err != nil {
-		return "", err
-	}
-	executor := resources.New(s.store, r.HostID, helper, nil)
-	return executor.Execute(s.ctx, op, true)
+	return "", errors.New("请在操作目录预览接口请求，再使用本次确认令牌执行")
 }
 func (s *Service) TestResource(id string) (string, error) {
-	d, err := s.store.Load()
+	report, err := s.ExploreResource(id)
 	if err != nil {
 		return "", err
 	}
-	r, err := d.Resource(id)
-	if err != nil {
-		return "", err
-	}
-	op := resources.Operation{ResourceID: id}
-	switch r.Kind {
-	case "http":
-		op.Action = "http.get"
-		op.Path = "/"
-	case "postgres", "mysql":
-		op.Action = "database.query"
-		op.Query = "SELECT 1"
-	case "redis":
-		op.Action = "redis.read"
-		op.Args = []string{"PING"}
-	}
-	return s.RunResource(op)
+	return report.Summary, nil
 }
 func cliPath() (string, error) {
 	name := "aissh"

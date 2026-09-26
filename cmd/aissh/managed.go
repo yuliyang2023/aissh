@@ -138,7 +138,7 @@ func trustInTerminal(store *catalog.Store, id string) error {
 // approval remains in the desktop or the current aissh session.
 func resourceCLI(args []string) error {
 	if len(args) != 1 {
-		return errors.New("用法：aissh --resource '{\"resourceId\":\"ID\",\"action\":\"http.get\",\"path\":\"/\"}'")
+		return errors.New("用法：aissh --resource '{\"resourceId\":\"ID\",\"action\":\"system.describe\"}'")
 	}
 	op, err := resources.Parse(resources.Prefix + args[0])
 	if err != nil {
@@ -150,7 +150,7 @@ func resourceCLI(args []string) error {
 		return err
 	}
 	if needs {
-		return errors.New("请先在桌面端执行并批准，或为此系统设置本机只读授权")
+		return errors.New("请在桌面端预览并确认此请求，或为此确切接口版本设置本机低风险只读授权")
 	}
 	result, err := executor.Execute(context.Background(), op, false)
 	if err != nil {
