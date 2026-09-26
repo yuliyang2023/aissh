@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { testIMEComposer } from './test-ime-composer.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 
@@ -67,6 +68,7 @@ test('New dialogs create local data through independent AI conversations', { tim
     await page.getByLabel('标题',{exact:true}).fill('保留的表单草稿');
     await page.getByRole('button',{name:'与 AI 对话创建',exact:true}).click();
     const prompt = page.getByRole('textbox',{name:'告诉 AI 要保存的信息',exact:true});
+    await testIMEComposer(prompt, () => page.evaluate(() => window.creationState.requests.length));
     await prompt.fill('192.0.2.10 属于研发部');
     await page.getByRole('button',{name:'发送',exact:true}).click();
     assert.equal(await page.getByRole('button',{name:'填写表单',exact:true}).isDisabled(),true);

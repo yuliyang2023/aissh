@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, LoaderCircle, Send, Sparkles } from 'lucide-react';
 import { api, Catalog, ChatMessage, CreationReceipt, errorText } from './api';
 import { ErrorBox } from './components';
+import { useChatSubmit } from './useChatSubmit';
 
 export function CreationTabs({
   mode,
@@ -65,6 +66,7 @@ export function CreationChat({
   const sending = useRef(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const end = useRef<HTMLDivElement>(null);
+  const chatSubmit = useChatSubmit();
   const profile = data.aiProfiles.find((p) => p.id === data.defaultAIProfileId);
   useEffect(
     () =>
@@ -186,12 +188,7 @@ export function CreationChat({
               ? '例如：192.0.2.10 属于研发部，负责人是张三'
               : '例如：添加“资产管理”系统，类型是 HTTP，地址是 https://cmdb.example.com'
           }
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              void send();
-            }
-          }}
+          {...chatSubmit}
         />
         <div className="form-actions">
           <small>明确的信息会自动保存 · Shift + Enter 换行</small>

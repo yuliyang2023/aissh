@@ -6,6 +6,7 @@ import { Terminal } from './Terminal';
 import { Monitor } from './Monitor';
 import { sessionAddress } from './api';
 import { CommandReview } from './CommandReview';
+import { useChatSubmit } from './useChatSubmit';
 
 const roles: Record<string, string> = {
   user: '你',
@@ -35,6 +36,7 @@ export function Workbench({
   const [now, setNow] = useState(Date.now());
   const [follow, setFollow] = useState(true);
   const messages = useRef<HTMLDivElement>(null);
+  const chatSubmit = useChatSubmit();
   useEffect(() => {
     let disposed = false;
     const accept = (value: WorkbenchState | null) => {
@@ -186,12 +188,7 @@ export function Workbench({
             rows={3}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                e.currentTarget.form?.requestSubmit();
-              }
-            }}
+            {...chatSubmit}
           />
           <div className="composer-actions">
             <small>Enter 发送 · Shift + Enter 换行</small>

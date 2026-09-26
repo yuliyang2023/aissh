@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { testCommandReview } from './test-command-review.mjs';
 import { testTerminalScroll } from './test-terminal-scroll.mjs';
+import { testIMEComposer, testWorkbenchIME } from './test-ime-composer.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const browsers = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const engine = process.env.UI_BROWSER || 'chromium';
@@ -311,7 +312,15 @@ const openSettings = async (name = '主机') => {
 };
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  if (process.env.COMMAND_REVIEW_ONLY) {
+  if (process.env.IME_ONLY) {
+    await page.locator('.session-select').first().waitFor();
+    await page.evaluate(() => { window.__test.trusted = true; });
+    await page.getByRole('button', { name: '连接并继续', exact: true }).click();
+    await page.locator('.native-workbench:visible .native-chat-messages').getByText('服务器负载平稳', { exact: false }).waitFor();
+    await testWorkbenchIME(page);
+    assert.deepEqual(errors, []);
+    console.log('PASS: IME confirmation preserves drafts; Enter, Shift+Enter and Send work');
+  } else if (process.env.COMMAND_REVIEW_ONLY) {
     await page.locator('.session-select').first().waitFor();
     await testCommandReview(page, out);
     assert.deepEqual(errors, []);
@@ -379,8 +388,9 @@ try {
     await workbench.getByRole('button', { name: /服务器监控/ }).click();
     await page.getByRole('button', { name: '收起会话列表', exact: true }).click();
     const beforeWrites = await page.evaluate(() => window.__test.writes.length);
+    await testIMEComposer(workbench.getByLabel('向 AI 提问'), () => page.evaluate(() => window.__test.actions.filter(action => action.kind === 'prompt').length));
     await workbench.getByLabel('向 AI 提问').fill('请检查服务\n保留详细输出');
-    await workbench.getByRole('button', { name: '发送', exact: true }).click();
+    await workbench.getByLabel('向 AI 提问').press('Enter');
     await workbench.getByText('检查完成，服务运行正常。', { exact: true }).waitFor();
     assert.equal(await page.evaluate(() => window.__test.writes.length), beforeWrites, 'AI prompt entered SSH PTY');
     assert.equal(await page.evaluate(() => window.__test.actions.at(-1).text), '请检查服务\n保留详细输出');
