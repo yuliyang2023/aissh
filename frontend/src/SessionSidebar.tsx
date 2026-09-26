@@ -1,5 +1,14 @@
 import { RefObject } from 'react';
-import { ChevronRight, MessageSquare, Plus, Search, Server, TerminalSquare, X } from 'lucide-react';
+import {
+  ChevronRight,
+  MessageSquare,
+  Plus,
+  Search,
+  Server,
+  TerminalSquare,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { Conversation, Host, Session, sessionLive, sessionStatus } from './api';
 import { conversationKey } from './Conversations';
 import { sessionAddress } from './api';
@@ -25,6 +34,9 @@ export function SessionSidebar({
   onOpen,
   onClose,
   onNew,
+  onRemoveHost,
+  removedHosts,
+  onRestoreHost,
 }: {
   hosts: Host[];
   conversations: Conversation[];
@@ -41,6 +53,9 @@ export function SessionSidebar({
   onOpen: (session: Session) => void;
   onClose: (session: Session) => void;
   onNew: (hostId?: string) => void;
+  onRemoveHost: (host: Pick<Host, 'id' | 'name'>) => void;
+  removedHosts: Set<string>;
+  onRestoreHost: (id: string) => void;
 }) {
   const query = search.trim().toLowerCase();
   // Keep running connections reachable even if their saved host was removed in Settings.
@@ -61,7 +76,9 @@ export function SessionSidebar({
         group: '',
       })),
   ];
+  const removed = groupHosts.filter((host) => removedHosts.has(host.id));
   const groups = groupHosts
+    .filter((host) => !removedHosts.has(host.id))
     .map((host) => {
       const items: {
         key: string;
@@ -152,12 +169,22 @@ export function SessionSidebar({
               >
                 <Plus size={13} />
               </button>
+              <button
+                className="icon-button session-host-remove"
+                title="从列表移除服务器"
+                aria-label={'从列表移除 ' + host.name}
+                disabled={busy}
+                onClick={() => onRemoveHost(host)}
+              >
+                <Trash2 size={13} />
+              </button>
             </div>
             <div hidden={!query && collapsedHosts.has(host.id)}>
               {items.map((item) => {
                 const selected = activeSession
                   ? item.session?.id === activeSession
                   : item.key === selectedConversation;
+                const status = item.session ? sessionStatus[item.session.status] : '历史会话';
                 return (
                   <div
                     className={'unified-session-row ' + (selected ? 'selected' : '')}
@@ -166,6 +193,8 @@ export function SessionSidebar({
                     <button
                       className="session-select"
                       aria-pressed={selected}
+                      aria-label={item.title + '，' + status}
+                      title={[item.title, status, item.preview].join('\n')}
                       disabled={busy}
                       onClick={() =>
                         item.conversation ? onSelect(item.conversation) : onOpen(item.session!)
@@ -176,11 +205,7 @@ export function SessionSidebar({
                       ) : (
                         <MessageSquare size={13} />
                       )}
-                      <span>
-                        <strong>{item.title}</strong>
-                        <small>{item.preview}</small>
-                        <em>{item.session ? sessionStatus[item.session.status] : '历史会话'}</em>
-                      </span>
+                      <strong>{item.title}</strong>
                     </button>
                     {item.session && (
                       <button
@@ -207,6 +232,26 @@ export function SessionSidebar({
           </div>
         )}
       </div>
+      {!!removed.length && (
+        <details className="removed-session-hosts">
+          <summary>已移除服务器（{removed.length}）</summary>
+          <div>
+            {removed.map((host) => (
+              <button
+                key={host.id}
+                title={'恢复 ' + host.name}
+                aria-label={'恢复 ' + host.name + ' 到会话列表'}
+                disabled={busy}
+                onClick={() => onRestoreHost(host.id)}
+              >
+                <Server size={13} />
+                <span>{host.name}</span>
+                <small>恢复</small>
+              </button>
+            ))}
+          </div>
+        </details>
+      )}
     </>
   );
 }

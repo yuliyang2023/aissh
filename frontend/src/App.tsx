@@ -50,7 +50,7 @@ import { AIEditor, CredentialEditor, HostEditor, ResourceEditor } from './forms'
 import { Empty, ErrorBox, Modal } from './components';
 import { Workbench } from './Workbench';
 import { SessionSidebar, conversationSession } from './SessionSidebar';
-import { useStoredFlag } from './layout';
+import { useStoredFlag, useStoredStringSet } from './layout';
 import { Conversations, conversationKey } from './Conversations';
 import { NewConversation, NewConversationInput } from './NewConversation';
 import { primaryModifier } from './platform';
@@ -88,6 +88,17 @@ export function App() {
     sessionId: '',
   });
   const [sidebarVisible, setSidebarVisible] = useStoredFlag('aissh.sidebar.visible', true);
+  const [removedSidebarHosts, setRemovedSidebarHosts] = useStoredStringSet(
+    'aissh.sidebar.removedHosts',
+  );
+  const restoreSidebarHost = (id: string) => {
+    setRemovedSidebarHosts((previous) => {
+      if (!previous.has(id)) return previous;
+      const next = new Set(previous);
+      next.delete(id);
+      return next;
+    });
+  };
   const [lastSettings, setLastSettings] = useState<SettingsPage>('hosts');
   const isSettings = settingsPages.some((item) => item.id === page);
   const isManagement = isSettings || page === 'resources' || page === 'knowledge';
@@ -255,6 +266,7 @@ export function App() {
         sessionChanges.current++;
         setSessions((v) => [...v.filter((s) => s.id !== session.id), session]);
         setActiveSession(session.id);
+        restoreSidebarHost(session.hostId);
         setPage('terminal');
         setSearch('');
         if (previous && previous.id !== session.id) await removeSession(previous.id);
@@ -292,6 +304,7 @@ export function App() {
         conversation = await api.CreateConversation(input.hostId);
       }
       created = true;
+      restoreSidebarHost(conversation.hostId);
       conversationRequest.current++;
       setConversations((v) => [conversation, ...v]);
       setSelectedConversation(conversationKey(conversation));
@@ -460,6 +473,7 @@ export function App() {
     else void removeSession(session.id).catch((e) => setError(errorText(e)));
   };
   const openSession = (session: Session) => {
+    restoreSidebarHost(session.hostId);
     setActiveSession(session.id);
     setConversationHost(session.hostId);
     if (session.conversationId)
@@ -626,6 +640,12 @@ export function App() {
           onOpen={openSession}
           onClose={requestClose}
           onNew={requestNewConversation}
+          removedHosts={removedSidebarHosts}
+          onRemoveHost={(host) => {
+            setRemovedSidebarHosts((previous) => new Set(previous).add(host.id));
+            setToast('已从列表移除「' + host.name + '」，可在“已移除服务器”中恢复');
+          }}
+          onRestoreHost={restoreSidebarHost}
         />
         {conversationError && (
           <div className="sidebar-load-error">

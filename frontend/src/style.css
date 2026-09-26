@@ -2392,7 +2392,7 @@ tbody tr:last-child td {
   padding: 0 10px 12px;
 }
 .session-host-group + .session-host-group {
-  margin-top: 20px;
+  margin-top: 12px;
 }
 .session-host-heading {
   display: flex;
@@ -2427,14 +2427,58 @@ tbody tr:last-child td {
   width: 23px;
   height: 23px;
 }
+.session-host-remove:hover {
+  color: var(--danger);
+}
+.removed-session-hosts {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  color: var(--secondary);
+  font-size: 11px;
+  border-top: 1px solid var(--line);
+}
+.removed-session-hosts summary {
+  cursor: pointer;
+}
+.removed-session-hosts > div {
+  max-height: 160px;
+  overflow-y: auto;
+  margin-top: 6px;
+}
+.removed-session-hosts button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.removed-session-hosts button:hover {
+  background: var(--hover);
+}
+.removed-session-hosts button span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.removed-session-hosts button small {
+  flex-shrink: 0;
+  color: var(--accent);
+}
 .session-host-heading small {
   font-size: 10px;
   color: var(--tertiary);
 }
 .unified-session-row {
   display: flex;
-  border-radius: 9px;
-  margin-bottom: 4px;
+  border-radius: 6px;
+  margin-bottom: 2px;
   position: relative;
 }
 .unified-session-row.selected {
@@ -2451,49 +2495,34 @@ tbody tr:last-child td {
   background: transparent;
   color: var(--text);
   display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  padding: 11px 32px 11px 11px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 32px 7px 11px;
+  line-height: 18px;
   text-align: left;
   width: 100%;
   min-width: 0;
 }
 .session-select > svg,
 .session-select > .status-dot {
-  margin-top: 3px;
   color: var(--secondary);
 }
 .session-select > .status-dot {
-  margin: 7px 3px 0;
-}
-.session-select > span:last-child {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-  flex: 1;
+  margin: 0 3.5px;
 }
 .session-select strong {
+  min-width: 0;
+  flex: 1;
   font-size: 12px;
   font-weight: 550;
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
 }
-.session-select small {
-  font-size: 10px;
-  color: var(--secondary);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  overflow: hidden;
-}
-.session-select em {
-  font-style: normal;
-  font-size: 9px;
-  color: var(--tertiary);
-}
 .session-close {
   position: absolute;
-  top: 9px;
+  top: 50%;
+  transform: translateY(-50%);
   right: 5px;
   width: 22px;
   height: 22px;
