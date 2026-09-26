@@ -36,6 +36,7 @@ func (s *Service) exchangeWorkbench(session *terminalSession, w http.ResponseWri
 		}
 	}
 	input.State.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	s.acceptTaskNotices(session, input.State.Notices, time.Now())
 	session.workbench = &input.State
 	changed := input.State.ConversationID != "" && session.info.ConversationID != input.State.ConversationID
 	if changed {

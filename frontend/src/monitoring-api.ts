@@ -8,9 +8,17 @@ export interface AlertRule {
   panelId: string;
   keyword: string;
 }
+export const petStyles = [
+  { id: 'classic', label: '监控橘猫' },
+  { id: 'hacker', label: '黑客猫猫' },
+  { id: 'space', label: '太空猫猫' },
+] as const;
+export type PetStyle = (typeof petStyles)[number]['id'];
+
 export interface AlertPolicy {
   enabled: boolean;
   petEnabled: boolean;
+  petStyle: PetStyle;
   confirmSeconds: number;
   recoverySeconds: number;
   repeatMinutes: number;
@@ -48,8 +56,19 @@ export interface MonitoringState {
   petRunning: boolean;
   error: string;
 }
+export interface PetTaskNotice {
+  sequence: number;
+  sessionId: string;
+  sessionName: string;
+  kind: 'completed' | 'failed' | 'approval' | 'reply';
+  time: string;
+}
+export interface PetState extends MonitoringState {
+  taskNotices: PetTaskNotice[];
+  read?: Record<string, { alert: number; task: number }>;
+}
 export interface PetBackend {
-  Snapshot(): Promise<MonitoringState>;
+  Snapshot(): Promise<PetState>;
   Action(kind: string, id: string): Promise<void>;
 }
 export interface MonitorCondition {

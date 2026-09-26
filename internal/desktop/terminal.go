@@ -33,6 +33,7 @@ type terminalSession struct {
 	workbench         *credentialui.WorkbenchState
 	workbenchCommands []credentialui.WorkbenchCommand
 	workbenchReplies  map[string]chan string
+	lastTaskNotice    uint64 // guarded by mu; snapshots may resend the same notices
 }
 type SessionInfo struct {
 	ID             string `json:"id"`

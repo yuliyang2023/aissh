@@ -17,6 +17,9 @@ func (s *Service) loadAlertPolicy() {
 	if err == nil {
 		var saved alerts.Policy
 		err = json.Unmarshal(data, &saved)
+		if saved.PetStyle == "" {
+			saved.PetStyle = "classic"
+		}
 		if err == nil {
 			err = saved.Validate()
 		}
@@ -88,10 +91,14 @@ func (s *Service) SaveAlertPolicy(p alerts.Policy) error {
 	}
 	s.alertMu.Lock()
 	p.PetEnabled = s.alerts.Policy.PetEnabled // managed by SetPetEnabled
+	p.PetStyle = s.alerts.Policy.PetStyle     // managed by SetPetStyle
 	err := saveAlertPolicy(s.store.Dir, p)
 	if err == nil {
 		s.alerts.Policy = p
 		s.alertError = ""
+		if !p.Enabled {
+			s.taskNotices = nil
+		}
 	}
 	s.alertMu.Unlock()
 	if err != nil {
@@ -154,6 +161,7 @@ func (s *Service) SnoozeAlerts(minutes int) error {
 	defer s.alertMu.Unlock()
 	s.alerts.SnoozedUntil = time.Time{}
 	if minutes > 0 {
+		s.taskNotices = nil
 		s.alerts.SnoozedUntil = time.Now().Add(time.Duration(minutes) * time.Minute)
 	}
 	return nil

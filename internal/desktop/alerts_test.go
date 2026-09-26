@@ -100,6 +100,7 @@ func TestRealtimePanelsNeverFeedPetAlerts(t *testing.T) {
 func TestLegacyDisplayThresholdsRetiredOnLoad(t *testing.T) {
 	dir := t.TempDir()
 	p := alerts.DefaultPolicy()
+	p.PetStyle = "" // older policies did not specify an appearance
 	p.RepeatMinutes = 12
 	p.Rules = append(p.Rules, alerts.Rule{ID: "memory", Name: "内存", Metric: "memory", Enabled: true, Threshold: 90, Severity: "warning"})
 	if err := saveAlertPolicy(dir, p); err != nil {
@@ -107,13 +108,53 @@ func TestLegacyDisplayThresholdsRetiredOnLoad(t *testing.T) {
 	}
 	s := New(catalog.New(dir, memorySecrets{}))
 	state := s.GetMonitoring()
-	if len(state.Policy.Rules) != 3 || state.Policy.RepeatMinutes != 12 {
+	if len(state.Policy.Rules) != 3 || state.Policy.RepeatMinutes != 12 || state.Policy.PetStyle != "classic" {
 		t.Fatalf("legacy migration lost notification preferences: %+v", state.Policy)
 	}
 	for _, r := range state.Policy.Rules {
 		if r.Metric == "memory" {
 			t.Fatal("legacy display threshold survived migration")
 		}
+	}
+}
+
+func TestPetStylePersistsWithoutChangingAlertSettings(t *testing.T) {
+	dir := t.TempDir()
+	s := New(catalog.New(dir, memorySecrets{}))
+	stalePolicy := s.GetMonitoring().Policy
+	if err := s.SetPetStyle("hacker"); err != nil {
+		t.Fatal(err)
+	}
+	// Saving an already-open policy form must not undo a change from the pet.
+	stalePolicy.ConfirmSeconds = 23
+	if err := s.SaveAlertPolicy(stalePolicy); err != nil {
+		t.Fatal(err)
+	}
+	s = New(catalog.New(dir, memorySecrets{}))
+	p := s.GetMonitoring().Policy
+	if p.PetStyle != "hacker" || p.ConfirmSeconds != 23 || p.PetEnabled {
+		t.Fatalf("appearance or independent settings lost after restart: %+v", p)
+	}
+	if err := s.SetPetStyle("unknown"); err == nil {
+		t.Fatal("unknown appearance accepted")
+	}
+	if New(catalog.New(dir, memorySecrets{})).GetMonitoring().Policy.PetStyle != "hacker" {
+		t.Fatal("invalid appearance overwrote saved choice")
+	}
+	if err := s.SetPetStyle("space"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveAlertPolicy(p); err != nil {
+		t.Fatal(err)
+	}
+	if saved := New(catalog.New(dir, memorySecrets{})).GetMonitoring().Policy; saved.PetStyle != "space" || saved.ConfirmSeconds != 23 || saved.PetEnabled {
+		t.Fatalf("space appearance or independent settings lost after restart: %+v", saved)
+	}
+	if err := s.SetPetStyle("classic"); err != nil {
+		t.Fatal(err)
+	}
+	if New(catalog.New(dir, memorySecrets{})).GetMonitoring().Policy.PetStyle != "classic" {
+		t.Fatal("switching back to classic did not persist")
 	}
 }
 
@@ -141,6 +182,16 @@ func TestPetChannelAuthenticationActionsAndLimitedPayload(t *testing.T) {
 	}
 	if request("POST", "/action", "Bearer secret", "", `{"kind":"approve"}`).Code != 400 {
 		t.Fatal("pet can execute unknown action")
+	}
+	if request("POST", "/action", "Bearer secret", "", `{"kind":"style","id":"unknown"}`).Code != http.StatusBadRequest {
+		t.Fatal("unknown pet style accepted through companion channel")
+	}
+	if request("POST", "/action", "Bearer secret", "", `{"kind":"style","id":"space"}`).Code != http.StatusNoContent {
+		t.Fatal("pet style change failed")
+	}
+	w = request("GET", "/state", "Bearer secret", "", "")
+	if json.Unmarshal(w.Body.Bytes(), &state) != nil || state.Policy.PetStyle != "space" {
+		t.Fatal("pet style missing from companion snapshot")
 	}
 	if request("POST", "/action", "Bearer secret", "", `{"kind":"snooze"}`).Code != http.StatusNoContent || !s.GetMonitoring().SnoozedUntil.After(time.Now()) {
 		t.Fatal("snooze failed")

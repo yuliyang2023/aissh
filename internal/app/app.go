@@ -164,6 +164,8 @@ type App struct {
 	agentThought          string
 	notifyAI              func(title, message string)
 	aiNotice              string
+	desktopNotices        []credentialui.WorkbenchNotice
+	desktopNoticeSequence uint64
 	agentLanguage         string
 	agentSeedContext      string
 	panelActionResults    []string

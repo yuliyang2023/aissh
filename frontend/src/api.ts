@@ -221,7 +221,9 @@ type Backend = {
   AcknowledgeAlert(id: string): Promise<void>;
   SnoozeAlerts(minutes: number): Promise<void>;
   SetPetEnabled(enabled: boolean): Promise<void>;
+  SetPetStyle(style: AlertPolicy['petStyle']): Promise<void>;
   OpenMonitorSession(id: string): Promise<void>;
+  ReadPetSession(id: string, updatedAt: string): Promise<void>;
   AskCatalogAssistant(input: {
     mode: 'knowledge' | 'system';
     conversationId: string;

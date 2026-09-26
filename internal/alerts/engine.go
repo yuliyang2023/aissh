@@ -32,6 +32,7 @@ type Rule struct {
 type Policy struct {
 	Enabled         bool   `json:"enabled"`
 	PetEnabled      bool   `json:"petEnabled"`
+	PetStyle        string `json:"petStyle"`
 	ConfirmSeconds  int    `json:"confirmSeconds"`
 	RecoverySeconds int    `json:"recoverySeconds"`
 	RepeatMinutes   int    `json:"repeatMinutes"`
@@ -41,7 +42,7 @@ type Policy struct {
 }
 
 func DefaultPolicy() Policy {
-	return Policy{Enabled: true, ConfirmSeconds: 10, RecoverySeconds: 10, RepeatMinutes: 5, StaleSeconds: 30, NotifyRecovery: true, Rules: []Rule{
+	return Policy{Enabled: true, PetStyle: "classic", ConfirmSeconds: 10, RecoverySeconds: 10, RepeatMinutes: 5, StaleSeconds: 30, NotifyRecovery: true, Rules: []Rule{
 		{ID: "collection", Name: "告警任务采集失败", Metric: "collection", Enabled: true, Severity: "warning"},
 		{ID: "stale", Name: "告警任务数据过期", Metric: "stale", Enabled: true, Severity: "warning"},
 		{ID: "offline", Name: "告警任务所在 SSH 断线", Metric: "offline", Enabled: true, Severity: "critical"},
@@ -49,6 +50,9 @@ func DefaultPolicy() Policy {
 }
 
 func (p Policy) Validate() error {
+	if p.PetStyle != "" && p.PetStyle != "classic" && p.PetStyle != "hacker" && p.PetStyle != "space" {
+		return errors.New("未知的桌宠样式")
+	}
 	if p.ConfirmSeconds < 0 || p.ConfirmSeconds > 3600 || p.RecoverySeconds < 0 || p.RecoverySeconds > 3600 || p.RepeatMinutes < 1 || p.RepeatMinutes > 1440 || p.StaleSeconds < 15 || p.StaleSeconds > 3600 {
 		return errors.New("确认和恢复等待须为 0–3600 秒，重复提醒为 1–1440 分钟，数据过期为 15–3600 秒")
 	}

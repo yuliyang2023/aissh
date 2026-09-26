@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"git.example.com/ai/wrd-ai-cli/internal/alerts"
+	"git.example.com/ai/wrd-ai-cli/internal/credentialui"
 	wails "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -24,6 +25,101 @@ const petTokenEnv = "AISSH_PET_TOKEN"
 type petProcess struct {
 	cancel context.CancelFunc
 	server *http.Server
+}
+
+type PetTaskNotice struct {
+	Sequence    uint64 `json:"sequence"`
+	SessionID   string `json:"sessionId"`
+	SessionName string `json:"sessionName"`
+	Kind        string `json:"kind"`
+	Time        string `json:"time"`
+}
+
+type PetState struct {
+	alerts.State
+	TaskNotices []PetTaskNotice            `json:"taskNotices"`
+	Read        map[string]PetReadSequence `json:"read"`
+}
+
+type PetReadSequence struct {
+	Alert uint64 `json:"alert"`
+	Task  uint64 `json:"task"`
+}
+
+// Mark only notices belonging to the workbench the user has actually seen.
+// A delayed frontend receipt must not consume a newer, unseen task result.
+func (s *Service) ReadPetSession(id, updatedAt string) error {
+	session, err := s.session(id)
+	if err != nil {
+		return err
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.workbench == nil || updatedAt == "" || session.workbench.UpdatedAt != updatedAt {
+		return nil
+	}
+	s.alertMu.Lock()
+	defer s.alertMu.Unlock()
+	if s.petRead == nil {
+		s.petRead = make(map[string]PetReadSequence)
+	}
+	read := s.petRead[id]
+	read.Task = s.taskNoticeSequence
+	for _, notice := range s.alerts.Snapshot().Notices {
+		if notice.Sequence > read.Alert {
+			read.Alert = notice.Sequence
+		}
+	}
+	s.petRead[id] = read
+	return nil
+}
+
+// Called with the session lock held. Consume notices even while muted so that
+// resuming reminders never replays tasks completed during quiet time.
+func (s *Service) acceptTaskNotices(session *terminalSession, notices []credentialui.WorkbenchNotice, now time.Time) {
+	s.alertMu.Lock()
+	defer s.alertMu.Unlock()
+	for _, notice := range notices {
+		if notice.Sequence <= session.lastTaskNotice {
+			continue
+		}
+		session.lastTaskNotice = notice.Sequence
+		if !s.alerts.Policy.Enabled || now.Before(s.alerts.SnoozedUntil) {
+			continue
+		}
+		switch notice.Kind {
+		case "completed", "failed", "approval", "reply":
+		default:
+			continue
+		}
+		at, err := time.Parse(time.RFC3339Nano, notice.Time)
+		if err != nil || now.Sub(at) > 20*time.Second || at.After(now) {
+			continue
+		}
+		s.taskNoticeSequence++
+		s.taskNotices = append(s.taskNotices, PetTaskNotice{
+			Sequence: s.taskNoticeSequence, SessionID: session.id,
+			SessionName: session.info.Name, Kind: notice.Kind, Time: notice.Time,
+		})
+		if len(s.taskNotices) > 20 {
+			s.taskNotices = s.taskNotices[len(s.taskNotices)-20:]
+		}
+	}
+}
+
+func (s *Service) petSnapshot() PetState {
+	state := PetState{State: s.GetMonitoring()}
+	// Rules may contain user-provided log keywords; only summaries reach the pet.
+	state.Policy.Rules = nil
+	state.Monitors = nil
+	s.alertMu.Lock()
+	state.TaskNotices = append([]PetTaskNotice{}, s.taskNotices...)
+	state.Read = make(map[string]PetReadSequence, len(s.petRead))
+	for id, read := range s.petRead {
+		state.Read[id] = read
+	}
+	s.alertMu.Unlock()
+	return state
 }
 
 // DesktopReady runs after the main frontend has installed its event handlers.
@@ -56,6 +152,21 @@ func (s *Service) SetPetEnabled(enabled bool) error {
 		s.stopPet()
 	}
 	return err
+}
+
+func (s *Service) SetPetStyle(style string) error {
+	if style != "classic" && style != "hacker" && style != "space" {
+		return errors.New("未知的桌宠样式")
+	}
+	s.alertMu.Lock()
+	defer s.alertMu.Unlock()
+	p := s.alerts.Policy
+	p.PetStyle = style
+	if err := saveAlertPolicy(s.store.Dir, p); err != nil {
+		return err
+	}
+	s.alerts.Policy = p
+	return nil
 }
 
 func (s *Service) startPet() error {
@@ -127,7 +238,7 @@ type petAction struct {
 	ID   string `json:"id"`
 }
 
-// The helper receives only alert metadata. It cannot access the catalog, SSH
+// The helper receives only alert and task metadata. It cannot access the catalog, SSH
 // terminal, workbench commands or credentials. Browsers cannot use this channel.
 func (s *Service) petHandler(token string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -137,11 +248,7 @@ func (s *Service) petHandler(token string) http.Handler {
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		if r.URL.Path == "/state" && r.Method == http.MethodGet {
-			state := s.GetMonitoring()
-			// Rules may contain user-provided log keywords; the pet only needs
-			// enabled/recovery flags, counts and incident summaries.
-			state.Policy.Rules = nil
-			state.Monitors = nil
+			state := s.petSnapshot()
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(state)
 			return
@@ -165,6 +272,8 @@ func (s *Service) petHandler(token string) http.Handler {
 			err = s.SnoozeAlerts(15)
 		case "resume":
 			err = s.SnoozeAlerts(0)
+		case "style":
+			err = s.SetPetStyle(a.ID)
 		case "hide":
 			// Let the HTTP reply complete before terminating its client.
 			s.alertMu.Lock()
@@ -246,13 +355,13 @@ func (b *PetBridge) request(method, path, body string) (*http.Response, error) {
 	}
 	return resp, nil
 }
-func (b *PetBridge) Snapshot() (alerts.State, error) {
+func (b *PetBridge) Snapshot() (PetState, error) {
 	resp, err := b.request(http.MethodGet, "/state", "")
 	if err != nil {
-		return alerts.State{}, err
+		return PetState{}, err
 	}
 	defer resp.Body.Close()
-	var state alerts.State
+	var state PetState
 	err = json.NewDecoder(resp.Body).Decode(&state)
 	return state, err
 }

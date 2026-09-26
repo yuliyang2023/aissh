@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Bell, BellOff, Cat, Check, Settings2, Sparkles } from 'lucide-react';
+import { Bell, BellOff, Check, Settings2, Sparkles } from 'lucide-react';
 import { api, errorText, Session, sessionLive } from './api';
 import { ErrorBox, Field, Modal } from './components';
-import { AlertPolicy, MonitoringState, alertMonitorPrompt } from './monitoring-api';
+import {
+  AlertPolicy,
+  MonitoringState,
+  PetStyle,
+  petStyles,
+  alertMonitorPrompt,
+} from './monitoring-api';
 import { MonitorInventory } from './MonitorInventory';
+import { PixelCat } from './PixelCat';
 
 export function Monitoring({
   onOpenSession,
@@ -205,10 +212,28 @@ export function Monitoring({
                   </button>
                 </div>
                 <div className="monitoring-pet-setting">
-                  <Cat size={26} />
+                  <span className={`pet-preview pet-style-${state.policy.petStyle || 'classic'}`}>
+                    <PixelCat mood="watching" style={state.policy.petStyle} />
+                  </span>
                   <div>
                     <strong>让监控小猫陪你值班</strong>
                     <small>独立悬浮窗口 · 拖动小猫移动 · 点击气泡查看会话</small>
+                    <label className="pet-style-picker">
+                      桌宠样式
+                      <select
+                        value={state.policy.petStyle || 'classic'}
+                        disabled={busy}
+                        onChange={(e) =>
+                          void act(() => api.SetPetStyle(e.target.value as PetStyle))
+                        }
+                      >
+                        {petStyles.map((style) => (
+                          <option key={style.id} value={style.id}>
+                            {style.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
                   <button
                     className="button small"

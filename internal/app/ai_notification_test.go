@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
@@ -63,6 +64,86 @@ func TestAICompletionNotifiesOnceAfterStreamingOnEverySurface(t *testing.T) {
 				t.Fatal("input did not dismiss and redraw the status notice")
 			}
 		})
+	}
+}
+
+func TestDesktopTaskNoticesWithoutOSNotifier(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		turn agent.Turn
+		err  error
+		kind string
+	}{
+		{"completed", agent.Turn{Type: "finished", Message: "private answer"}, nil, "completed"},
+		{"failed", agent.Turn{Type: "failed", Error: "private error"}, nil, "failed"},
+		{"request error", agent.Turn{}, errors.New("private transport error"), "failed"},
+		{"approval", agent.Turn{Proposal: &agent.Proposal{ID: "p", Command: "private command"}}, nil, "approval"},
+		{"reply", agent.Turn{Type: "ask_user", Message: "private question"}, nil, "reply"},
+		{"canceled", agent.Turn{}, context.Canceled, ""},
+		{"approved", agent.Turn{Type: "approved"}, nil, ""},
+		{"rejected", agent.Turn{Type: "rejected"}, nil, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			a := desktopTestApp(t)
+			a.notifyAI = nil // macOS/Linux have no native AI notifier.
+			a.agentBusy = true
+			a.handleEvent(agentAnswerEvent{content: "private streamed text"})
+			if len(a.desktopState().Notices) != 0 {
+				t.Fatal("streaming produced a completion notice")
+			}
+			a.handleEvent(agentTurnEvent{turn: test.turn, err: test.err})
+			notices := a.desktopState().Notices
+			if test.kind == "" {
+				if len(notices) != 0 {
+					t.Fatalf("unexpected notice: %+v", notices)
+				}
+				return
+			}
+			if len(notices) != 1 || notices[0].Kind != test.kind || notices[0].Sequence != 1 {
+				t.Fatalf("notices=%+v", notices)
+			}
+			if _, err := time.Parse(time.RFC3339Nano, notices[0].Time); err != nil {
+				t.Fatal(err)
+			}
+			data, _ := json.Marshal(notices)
+			if strings.Contains(string(data), "private") {
+				t.Fatalf("task notice exposed content: %s", data)
+			}
+			a.handleEvent(agentStatusEvent{status: ""})
+			if len(a.desktopState().Notices) != 1 {
+				t.Fatal("status snapshot repeated notice")
+			}
+		})
+	}
+}
+
+func TestDesktopTaskNoticesWaitForFinalOutcomeAndStayBounded(t *testing.T) {
+	a := desktopTestApp(t)
+	a.agentBusy = true
+	a.notifyAgentTurn(agent.Turn{Type: "finished"}, nil)
+	a.agentBusy = false
+	a.execution = &executionState{}
+	a.notifyAgentTurn(agent.Turn{Type: "finished"}, nil)
+	a.execution = nil
+	a.executionRecovery = true
+	a.notifyAgentTurn(agent.Turn{Type: "finished"}, nil)
+	a.executionRecovery = false
+	if len(a.desktopState().Notices) != 0 {
+		t.Fatal("task still running produced a notice")
+	}
+	a.handleEvent(executionResultEvent{turn: agent.Turn{Type: "finished"}})
+	snapshot := a.desktopState()
+	for i := 0; i < 25; i++ {
+		a.notifyAgentTurn(agent.Turn{Type: "finished"}, nil)
+	}
+	current := a.desktopState().Notices
+	if len(current) != 20 || current[0].Sequence != 7 || current[19].Sequence != 26 || len(snapshot.Notices) != 1 || snapshot.Notices[0].Sequence != 1 {
+		t.Fatalf("unbounded or mutated history: old=%+v current=%+v", snapshot.Notices, current)
+	}
+	a.cancel()
+	a.notifyAgentTurn(agent.Turn{Type: "finished"}, nil)
+	if a.desktopNoticeSequence != 26 {
+		t.Fatal("shutdown produced a notice")
 	}
 }
 

@@ -56,6 +56,23 @@ export function Workbench({
       clearInterval(timer);
     };
   }, [session.id]);
+  useEffect(() => {
+    if (!active || monitorSize === 'maximized' || !state?.updatedAt) return;
+    const updatedAt = state.updatedAt;
+    const read = () => {
+      if (!document.hidden && document.hasFocus()) {
+        // Retry on the next snapshot/focus event if the bridge is temporarily unavailable.
+        void api.ReadPetSession(session.id, updatedAt).catch(() => {});
+      }
+    };
+    read();
+    window.addEventListener('focus', read);
+    document.addEventListener('visibilitychange', read);
+    return () => {
+      window.removeEventListener('focus', read);
+      document.removeEventListener('visibilitychange', read);
+    };
+  }, [active, session.id, state?.updatedAt, monitorSize]);
   const online = sessionLive(session) && !!state && now - Date.parse(state.updatedAt) < 5000;
   useEffect(() => {
     if (active && monitorSize !== 'maximized' && follow && messages.current)

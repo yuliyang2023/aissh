@@ -36,6 +36,9 @@ type Service struct {
 	alertMu            sync.Mutex
 	alerts             *alerts.Engine
 	alertError         string
+	taskNotices        []PetTaskNotice // guarded by alertMu
+	taskNoticeSequence uint64
+	petRead            map[string]PetReadSequence // guarded by alertMu, scoped to each session
 	monitorCancel      context.CancelFunc
 	focusMain          func()
 	petMu              sync.Mutex

@@ -12,7 +12,7 @@ import { testMonitorResize } from './test-monitor-resize.mjs';
 import { testStreamingChat } from './test-streaming-chat.mjs';
 import { testMarkdownChat } from './test-markdown-chat.mjs';
 import { testIMEComposer, testWorkbenchIME } from './test-ime-composer.mjs';
-import { installMonitoringMock, testMonitoring, testPet } from './test-monitoring.mjs';
+import { installMonitoringMock, testMonitoring, testPet, testPetSessionReads } from './test-monitoring.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const browsers = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const engine = process.env.UI_BROWSER || 'chromium';
@@ -326,6 +326,9 @@ try {
     assert.deepEqual(errors, []);
   } else if (process.env.MONITORING_ONLY) {
     await testMonitoring(page, out);
+    assert.deepEqual(errors, []);
+  } else if (process.env.PET_READ_ONLY) {
+    await testPetSessionReads(page);
     assert.deepEqual(errors, []);
   } else if (process.env.PET_ONLY) {
     await testPet(page, out);

@@ -18,6 +18,7 @@ import (
 // Workbench data travels over the per-session authenticated loopback channel,
 // never through terminal escape sequences or the remote SSH environment.
 type WorkbenchState struct {
+	Notices          []WorkbenchNotice   `json:"notices,omitempty"`
 	WidgetCandidates []widgets.Candidate `json:"widgetCandidates,omitempty"`
 	WidgetTransfer   widgets.Transfer    `json:"-"`
 
@@ -32,6 +33,14 @@ type WorkbenchState struct {
 	Panels         []MonitorPanel     `json:"panels"`
 	AlertMonitors  []MonitorPanel     `json:"alertMonitors"`
 	UpdatedAt      string             `json:"updatedAt"`
+}
+
+// Notices describe final AI outcomes without carrying prompts, commands or output.
+// A bounded history survives coalesced snapshots and temporary IPC failures.
+type WorkbenchNotice struct {
+	Sequence uint64 `json:"sequence"`
+	Kind     string `json:"kind"` // completed, failed, approval, reply
+	Time     string `json:"time"`
 }
 
 type WorkbenchMessage struct {
