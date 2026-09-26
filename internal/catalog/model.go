@@ -52,6 +52,7 @@ type Resource struct {
 	AllowLocal   bool   `json:"allowLocal"`
 	Grant        string `json:"grant"` // ask, session, read
 	TLS          bool   `json:"tls"`
+	Description  string `json:"description,omitempty"`
 }
 
 type AIProfile struct {
@@ -249,6 +250,9 @@ func (d Data) validate() error {
 	for _, r := range d.Resources {
 		if err := check(r.ID, r.Name); err != nil {
 			return err
+		}
+		if len(r.Description) > 8192 || strings.ContainsRune(r.Description, 0) {
+			return errors.New("系统说明不能超过 8 KB 或包含无效字符")
 		}
 		if r.Kind != "http" && r.Kind != "postgres" && r.Kind != "mysql" && r.Kind != "redis" {
 			return errors.New("不支持的系统类型")

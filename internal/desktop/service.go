@@ -24,6 +24,7 @@ type Service struct {
 	history            *history.Store
 	ctx                context.Context
 	mu                 sync.Mutex
+	catalogChatMu      sync.Mutex
 	scans              map[string]pendingScan
 	sessions           map[string]*terminalSession
 	credentialRequests map[string]chan bool

@@ -31,7 +31,43 @@ export interface Resource {
   allowLocal: boolean;
   grant: 'ask' | 'session' | 'read';
   tls: boolean;
+  description?: string;
 }
+export interface Knowledge {
+  id: string;
+  title: string;
+  kind: 'document' | 'experience' | 'data';
+  content: string;
+  tags: string[];
+  hostId: string;
+  resourceId: string;
+  filePath: string;
+  source: string;
+  conversationId: string;
+  sourceUrl: string;
+  columns: string[];
+  rows: string[][];
+  changes?: { time: string; quote: string; values?: Record<string, string> }[];
+  createdAt: string;
+  updatedAt: string;
+}
+export const newKnowledge = (kind: Knowledge['kind'] = 'experience'): Knowledge => ({
+  id: '',
+  title: '',
+  kind,
+  content: '',
+  tags: [],
+  hostId: '',
+  resourceId: '',
+  filePath: '',
+  source: '',
+  sourceUrl: '',
+  conversationId: '',
+  columns: [],
+  rows: [],
+  createdAt: '',
+  updatedAt: '',
+});
 export interface AIProfile {
   id: string;
   name: string;
@@ -142,7 +178,29 @@ export interface Operation {
   query?: string;
   args?: string[];
 }
+export interface CreationReceipt {
+  id: string;
+  title: string;
+  kind: 'knowledge' | 'system';
+  status: string;
+  row?: number;
+  detail: string;
+}
 type Backend = {
+  AskCatalogAssistant(input: {
+    mode: 'knowledge' | 'system';
+    conversationId: string;
+    prompt: string;
+  }): Promise<{ messages: ChatMessage[]; receipts: CreationReceipt[]; error: string }>;
+  ListKnowledge(query: string): Promise<Knowledge[]>;
+  SaveKnowledge(item: Knowledge): Promise<Knowledge>;
+  DeleteKnowledge(id: string, updatedAt: string): Promise<void>;
+  ParseKnowledgeTable(text: string): Promise<Knowledge>;
+  PickKnowledgeTable(): Promise<Knowledge | null>;
+  OpenKnowledgeSource(id: string): Promise<void>;
+  PickKnowledgeDocument(): Promise<Knowledge | null>;
+  OpenKnowledgeDocument(id: string): Promise<void>;
+  SummarizeConversation(hostId: string, id: string): Promise<Knowledge>;
   Snapshot(): Promise<Catalog>;
   SaveCredential(input: {
     credential: Credential;

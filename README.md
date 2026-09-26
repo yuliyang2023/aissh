@@ -170,8 +170,14 @@ Keyboard-first users can still access every core feature.
 The desktop opens directly into a unified workspace: a collapsible SSH + AI
 session list on the left, with chat, SSH and monitoring on the right. Select a
 running session to resume work, or preview offline history and reconnect. There
-is no separate SSH sessions page. Settings groups hosts, credentials, system
-connections and AI profiles in one place. Switching settings or sessions keeps
+is no separate SSH sessions page. The bottom-left menu exposes external systems,
+local knowledge, and settings. Systems manage connection details and descriptions;
+local knowledge stores document references, editable conversation summaries and
+custom tables with CSV/TSV import, pasted Excel cells, and online source links.
+Both New dialogs offer an AI conversation using the default AI profile: describe
+the system or local data, answer any missing details, and see automatic save
+receipts without opening SSH. Online source tables are not synchronized or edited.
+Settings groups hosts, credentials and AI profiles. Switching management pages or sessions keeps
 terminals and unsent AI drafts intact. The client renders chat, streaming answers,
 command approvals and monitoring cards; the SSH pane has no terminal sidebar.
 Monitoring spans the top of the chat and SSH panes and folds into a single

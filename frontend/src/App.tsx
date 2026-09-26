@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
+  BookOpen,
   CheckCircle2,
   ChevronRight,
   Database,
@@ -53,9 +54,10 @@ import { useStoredFlag } from './layout';
 import { Conversations, conversationKey } from './Conversations';
 import { NewConversation, NewConversationInput } from './NewConversation';
 import { primaryModifier } from './platform';
+import { KnowledgeLibrary } from './Knowledge';
 
-type SettingsPage = 'hosts' | 'credentials' | 'resources' | 'ai';
-type Page = SettingsPage | 'conversations' | 'terminal';
+type SettingsPage = 'hosts' | 'credentials' | 'ai';
+type Page = SettingsPage | 'resources' | 'knowledge' | 'conversations' | 'terminal';
 type Editor =
   | { kind: 'host'; value: Host }
   | { kind: 'resource'; value: Resource }
@@ -73,7 +75,6 @@ const kinds: Record<string, string> = {
 const settingsPages = [
   { id: 'hosts' as SettingsPage, label: '主机', icon: Server },
   { id: 'credentials' as SettingsPage, label: '凭据', icon: KeyRound },
-  { id: 'resources' as SettingsPage, label: '系统连接', icon: Database },
   { id: 'ai' as SettingsPage, label: 'AI 配置', icon: Sparkles },
 ];
 
@@ -84,10 +85,13 @@ export function App() {
   const [sidebarVisible, setSidebarVisible] = useStoredFlag('aissh.sidebar.visible', true);
   const [lastSettings, setLastSettings] = useState<SettingsPage>('hosts');
   const isSettings = settingsPages.some((item) => item.id === page);
+  const isManagement = isSettings || page === 'resources' || page === 'knowledge';
+  const [knowledgeRevision, setKnowledgeRevision] = useState(0);
+  const [knowledgeIntent, setKnowledgeIntent] = useState<'new' | Conversation | null>(null);
   const workspacePage = useRef<'conversations' | 'terminal'>('conversations');
   useEffect(() => {
-    if (!isSettings) workspacePage.current = page as 'conversations' | 'terminal';
-  }, [page, isSettings]);
+    if (!isManagement) workspacePage.current = page as 'conversations' | 'terminal';
+  }, [page, isManagement]);
   const [conversationSearch, setConversationSearch] = useState('');
   const conversationSearchRef = useRef<HTMLInputElement>(null);
   const [selectedRow, setSelectedRow] = useState('');
@@ -159,6 +163,7 @@ export function App() {
     { requestId: string; credentialId: string; sessionId: string }[]
   >([]);
   async function reload() {
+    setKnowledgeRevision((v) => v + 1);
     setError('');
     const changes = sessionChanges.current;
     try {
@@ -424,11 +429,16 @@ export function App() {
     conversations.find(
       (c) => c.hostId === currentSession.hostId && c.id === currentSession.conversationId,
     );
+  const summaryConversation = page === 'terminal' ? activeConversation : currentConversation;
   const title = isSettings
     ? '设置'
-    : page === 'terminal'
-      ? activeConversation?.title || currentSession?.name || '工作区'
-      : currentConversation?.title || 'SSH + AI 工作区';
+    : page === 'resources'
+      ? '外联系统'
+      : page === 'knowledge'
+        ? '本地知识'
+        : page === 'terminal'
+          ? activeConversation?.title || currentSession?.name || '工作区'
+          : currentConversation?.title || 'SSH + AI 工作区';
   const add = () => {
     if (page === 'hosts') setEditor({ kind: 'host', value: newHost() });
     if (page === 'credentials') setCredentialEditor({ value: newCredential() });
@@ -483,7 +493,7 @@ export function App() {
         returnToWorkspace();
       } else if (command.startsWith('page:')) {
         const destination = command.slice(5) as Page;
-        if (['hosts', 'credentials', 'resources', 'ai'].includes(destination)) {
+        if (['hosts', 'credentials', 'resources', 'knowledge', 'ai'].includes(destination)) {
           goto(destination);
           if (destination === 'hosts') setGroup('全部主机');
         }
@@ -498,15 +508,18 @@ export function App() {
       } else if (command === 'new-resource') {
         goto('resources');
         setEditor({ kind: 'resource', value: newResource() });
+      } else if (command === 'new-knowledge') {
+        goto('knowledge');
+        setKnowledgeIntent('new');
       } else if (command === 'new-ai') {
         goto('ai');
         setEditor({ kind: 'ai', value: newAI() });
       } else if (command === 'sidebar') {
         setSidebarVisible(!sidebarVisible);
       } else if (command === 'search') {
-        if (!isSettings) setSidebarVisible(true);
+        if (!isManagement) setSidebarVisible(true);
         requestAnimationFrame(() =>
-          (isSettings ? searchRef : conversationSearchRef).current?.focus(),
+          (isManagement ? searchRef : conversationSearchRef).current?.focus(),
         );
       } else if (command === 'refresh') {
         void reload();
@@ -532,7 +545,9 @@ export function App() {
       : page === 'credentials'
         ? data.credentials.filter((c) => matches(c.name, c.username, kinds[c.kind])).length
         : page === 'resources'
-          ? data.resources.filter((r) => matches(r.name, r.kind, r.endpoint)).length
+          ? data.resources.filter((r) =>
+              matches(r.name, r.kind, kinds[r.kind], r.endpoint, r.description || ''),
+            ).length
           : page === 'ai'
             ? data.aiProfiles.filter((p) => matches(p.name, p.provider, p.model)).length
             : page === 'conversations'
@@ -587,7 +602,7 @@ export function App() {
           sessions={sessions}
           selectedConversation={currentConversation ? conversationKey(currentConversation) : ''}
           activeSession={
-            (isSettings ? workspacePage.current : page) === 'terminal' ? activeSession : ''
+            (isManagement ? workspacePage.current : page) === 'terminal' ? activeSession : ''
           }
           search={conversationSearch}
           onSearch={setConversationSearch}
@@ -616,20 +631,38 @@ export function App() {
           </div>
         )}
         <div className="session-sidebar-footer">
-          <button
-            className={'settings-entry ' + (isSettings ? 'selected' : '')}
-            aria-label="设置"
-            aria-pressed={isSettings}
-            onClick={() => goto(lastSettings)}
-          >
-            <Settings size={18} />
-            <span>设置</span>
-            <kbd>{primaryModifier},</kbd>
-          </button>
+          <nav aria-label="管理菜单">
+            <button
+              className={'settings-entry ' + (page === 'resources' ? 'selected' : '')}
+              aria-current={page === 'resources' ? 'page' : undefined}
+              onClick={() => goto('resources')}
+            >
+              <Database size={18} />
+              <span>外联系统</span>
+            </button>
+            <button
+              className={'settings-entry ' + (page === 'knowledge' ? 'selected' : '')}
+              aria-current={page === 'knowledge' ? 'page' : undefined}
+              onClick={() => goto('knowledge')}
+            >
+              <BookOpen size={18} />
+              <span>本地知识</span>
+            </button>
+            <button
+              className={'settings-entry ' + (isSettings ? 'selected' : '')}
+              aria-label="设置"
+              aria-pressed={isSettings}
+              onClick={() => goto(lastSettings)}
+            >
+              <Settings size={18} />
+              <span>设置</span>
+              <kbd>{primaryModifier},</kbd>
+            </button>
+          </nav>
           <small>{sessions.filter(sessionLive).length} 个连接运行中 · 会话保存在本机</small>
         </div>
       </aside>
-      <main className={'main ' + (!isSettings ? 'session-main' : 'settings-main')}>
+      <main className={'main ' + (!isManagement ? 'session-main' : 'settings-main')}>
         <header className="topbar">
           {!sidebarVisible && (
             <button
@@ -646,15 +679,19 @@ export function App() {
             <span>
               {isSettings
                 ? '管理主机、凭据与 AI 服务'
-                : page === 'terminal'
-                  ? currentSession?.name +
-                    ' · ' +
-                    sessionStatus[currentSession?.status || 'starting']
-                  : '对话内容 · SSH · 监控'}
+                : page === 'resources'
+                  ? '管理系统信息、连接与访问授权'
+                  : page === 'knowledge'
+                    ? '文件文档 · 会话经验 · 数据表'
+                    : page === 'terminal'
+                      ? currentSession?.name +
+                        ' · ' +
+                        sessionStatus[currentSession?.status || 'starting']
+                      : '对话内容 · SSH · 监控'}
             </span>
           </div>
           <div className="toolbar-actions">
-            {!isSettings && page === 'terminal' && activeConversation && (
+            {!isManagement && page === 'terminal' && activeConversation && (
               <button
                 className="button"
                 onClick={() => {
@@ -665,7 +702,7 @@ export function App() {
                 历史记录
               </button>
             )}
-            {isSettings ? (
+            {isManagement ? (
               <button className="button" onClick={returnToWorkspace}>
                 返回工作区
                 <ArrowUpRight size={15} />
@@ -679,8 +716,37 @@ export function App() {
                 {sessionLive(currentSession) ? '断开连接' : '移除连接'}
               </button>
             ) : null}
+            {!isManagement && summaryConversation && (
+              <button
+                className="button"
+                disabled={!!busy || !connected() || !summaryConversation.messageCount}
+                onClick={() => {
+                  setKnowledgeIntent(summaryConversation);
+                  goto('knowledge');
+                }}
+              >
+                <BookOpen size={15} />
+                总结到知识库
+              </button>
+            )}
             {!sidebarVisible && (
               <>
+                <button
+                  className="icon-button"
+                  aria-label="外联系统"
+                  title="外联系统"
+                  onClick={() => goto('resources')}
+                >
+                  <Database size={17} />
+                </button>
+                <button
+                  className="icon-button"
+                  aria-label="本地知识"
+                  title="本地知识"
+                  onClick={() => goto('knowledge')}
+                >
+                  <BookOpen size={17} />
+                </button>
                 <button
                   className="icon-button"
                   aria-label="新建会话"
@@ -710,27 +776,35 @@ export function App() {
             </button>
           </div>
         </header>
-        {isSettings && (
+        {(isSettings || page === 'resources') && (
           <>
-            <nav className="settings-tabs" aria-label="设置分类">
-              {settingsPages.map((item) => (
-                <button
-                  key={item.id}
-                  aria-current={page === item.id ? 'page' : undefined}
-                  onClick={() => goto(item.id)}
-                >
-                  <item.icon size={16} />
-                  {item.label}
-                </button>
-              ))}
-            </nav>
+            {isSettings && (
+              <nav className="settings-tabs" aria-label="设置分类">
+                {settingsPages.map((item) => (
+                  <button
+                    key={item.id}
+                    aria-current={page === item.id ? 'page' : undefined}
+                    onClick={() => goto(item.id)}
+                  >
+                    <item.icon size={16} />
+                    {item.label}
+                  </button>
+                ))}
+              </nav>
+            )}
             <div className="collection-toolbar">
               <label className="search">
                 <Search size={15} />
                 <input
                   ref={searchRef}
                   aria-label="搜索配置"
-                  placeholder={page === 'hosts' ? '搜索名称、地址或分组…' : '搜索配置…'}
+                  placeholder={
+                    page === 'hosts'
+                      ? '搜索名称、地址或分组…'
+                      : page === 'resources'
+                        ? '搜索系统、用途或地址…'
+                        : '搜索配置…'
+                  }
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -823,7 +897,7 @@ export function App() {
             </button>
           </div>
         )}
-        <div className="page-content" style={{ display: isSettings ? undefined : 'none' }}>
+        <div className="page-content" style={{ display: isManagement ? undefined : 'none' }}>
           {page === 'credentials' && !!data.pendingDeletes?.length && (
             <div className="info-box">
               <span>有 {data.pendingDeletes.length} 项已停用的秘密等待从系统凭据库清理。</span>
@@ -847,6 +921,26 @@ export function App() {
             </div>
           ) : (
             <>
+              {page === 'knowledge' && (
+                <KnowledgeLibrary
+                  data={data}
+                  conversations={conversations}
+                  searchRef={searchRef}
+                  revision={knowledgeRevision}
+                  intent={knowledgeIntent}
+                  onConsumeIntent={() => setKnowledgeIntent(null)}
+                  onOpenConversation={(hostId, id) => {
+                    const conversation = conversations.find(
+                      (c) => c.hostId === hostId && c.id === id,
+                    );
+                    if (conversation) {
+                      setSelectedConversation(conversationKey(conversation));
+                      setConversationHost(hostId);
+                      goto('conversations');
+                    } else setError('来源会话已不存在或历史记录已清理');
+                  }}
+                />
+              )}
               {page === 'hosts' &&
                 (visibleHosts.length ? (
                   <div className="table-card">
@@ -1062,7 +1156,9 @@ export function App() {
                   />
                 ))}
               {page === 'resources' &&
-                (data.resources.filter((r) => matches(r.name, r.kind, r.endpoint)).length ? (
+                (data.resources.filter((r) =>
+                  matches(r.name, r.kind, kinds[r.kind], r.endpoint, r.description || ''),
+                ).length ? (
                   <div className="table-card">
                     <table>
                       <thead>
@@ -1075,7 +1171,9 @@ export function App() {
                       </thead>
                       <tbody>
                         {data.resources
-                          .filter((r) => matches(r.name, r.kind, r.endpoint))
+                          .filter((r) =>
+                            matches(r.name, r.kind, kinds[r.kind], r.endpoint, r.description || ''),
+                          )
                           .map((r) => (
                             <tr
                               key={r.id}
@@ -1097,6 +1195,11 @@ export function App() {
                                       <span className="inline-kind">{kinds[r.kind]}</span>
                                     </strong>
                                     <small className="mono">{r.endpoint}</small>
+                                    {r.description && (
+                                      <small className="system-description" title={r.description}>
+                                        {r.description}
+                                      </small>
+                                    )}
                                   </div>
                                 </div>
                               </td>
@@ -1177,12 +1280,12 @@ export function App() {
                 ) : (
                   <Empty
                     icon={<Database size={29} />}
-                    title="没有系统连接"
+                    title="还没有外联系统"
                     description="添加数据库、Redis 或 HTTP API，并选择访问凭据。"
                     action={
                       <button className="button primary" onClick={add} disabled={!connected()}>
                         <Plus size={16} />
-                        添加系统连接
+                        添加外联系统
                       </button>
                     }
                   />
@@ -1274,7 +1377,7 @@ export function App() {
             </>
           )}
         </div>
-        <div className="workspace" style={{ display: isSettings ? 'none' : 'flex' }}>
+        <div className="workspace" style={{ display: isManagement ? 'none' : 'flex' }}>
           {page === 'conversations' && (
             <div className="workbench-sessions">
               {loading ? (
@@ -1328,7 +1431,7 @@ export function App() {
             )}
           </div>
         </div>
-        {isSettings && (
+        {(isSettings || page === 'resources') && (
           <footer className="statusbar">
             <span>
               {itemCount} 个项目{search && ' · 已筛选'}

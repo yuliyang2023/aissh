@@ -12,6 +12,7 @@ import {
   Resource,
 } from './api';
 import { ErrorBox, Field, Modal, Submit } from './components';
+import { CreationChat, CreationTabs } from './CreationChat';
 
 type Base = { onClose: () => void; onSaved: () => void };
 export function CredentialEditor({
@@ -439,6 +440,11 @@ export function ResourceEditor({
   const [value, set] = useState({ ...item });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [creationMode, setCreationMode] = useState<'form' | 'chat'>('form');
+  const [created, setCreated] = useState(false);
+  const finish = () => {
+    if (!busy) (created ? onSaved : onClose)();
+  };
   const field = (key: keyof Resource, v: string | boolean) => set((p) => ({ ...p, [key]: v }));
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -455,11 +461,25 @@ export function ResourceEditor({
   }
   return (
     <Modal
-      title={item.id ? '编辑系统连接' : '添加系统连接'}
-      subtitle="让 aissh 知道系统在哪里，以及可以使用哪个账号。"
-      onClose={() => !busy && onClose()}
+      title={item.id ? '编辑外联系统' : '添加外联系统'}
+      subtitle="管理系统用途、服务地址、关联主机与访问凭据。"
+      onClose={finish}
+      className={creationMode === 'chat' ? 'creation-modal' : ''}
     >
-      <form onSubmit={save}>
+      {!item.id && (
+        <>
+          <CreationTabs mode={creationMode} busy={busy} onChange={setCreationMode} />
+          <CreationChat
+            mode="system"
+            data={data}
+            active={creationMode === 'chat'}
+            onBusy={setBusy}
+            onCreated={() => setCreated(true)}
+            onFinish={finish}
+          />
+        </>
+      )}
+      <form onSubmit={save} hidden={creationMode === 'chat'}>
         <fieldset disabled={busy}>
           <div className="form-row">
             <Field label="系统名称">
@@ -480,6 +500,15 @@ export function ResourceEditor({
               </select>
             </Field>
           </div>
+          <Field label="系统说明（可选）">
+            <textarea
+              value={value.description || ''}
+              onChange={(e) => field('description', e.target.value)}
+              placeholder="系统用途、负责团队、环境与注意事项"
+              maxLength={2000}
+              rows={3}
+            />
+          </Field>
           <Field
             label={value.kind === 'http' ? '服务地址' : '连接地址'}
             hint={
@@ -565,7 +594,7 @@ export function ResourceEditor({
           </div>
           <ErrorBox error={error} />
           <div className="form-actions">
-            <button type="button" className="button" onClick={onClose}>
+            <button type="button" className="button" onClick={finish}>
               取消
             </button>
             <Submit busy={busy} label="保存系统连接" />

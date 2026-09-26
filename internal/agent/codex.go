@@ -603,6 +603,9 @@ func parseCodexInvocationJSONLLocalized(data []byte, localizer i18n.Localizer) (
 }
 
 func buildCodexPrompt(request Request, history []codexHistory, input string) string {
+	if request.SystemContext["catalog_assistant"] != "" {
+		return buildCatalogPrompt(request, history, input)
+	}
 	var value strings.Builder
 	value.WriteString(`你是 aissh 的本地运维助手。aissh 正在本机包装一个真实的 OpenSSH 会话。
 `)
@@ -672,6 +675,9 @@ func buildCodexPrompt(request Request, history []codexHistory, input string) str
 }
 
 func buildCodexContinuationPrompt(request Request, input string) string {
+	if request.SystemContext["catalog_assistant"] != "" {
+		return buildCatalogPrompt(request, nil, input)
+	}
 	var value strings.Builder
 	if len(request.SystemContext) > 0 {
 		value.WriteString("环境上下文更新：\n")
