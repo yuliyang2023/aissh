@@ -1,11 +1,11 @@
 import { useId, useRef, useState } from 'react';
 import {
   Activity,
+  Bell,
   ChevronDown,
   FileCode2,
   Maximize2,
   Minimize2,
-  RefreshCw,
   X,
   Sparkles,
 } from 'lucide-react';
@@ -54,6 +54,8 @@ export function Monitor({
   onSizeChange,
   onAction,
   aiReady = true,
+  onOpenMonitoring,
+  alertCount = 0,
 }: {
   panels: MonitorPanel[];
   active?: boolean;
@@ -64,6 +66,8 @@ export function Monitor({
   onSizeChange?: (size: MonitorSize) => void;
   onAction: (command: WorkbenchCommand) => Promise<boolean>;
   aiReady?: boolean;
+  onOpenMonitoring?: () => void;
+  alertCount?: number;
 }) {
   const detailsId = useId();
   const [expanded, setExpanded] = useStoredFlag('aissh.monitor.expanded', true);
@@ -123,7 +127,15 @@ export function Monitor({
         >
           <Activity size={16} />
           <strong>实时面板</strong>
-          <span className={'monitor-health ' + (failed || stale || !online ? 'warning' : '')}>
+          <span
+            className={'monitor-health ' + (failed || stale || !online ? 'warning' : '')}
+            title={
+              updated(current)
+                ? '上次更新：' +
+                  new Date(current!.updatedAt).toLocaleTimeString('zh-CN', { hour12: false })
+                : '尚无采集数据'
+            }
+          >
             {status}
           </span>
           {!showDetails && (
@@ -133,64 +145,15 @@ export function Monitor({
           )}
           <ChevronDown size={15} className={showDetails ? '' : 'folded'} />
         </button>
-        {onSizeChange && (
-          <button
-            ref={sizeButton}
-            type="button"
-            className="button small monitor-resize"
-            aria-label={
-              size === 'maximized' ? '还原监控' : size === 'large' ? '最大化监控' : '放大监控'
-            }
-            title={
-              size === 'maximized'
-                ? '还原监控（Esc）'
-                : size === 'large'
-                  ? '最大化至整个工作区'
-                  : '放大至工作区约一半高度'
-            }
-            onClick={() =>
-              onSizeChange(size === 'normal' ? 'large' : size === 'large' ? 'maximized' : 'normal')
-            }
-          >
-            {size === 'maximized' ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            {size === 'maximized' ? '还原' : size === 'large' ? '最大化' : '放大'}
-          </button>
-        )}
-        {size === 'large' && onSizeChange && (
-          <button
-            type="button"
-            className="button small monitor-resize"
-            aria-label="还原监控"
-            title="还原监控（Esc）"
-            onClick={() => {
-              onSizeChange('normal');
-              sizeButton.current?.focus();
-            }}
-          >
-            <Minimize2 size={14} />
-            还原
-          </button>
-        )}
-      </div>
-      {showDetails && (
-        <div id={detailsId} className="monitor-details">
-          <div className="monitor-tabs">
-            <div role="group" aria-label="监控项目">
-              {panels.map((p) => (
-                <button
-                  key={p.id}
-                  aria-pressed={current?.id === p.id}
-                  onClick={() => setSelected(p.id)}
-                >
-                  {p.title}
-                  {p.error && ' !'}
-                </button>
-              ))}
-            </div>
+        <div className="monitor-actions" role="group" aria-label="监控操作">
+          <div className="monitor-action-group">
             <button
               className="button small"
               disabled={!online || pending || !aiReady}
-              onClick={() => setAIOpen(!aiOpen)}
+              onClick={() => {
+                setExpanded(true);
+                setAIOpen(!aiOpen);
+              }}
             >
               <Sparkles size={13} />
               AI 添加面板
@@ -201,6 +164,7 @@ export function Monitor({
               value=""
               onChange={async (e) => {
                 const kind = e.target.value;
+                setExpanded(true);
                 if (kind === 'custom') {
                   setCustom(true);
                   return;
@@ -222,6 +186,104 @@ export function Monitor({
                 </option>
               ))}
             </select>
+          </div>
+          <div className="monitor-action-group">
+            {onOpenMonitoring && (
+              <button
+                type="button"
+                className="icon-button monitor-alerts"
+                aria-label="当前会话告警监控"
+                title={alertCount ? `告警监控 · ${alertCount} 个任务` : '告警监控'}
+                onClick={onOpenMonitoring}
+              >
+                <Bell size={14} />
+                {alertCount > 0 && <span className="monitor-alert-count">{alertCount}</span>}
+              </button>
+            )}
+            {current && (
+              <>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="采集配置"
+                  aria-haspopup="dialog"
+                  title="采集配置"
+                  ref={collectorButton}
+                  onClick={() => setCollectorOpen(true)}
+                >
+                  <FileCode2 size={13} />
+                </button>
+                {!current.pinned && (
+                  <button
+                    className="icon-button"
+                    aria-label={'关闭监控 ' + current.title}
+                    title={'关闭监控 ' + current.title}
+                    disabled={!online || pending}
+                    onClick={() => void onAction({ kind: 'monitor-close', panelId: current.id })}
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+          <div className="monitor-action-group">
+            {onSizeChange && (
+              <button
+                ref={sizeButton}
+                type="button"
+                className="icon-button monitor-resize"
+                aria-label={
+                  size === 'maximized' ? '还原监控' : size === 'large' ? '最大化监控' : '放大监控'
+                }
+                title={
+                  size === 'maximized'
+                    ? '还原监控（Esc）'
+                    : size === 'large'
+                      ? '最大化至整个工作区'
+                      : '放大至工作区约一半高度'
+                }
+                onClick={() =>
+                  onSizeChange(
+                    size === 'normal' ? 'large' : size === 'large' ? 'maximized' : 'normal',
+                  )
+                }
+              >
+                {size === 'maximized' ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              </button>
+            )}
+            {size === 'large' && onSizeChange && (
+              <button
+                type="button"
+                className="icon-button monitor-resize"
+                aria-label="还原监控"
+                title="还原监控（Esc）"
+                onClick={() => {
+                  onSizeChange('normal');
+                  sizeButton.current?.focus();
+                }}
+              >
+                <Minimize2 size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+      {showDetails && (
+        <div id={detailsId} className="monitor-details">
+          <div className="monitor-tabs">
+            <div role="group" aria-label="监控项目">
+              {panels.map((p) => (
+                <button
+                  key={p.id}
+                  aria-pressed={current?.id === p.id}
+                  onClick={() => setSelected(p.id)}
+                >
+                  {p.title}
+                  {p.error && ' !'}
+                </button>
+              ))}
+            </div>
           </div>
           {aiOpen && (
             <form
@@ -312,50 +374,6 @@ export function Monitor({
           ) : (
             <pre className="monitor-output">{current.content || '正在等待采集结果…'}</pre>
           )}
-          <div className="monitor-footer">
-            <span title={current?.id === 'system' ? metrics.UPTIME : current?.title}>
-              {current?.id === 'system' ? metrics.HOST || '等待服务器响应' : current?.title}
-            </span>
-            <time>
-              {updated(current)
-                ? new Date(current!.updatedAt).toLocaleTimeString('zh-CN', { hour12: false }) +
-                  ' 更新'
-                : '尚无数据'}
-            </time>
-            {current && (
-              <>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label="采集配置"
-                  aria-haspopup="dialog"
-                  title="采集配置"
-                  ref={collectorButton}
-                  onClick={() => setCollectorOpen(true)}
-                >
-                  <FileCode2 size={13} />
-                </button>
-                <button
-                  className="icon-button"
-                  aria-label="刷新当前监控"
-                  disabled={!online || pending}
-                  onClick={() => void onAction({ kind: 'monitor-refresh', panelId: current.id })}
-                >
-                  <RefreshCw size={13} />
-                </button>
-                {!current.pinned && (
-                  <button
-                    className="icon-button"
-                    aria-label={'关闭监控 ' + current.title}
-                    disabled={!online || pending}
-                    onClick={() => void onAction({ kind: 'monitor-close', panelId: current.id })}
-                  >
-                    <X size={13} />
-                  </button>
-                )}
-              </>
-            )}
-          </div>
         </div>
       )}
       {active && collectorOpen && current && (

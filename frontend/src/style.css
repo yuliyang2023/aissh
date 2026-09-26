@@ -2077,6 +2077,52 @@ tbody tr:last-child td {
   gap: 6px;
   padding-right: 12px;
 }
+.monitor-actions,
+.monitor-action-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.monitor-actions {
+  flex-shrink: 0;
+}
+.monitor-action-group + .monitor-action-group {
+  border-left: 1px solid var(--line);
+  padding-left: 6px;
+  margin-left: 2px;
+}
+.monitor-actions .icon-button {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+.monitor-actions .button.small {
+  border: 0;
+  background: transparent;
+  color: var(--secondary);
+  padding: 5px 7px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.monitor-actions .button.small:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+.monitor-alerts {
+  position: relative;
+}
+.monitor-alert-count {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  min-width: 13px;
+  padding: 0 3px;
+  border-radius: 6px;
+  background: var(--selection);
+  color: var(--accent);
+  font-size: 9px;
+  line-height: 13px;
+}
 .monitor-resize {
   flex-shrink: 0;
 }
@@ -2151,7 +2197,7 @@ tbody tr:last-child td {
   background: var(--selection);
   color: var(--accent);
 }
-.monitor-tabs select {
+.monitor-actions select {
   min-width: 0;
   max-width: 106px;
   background: var(--control);
@@ -2216,27 +2262,6 @@ tbody tr:last-child td {
   background: var(--alternate);
   border-radius: 7px;
 }
-.monitor-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px 8px;
-  font-size: 10px;
-  color: var(--tertiary);
-}
-.monitor-footer > span {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
-}
-.monitor-footer time {
-  white-space: nowrap;
-}
-.monitor-footer .icon-button {
-  width: 22px;
-  height: 22px;
-}
 .monitor-custom {
   display: flex;
   align-items: center;
@@ -2287,8 +2312,7 @@ tbody tr:last-child td {
 }
 .monitor-enlarged .monitor-tabs,
 .monitor-enlarged .monitor-custom,
-.monitor-enlarged .monitor-metrics,
-.monitor-enlarged .monitor-footer {
+.monitor-enlarged .monitor-metrics {
   flex-shrink: 0;
 }
 .monitor-enlarged .monitor-warning {
@@ -2301,10 +2325,22 @@ tbody tr:last-child td {
   min-height: 0;
   max-height: none;
 }
-.monitor-enlarged .monitor-footer {
-  margin-top: auto;
-}
 @container (max-width: 640px) {
+  .monitor-toolbar {
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .monitor-toolbar .monitor-heading {
+    width: auto;
+    padding: 0;
+  }
+  .monitor-actions {
+    margin-left: auto;
+    max-width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
   .native-workbench {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(260px, 1fr) minmax(280px, 1fr);
@@ -2355,9 +2391,6 @@ tbody tr:last-child td {
   }
   .metric-track {
     margin-top: 5px;
-  }
-  .monitor-footer {
-    padding-bottom: 4px;
   }
 }
 

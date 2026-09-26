@@ -1,18 +1,6 @@
 .monitoring-launch {
   position: relative;
 }
-.session-monitoring-entry {
-  flex-shrink: 0;
-  margin-left: auto;
-}
-.session-monitoring-entry > span {
-  min-width: 16px;
-  padding: 1px 4px;
-  border-radius: 5px;
-  background: var(--row-selection);
-  color: var(--accent);
-  font-size: 10px;
-}
 .monitoring-session-scope {
   display: flex;
   align-items: center;

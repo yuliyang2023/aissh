@@ -7,6 +7,14 @@ export async function testMonitorResize(page, out) {
   await page.getByRole('button', { name: '连接并继续', exact: true }).click();
   const workbench = page.locator('.native-workbench:visible');
   await workbench.getByText('服务器负载平稳', { exact: false }).waitFor();
+  const actions = workbench.getByRole('group', { name: '监控操作' });
+  assert.equal(await workbench.locator('.monitor-footer').count(), 0);
+  assert.equal(await workbench.getByText('prod-app-01', { exact: true }).count(), 0);
+  assert.equal(await workbench.getByRole('button', { name: '刷新当前监控', exact: true }).count(), 0);
+  assert.ok(await actions.getByRole('button', { name: '当前会话告警监控', exact: true }).isVisible());
+  assert.ok(await actions.getByRole('button', { name: '采集配置', exact: true }).isVisible());
+  assert.equal(await workbench.locator('.native-chat-heading').getByRole('button', { name: '当前会话告警监控', exact: true }).count(), 0);
+  await page.screenshot({ path: path.join(out, 'monitor-toolbar-normal.png') });
   const output = 'PID   USER   COMMAND   CPU\n' + Array.from({ length: 40 }, (_, i) => `${1000 + i}  ops    worker-${i}    ${i}.0`).join('\n');
   await page.evaluate((content) => {
     const id = window.__test.sessions[0].id;
@@ -25,8 +33,8 @@ export async function testMonitorResize(page, out) {
     const monitor = await workbench.locator('.native-monitor').boundingBox();
     const workspace = await workbench.boundingBox();
     assert.ok(Math.abs(monitor.height - workspace.height * (maximized ? 1 : 0.5)) < 2, `monitor should use the selected share of the workspace: ${JSON.stringify({ monitor, workspace, maximized })}`);
-    const footer = await workbench.locator('.monitor-footer').boundingBox();
-    assert.ok(footer.y + footer.height <= monitor.y + monitor.height + 1, 'monitor actions must stay visible');
+    const toolbar = await workbench.locator('.monitor-toolbar').boundingBox();
+    assert.ok(toolbar.y + toolbar.height <= monitor.y + monitor.height + 1, 'monitor actions must stay visible');
     assert.equal(await workbench.locator('.native-chat').isVisible(), !maximized);
     assert.equal(await workbench.locator('.native-ssh').isVisible(), !maximized);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
@@ -54,8 +62,11 @@ export async function testMonitorResize(page, out) {
   await tabs.getByRole('button', { name: '系统', exact: true }).click();
   assert.equal(await workbench.locator('.monitor-metric').count(), 4);
   await tabs.getByRole('button', { name: '自定义进程', exact: true }).click();
-  await workbench.getByRole('button', { name: '刷新当前监控', exact: true }).click();
-  assert.equal(await page.evaluate(() => window.__test.actions.at(-1).kind), 'monitor-refresh');
+  await actions.getByRole('button', { name: '采集配置', exact: true }).click();
+  await page.getByRole('dialog', { name: '采集配置', exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog', { name: '采集配置', exact: true }).waitFor({ state: 'detached' });
+  await checkLayout(true);
   await workbench.getByRole('button', { name: '还原监控', exact: true }).click();
   assert.equal(await workbench.getByLabel('向 AI 提问').inputValue(), '保留这个未发送的输入');
   assert.equal(await workbench.locator('.monitor-output').textContent(), updated);
@@ -85,5 +96,5 @@ export async function testMonitorResize(page, out) {
   assert.equal(await page.evaluate(() => localStorage.getItem('aissh.monitor.expanded')), 'false');
   assert.equal(await page.evaluate(() => window.__test.starts.length), starts, 'resizing must not restart SSH');
   assert.deepEqual(await page.evaluate(() => window.__test.writes), [], 'resize shortcuts must not send SSH input');
-  console.log('PASS: monitor normal/large/maximized layouts, live data, tabs, refresh, restore/Escape, drafts, SSH continuity, collapsed preference and narrow/dark layouts');
+  console.log('PASS: grouped monitoring controls, no hostname/footer/refresh, normal/large/maximized layouts, live data, config dialog, restore/Escape, drafts, SSH continuity, collapsed preference and narrow/dark layouts');
 }

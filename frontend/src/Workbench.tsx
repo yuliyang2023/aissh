@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDown, Bell, Send, Sparkles } from 'lucide-react';
+import { ArrowDown, Send, Sparkles } from 'lucide-react';
 import { api, errorText, Session, sessionLive, WorkbenchCommand, WorkbenchState } from './api';
 import { Empty, ErrorBox } from './components';
 import { Terminal } from './Terminal';
@@ -106,6 +106,8 @@ export function Workbench({
         onSizeChange={setMonitorSize}
         aiReady={!state?.busy && !state?.executing && !state?.proposal}
         onAction={action}
+        onOpenMonitoring={onOpenMonitoring}
+        alertCount={state?.alertMonitors?.length || 0}
       />
       <section className="native-chat" aria-label="AI 对话工作区">
         <header className="native-chat-heading">
@@ -116,17 +118,6 @@ export function Workbench({
               {session.name} · {sessionAddress(session)}
             </small>
           </div>
-          <button
-            type="button"
-            className="button small session-monitoring-entry"
-            aria-label="当前会话告警监控"
-            onClick={onOpenMonitoring}
-            title="查看当前会话的告警任务和问题记录"
-          >
-            <Bell size={14} />
-            告警监控
-            {!!state?.alertMonitors?.length && <span>{state.alertMonitors.length}</span>}
-          </button>
         </header>
         <div
           className="native-chat-messages"
