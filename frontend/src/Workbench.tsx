@@ -9,6 +9,7 @@ import { ChatEntry } from './ChatEntry';
 import { sessionAddress } from './api';
 import { CommandReview } from './CommandReview';
 import { useChatSubmit } from './useChatSubmit';
+import { useWorkbenchSplit } from './useWorkbenchSplit';
 
 export function Workbench({
   session,
@@ -32,6 +33,7 @@ export function Workbench({
   const [now, setNow] = useState(Date.now());
   const [follow, setFollow] = useState(true);
   const [monitorSize, setMonitorSize] = useState<MonitorSize>('normal');
+  const split = useWorkbenchSplit(active && monitorSize !== 'maximized');
   const messages = useRef<HTMLDivElement>(null);
   const chatSubmit = useChatSubmit();
   useEffect(() => {
@@ -108,11 +110,13 @@ export function Workbench({
               : '就绪';
   return (
     <div
+      ref={split.ref}
       className={
         'native-workbench' +
+        (split.dragging ? ' workbench-resizing' : '') +
         (monitorSize === 'normal' ? '' : ' monitor-enlarged monitor-' + monitorSize)
       }
-      style={{ display: active ? 'grid' : 'none' }}
+      style={{ ...split.style, display: active ? 'grid' : 'none' }}
     >
       <WidgetPreviews sessionId={session.id} candidates={state?.widgetCandidates} />
       <Monitor
@@ -130,7 +134,7 @@ export function Workbench({
         onOpenMonitoring={onOpenMonitoring}
         alertCount={state?.alertMonitors?.length || 0}
       />
-      <section className="native-chat" aria-label="AI 对话工作区">
+      <section id={split.chatId} className="native-chat" aria-label="AI 对话工作区">
         <header className="native-chat-heading">
           <Sparkles size={17} />
           <div>
@@ -228,6 +232,7 @@ export function Workbench({
           </div>
         </form>
       </section>
+      {split.divider}
       <div className="native-ssh">
         <Terminal
           session={session}
