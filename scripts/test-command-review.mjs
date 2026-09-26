@@ -12,7 +12,21 @@ export async function testCommandReview(page, out) {
   });
   await page.getByRole('button', { name: '连接并继续', exact: true }).click();
   await page.locator('.native-workbench:visible .native-chat-messages').getByText('服务器负载平稳', { exact: false }).waitFor();
-  const command = '# 检查服务日志，保留原始缩进和引号\n' + Array.from({ length: 120 }, (_, i) => `  printf '%s\\n' '日志 ${i}: ${'x'.repeat(160)}'`).join('\n');
+  const sample = [
+    '# 检查服务与最近日志（只读）',
+    'service="nginx"',
+    'log_file="/var/log/nginx/error.log"',
+    '',
+    'if command -v systemctl >/dev/null 2>&1; then',
+    '  systemctl status "$service" --no-pager',
+    'fi',
+    '',
+    '# 筛选错误、超时和上游连接异常',
+    'sudo tail -n 200 "$log_file" | grep -Ei \'error|timeout|upstream\' | head -n 40',
+    'printf "检查完成：%s\\n" "$(date +%FT%T)"',
+    '',
+  ].join('\n');
+  const command = sample + '\n' + Array.from({ length: 120 }, (_, i) => `  printf '%s\\n' '日志 ${i}: ${'x'.repeat(160)}'`).join('\n');
   const publish = async (patch) => page.evaluate((patch) => {
     const id = window.__test.sessions[0].id;
     Object.assign(window.__test.workbenches[id], patch);
@@ -25,6 +39,21 @@ export async function testCommandReview(page, out) {
   const approve = dialog.getByRole('button', { name: '批准执行', exact: true });
   await dialog.waitFor();
   assert.equal(await code.textContent(), command, 'long commands must not be truncated or rewritten');
+  assert.equal(await code.locator('.command-code-line').count(), command.split('\n').length);
+  for (const token of ['comment', 'string', 'variable', 'keyword', 'builtin', 'operator']) {
+    const span = code.locator('.shell-token.' + token).first();
+    assert.equal(await span.count(), 1, 'missing Shell highlighting for ' + token);
+    assert.equal(await span.evaluate(el => getComputedStyle(el).color !== getComputedStyle(el.closest('pre')).color), true);
+  }
+  const firstLines = await code.locator('.command-code-line').evaluateAll(lines => lines.slice(0, 4).map(el => el.getBoundingClientRect().height));
+  assert.ok(firstLines.every(height => Math.abs(height - firstLines[0]) < 1), 'line numbers and blank lines must stay aligned');
+  assert.equal(await code.evaluate(el => {
+    const selection = window.getSelection();
+    selection.selectAllChildren(el);
+    const text = selection.toString();
+    selection.removeAllRanges();
+    return text;
+  }), command, 'selecting highlighted code must exclude line numbers and preserve whitespace');
   assert.equal(await dialog.locator('.command-risk-badge').textContent(), '只读');
   assert.equal(await code.evaluate(el => el.scrollHeight > el.clientHeight), true);
   assert.equal(await approve.evaluate(el => el === document.activeElement), false, 'opening review must not focus execution');
@@ -80,6 +109,13 @@ export async function testCommandReview(page, out) {
   await publish({ proposal: { ...proposal, id: 'next', command: 'uptime' } });
   await dialog.waitFor();
   assert.equal(await code.textContent(), 'uptime', 'changed commands must open a fresh review');
+  const literal = "cat <<'EOF'\r\n<img src=x onerror=alert(1)>\r\n  $HOME && echo '<script>example</script>'\r\nEOF\r\n\r\nprintf '%s' 'unfinished";
+  await publish({ proposal: { ...proposal, id: 'literal', command: literal } });
+  await dialog.waitFor();
+  assert.equal(await code.textContent(), literal, 'heredocs, CRLF, blank lines and incomplete quotes must preserve the original text');
+  assert.equal(await code.locator('img, script').count(), 0, 'command text must never be parsed as HTML');
+  await dialog.getByRole('button', { name: '复制命令', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.__test.copiedCommand), literal);
   await page.keyboard.press('Escape');
 
   await page.getByLabel('SSH 与 AI 会话列表').locator('.session-select').filter({ hasText: '检查磁盘空间' }).click();
