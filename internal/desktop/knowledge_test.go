@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -77,20 +78,97 @@ func TestDocumentReferencesDoNotModifyOriginals(t *testing.T) {
 }
 
 type knowledgeProvider struct {
-	turn    agent.Turn
-	request agent.Request
+	turn     agent.Turn
+	request  agent.Request
+	requests []agent.Request
+	reply    func(agent.Callbacks) (agent.Turn, error)
 }
 
 func (p *knowledgeProvider) Name() string     { return "test" }
 func (p *knowledgeProvider) Configured() bool { return true }
-func (p *knowledgeProvider) Stream(_ context.Context, r agent.Request, _ agent.Callbacks) (agent.Turn, error) {
+func (p *knowledgeProvider) Stream(_ context.Context, r agent.Request, cb agent.Callbacks) (agent.Turn, error) {
 	p.request = r
+	p.requests = append(p.requests, r)
+	if p.reply != nil {
+		return p.reply(cb)
+	}
 	return p.turn, nil
 }
 func (p *knowledgeProvider) Action(context.Context, agent.Request) (agent.Turn, error) {
 	panic("summary must never execute actions")
 }
 
+func TestSummaryDraftRetriesInvalidResponsesWithoutExecutingActions(t *testing.T) {
+	conversation := history.Conversation{ID: "source", Title: "排障", Messages: []history.Message{{Role: "user", Content: "历史资料 secret-test-value"}}}
+	for _, tc := range []struct {
+		name      string
+		turn      agent.Turn
+		panel     bool
+		wantError string
+	}{
+		{"question", agent.Turn{Type: "ask_user", Message: "请先执行命令"}, false, "追问"},
+		{"proposal", agent.Turn{Type: "command_proposal", Proposal: &agent.Proposal{Command: "uptime"}}, false, "操作请求"},
+		{"finished_with_proposal", agent.Turn{Type: "finished", Message: "总结", Proposal: &agent.Proposal{Command: "uptime"}}, false, "操作请求"},
+		{"panel", agent.Turn{Type: "finished", Message: "已打开面板"}, true, "操作请求"},
+		{"empty", agent.Turn{Type: "finished", Message: " \n "}, false, "内容为空"},
+		{"unknown", agent.Turn{Type: "unknown", Message: "总结"}, false, "未按要求"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, succeedsOnRetry := range []bool{true, false} {
+				p := &knowledgeProvider{}
+				p.reply = func(cb agent.Callbacks) (agent.Turn, error) {
+					if succeedsOnRetry && len(p.requests) == 2 {
+						return agent.Turn{Type: "finished", Message: "经验 secret-test-value"}, nil
+					}
+					if tc.panel && cb.OnPanelAction != nil {
+						cb.OnPanelAction(agent.PanelAction{Action: "create"})
+					}
+					return tc.turn, nil
+				}
+				k, err := summaryDraft(context.Background(), p, conversation, "host", redact.New("secret-test-value"))
+				if len(p.requests) != 2 {
+					t.Fatalf("expected one retry, got %d requests", len(p.requests))
+				}
+				for _, r := range p.requests {
+					if r.Event != "start" || r.SessionID != "" || r.SystemContext["conversation_summary"] != "true" || !strings.Contains(r.Prompt, "历史资料 [redacted]") || strings.Contains(r.Prompt, "secret-test-value") {
+						t.Fatal("retry lost source, leaked secret or reused a live session")
+					}
+				}
+				if succeedsOnRetry {
+					if err != nil || k.Content != "经验 [redacted]" || k.ConversationID != conversation.ID || k.HostID != "host" || k.ID != "" {
+						t.Fatalf("recovered draft: %+v %v", k, err)
+					}
+				} else if err == nil || !strings.Contains(err.Error(), tc.wantError) || k.Content != "" {
+					t.Fatalf("invalid response was accepted or misreported: %+v %v", k, err)
+				}
+			}
+		})
+	}
+}
+
+func TestSummaryDraftDoesNotRetryProviderErrorsOrCancellation(t *testing.T) {
+	conversation := history.Conversation{Messages: []history.Message{{Role: "user", Content: "资料"}}}
+	for _, errorTurn := range []bool{false, true} {
+		p := &knowledgeProvider{reply: func(agent.Callbacks) (agent.Turn, error) {
+			if errorTurn {
+				return agent.Turn{Type: "error", Error: "API secret-test-value"}, nil
+			}
+			return agent.Turn{}, errors.New("API secret-test-value")
+		}}
+		_, err := summaryDraft(context.Background(), p, conversation, "", redact.New("secret-test-value"))
+		if err == nil || strings.Contains(err.Error(), "secret-test-value") || !strings.Contains(err.Error(), "[redacted]") || len(p.requests) != 1 {
+			t.Fatalf("provider error: %v (%d calls)", err, len(p.requests))
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	p := &knowledgeProvider{reply: func(agent.Callbacks) (agent.Turn, error) {
+		cancel()
+		return agent.Turn{Type: "ask_user", Message: "追问"}, nil
+	}}
+	if _, err := summaryDraft(ctx, p, conversation, "", redact.New()); err == nil || len(p.requests) != 1 {
+		t.Fatalf("canceled request retried: %v (%d calls)", err, len(p.requests))
+	}
+}
 func TestSummaryDraftPreservesSourceAndRejectsProposals(t *testing.T) {
 	c := history.Conversation{ID: "2026.09-test", Title: "服务排障", Messages: []history.Message{{Role: "system", Content: "hidden"}, {Role: "user", Content: "检查 secret-test-value"}, {Role: "assistant", Content: "建议检查日志；结果未确认"}}}
 	p := &knowledgeProvider{turn: agent.Turn{Type: "finished", Message: "经验 secret-test-value"}}
@@ -100,6 +178,9 @@ func TestSummaryDraftPreservesSourceAndRejectsProposals(t *testing.T) {
 	}
 	if strings.Contains(p.request.Prompt, "secret-test-value") || strings.Contains(p.request.Prompt, "hidden") || p.request.SessionID != "" {
 		t.Fatal("summary leaked secret or reused live context")
+	}
+	if len(p.requests) != 1 {
+		t.Fatal("valid summary was retried")
 	}
 	p.turn = agent.Turn{Type: "command_proposal", Proposal: &agent.Proposal{Command: "rm -rf /"}, Message: "执行这个"}
 	if _, err := summaryDraft(context.Background(), p, c, "host", redact.New()); err == nil {
@@ -123,6 +204,10 @@ func TestSummarizeConversationUsesConfiguredAIWithoutOpeningSSH(t *testing.T) {
 		if body["model"] != "summary-test" {
 			t.Errorf("wrong model: %v", body["model"])
 		}
+		encoded, _ := json.Marshal(body["messages"])
+		if !strings.Contains(string(encoded), "会话资料总结助手") || !strings.Contains(string(encoded), "source-start") || !strings.Contains(string(encoded), "source-end") || strings.Contains(string(encoded), "正在本机包装一个真实的 OpenSSH 会话") {
+			t.Error("summary lost instructions/source or inherited SSH role")
+		}
 		response, _ := json.Marshal(map[string]any{"type": "finished", "message": "问题已确认，建议仍待验证", "proposal": nil, "panelActions": []any{}})
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(response)}}}})
 	}))
@@ -134,7 +219,7 @@ func TestSummarizeConversationUsesConfiguredAIWithoutOpeningSSH(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.history.Append("profile:"+host.ID, history.Message{ConversationID: c.ID, Role: "user", Content: "请检查服务"}); err != nil {
+	if err := s.history.Append("profile:"+host.ID, history.Message{ConversationID: c.ID, Role: "user", Content: "source-start" + strings.Repeat("检查服务", 3000) + "source-end"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.SummarizeConversation(other.ID, c.ID); err == nil || called {

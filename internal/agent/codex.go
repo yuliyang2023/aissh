@@ -866,6 +866,11 @@ func parseCodexInvocationJSONLLocalized(data []byte, localizer i18n.Localizer) (
 }
 
 func buildCodexPrompt(request Request, history []codexHistory, input string) string {
+	if request.SystemContext["conversation_summary"] == "true" {
+		// The ordinary chat input retains only the last 8,000 characters, which
+		// can remove the summary instructions along with the start of its source.
+		return request.Prompt
+	}
 	if request.SystemContext["catalog_assistant"] != "" {
 		return buildCatalogPrompt(request, history, input)
 	}
@@ -942,6 +947,9 @@ func buildCodexPrompt(request Request, history []codexHistory, input string) str
 }
 
 func buildCodexContinuationPrompt(request Request, input string) string {
+	if request.SystemContext["conversation_summary"] == "true" {
+		return request.Prompt
+	}
 	if request.SystemContext["catalog_assistant"] != "" {
 		return buildCatalogPrompt(request, nil, input)
 	}
