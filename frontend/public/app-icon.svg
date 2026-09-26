@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#122B48"/>
+      <stop offset=".52" stop-color="#111A34"/>
+      <stop offset="1" stop-color="#251B45"/>
+    </linearGradient>
+    <radialGradient id="cyan-haze" cx="52" cy="40" r="210" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2FCBE8" stop-opacity=".15"/>
+      <stop offset="1" stop-color="#2FCBE8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="violet-haze" cx="220" cy="228" r="180" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9564EF" stop-opacity=".17"/>
+      <stop offset="1" stop-color="#9564EF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="spectrum" x1="48" y1="64" x2="208" y2="201" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#66E9F2"/>
+      <stop offset=".32" stop-color="#7BA9FF"/>
+      <stop offset=".6" stop-color="#BB95FA"/>
+      <stop offset=".82" stop-color="#F29BCB"/>
+      <stop offset="1" stop-color="#FFD09A"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="174" y1="42" x2="210" y2="84" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8CF4F5"/>
+      <stop offset=".36" stop-color="#B2C4FF"/>
+      <stop offset=".7" stop-color="#E6ADF5"/>
+      <stop offset="1" stop-color="#FFD9A4"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#tile)"/>
+  <rect width="256" height="256" rx="56" fill="url(#cyan-haze)"/>
+  <rect width="256" height="256" rx="56" fill="url(#violet-haze)"/>
+  <rect x="1" y="1" width="254" height="254" rx="55" stroke="url(#spectrum)" stroke-opacity=".22" stroke-width="2"/>
+  <path d="M156 64H76C60.536 64 48 76.536 48 92V173C48 188.464 60.536 201 76 201H180C195.464 201 208 188.464 208 173V110" stroke="url(#spectrum)" stroke-width="7" stroke-linecap="round"/>
+  <path d="M82 106L111 133L82 160M137 163H173" stroke="#EDF7FF" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M192 34C196.4 53.2 200.8 57.6 220 62C200.8 66.4 196.4 70.8 192 90C187.6 70.8 183.2 66.4 164 62C183.2 57.6 187.6 53.2 192 34Z" fill="url(#spark)"/>
+</svg>

@@ -606,7 +606,7 @@ export function App() {
         </div>
         <div className="workspace-identity">
           <span className="workspace-mark">
-            <TerminalSquare size={22} />
+            <img src="./app-icon.svg" width={38} height={38} alt="" />
           </span>
           <div>
             <strong>

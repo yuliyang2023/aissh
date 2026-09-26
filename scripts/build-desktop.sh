@@ -20,6 +20,7 @@ case "$(uname -s)" in
    mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
    "$go_command" build -tags desktop,production -trimpath -ldflags "-s -w" -o "$bundle/Contents/MacOS/aissh-desktop" ./cmd/aissh-desktop
    cp bin/aissh "$bundle/Contents/Resources/aissh"
+   cp build/desktop/app-icon.icns "$bundle/Contents/Resources/app-icon.icns"
    cp build/desktop/Info.plist "$bundle/Contents/Info.plist"
    codesign --force --deep --sign - "$bundle"
    printf 'Built: %s/%s\n' "$project_dir" "$bundle"
