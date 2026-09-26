@@ -1,10 +1,11 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { FolderOpen, Plus, KeyRound, ShieldCheck } from 'lucide-react';
 import {
   AIProfile,
   api,
   Catalog,
   Credential,
+  defaultHostName,
   errorText,
   Host,
   newCredential,
@@ -249,6 +250,27 @@ export function CredentialField({
     </Field>
   );
 }
+export function HostNameField({
+  host,
+  data,
+  onChange,
+}: {
+  host: Host;
+  data: Catalog;
+  onChange: (name: string) => void;
+}) {
+  return (
+    <Field label="主机名称（可选）" hint="留空自动使用用户名、地址和端口。">
+      <input
+        value={host.name}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={defaultHostName(host, data) || '用户名@地址:端口'}
+        maxLength={100}
+      />
+    </Field>
+  );
+}
+
 export function HostEditor({
   item,
   data,
@@ -257,6 +279,8 @@ export function HostEditor({
   createCredential,
 }: { item: Host; data: Catalog; createCredential: CredentialChooser } & Base) {
   const [value, set] = useState({ ...item });
+  const addressRef = useRef<HTMLInputElement>(null);
+  useEffect(() => addressRef.current?.focus(), []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const field = (key: keyof Host, v: string | number) => set((p) => ({ ...p, [key]: v }));
@@ -275,135 +299,131 @@ export function HostEditor({
   }
   return (
     <Modal
+      className="connection-modal"
       title={item.id ? '编辑主机' : '添加主机'}
-      subtitle="保存连接信息，下一次点击即可进入 SSH 工作台。"
+      subtitle="填写连接信息即可保存，主机名称会自动生成。"
       onClose={() => !busy && onClose()}
     >
       <form onSubmit={save}>
-        <fieldset disabled={busy}>
-          <Field label="主机名称">
-            <input
-              autoFocus
-              required
-              value={value.name}
-              onChange={(e) => field('name', e.target.value)}
-              placeholder="例如：生产应用服务器"
-              maxLength={100}
-            />
-          </Field>
-          <div className="form-row address-row">
-            <Field label="主机地址">
-              <input
-                required
-                value={value.address}
-                onChange={(e) => field('address', e.target.value)}
-                placeholder="IP 地址或主机名"
-                autoComplete="off"
-              />
-            </Field>
-            <Field label="端口">
-              <input
-                type="number"
-                required
-                min={1}
-                max={65535}
-                value={value.port}
-                onChange={(e) => field('port', Number(e.target.value))}
-              />
-            </Field>
-          </div>
-          <div className="form-row">
+        <div className="connection-fields">
+          <fieldset disabled={busy}>
+            <div className="form-row address-row">
+              <Field label="主机地址">
+                <input
+                  ref={addressRef}
+                  required
+                  value={value.address}
+                  onChange={(e) => field('address', e.target.value)}
+                  placeholder="IP 地址或主机名"
+                  autoComplete="off"
+                />
+              </Field>
+              <Field label="端口">
+                <input
+                  type="number"
+                  required
+                  min={1}
+                  max={65535}
+                  value={value.port}
+                  onChange={(e) => field('port', Number(e.target.value))}
+                />
+              </Field>
+            </div>
             <Field label="SSH 用户名">
               <input
                 value={value.user}
                 onChange={(e) => field('user', e.target.value)}
-                placeholder="默认使用凭据中的账号"
+                placeholder="留空则使用凭据账号或本机用户名"
                 autoComplete="off"
               />
             </Field>
-            <Field label="分组">
-              <input
-                value={value.group}
-                onChange={(e) => field('group', e.target.value)}
-                placeholder="例如：生产环境"
-                list="host-groups"
-              />
-              <datalist id="host-groups">
-                {[...new Set(data.hosts.map((h) => h.group).filter(Boolean))].map((g) => (
-                  <option key={g}>{g}</option>
-                ))}
-              </datalist>
-            </Field>
-          </div>
-          <CredentialField
-            data={data}
-            value={value.credentialId}
-            kinds={['password', 'key', 'agent']}
-            onChange={(v) => field('credentialId', v)}
-            onNew={() => createCredential((c) => field('credentialId', c.id))}
-          />
-          <Field label="跳板机">
-            <select value={value.jumpHostId} onChange={(e) => field('jumpHostId', e.target.value)}>
-              <option value="">直接连接</option>
-              {data.hosts
-                .filter((h) => h.id !== item.id)
-                .map((h) => (
-                  <option value={h.id} key={h.id}>
-                    {h.name}
-                  </option>
-                ))}
-            </select>
-          </Field>
-          <details className="advanced">
-            <summary>AI 和本机工作区</summary>
-            <Field label="AI 配置">
-              <select
-                value={value.aiProfileId}
-                onChange={(e) => field('aiProfileId', e.target.value)}
-              >
-                <option value="">跟随默认配置</option>
-                {data.aiProfiles.map((p) => (
-                  <option value={p.id} key={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field
-              label="本机工作区"
-              hint="AI 可以读取的本机项目目录；桌面连接不填则关闭本机文件访问。"
-            >
-              <div className="input-action">
+            <CredentialField
+              data={data}
+              value={value.credentialId}
+              kinds={['password', 'key', 'agent']}
+              onChange={(v) => field('credentialId', v)}
+              onNew={() => createCredential((c) => field('credentialId', c.id))}
+            />
+            <HostNameField host={value} data={data} onChange={(name) => field('name', name)} />
+            <details className="advanced">
+              <summary>更多设置 · 分组、跳板机和 AI</summary>
+              <Field label="分组（可选）">
                 <input
-                  value={value.workspace}
-                  onChange={(e) => field('workspace', e.target.value)}
-                  placeholder="本机项目路径"
+                  value={value.group}
+                  onChange={(e) => field('group', e.target.value)}
+                  placeholder="例如：生产环境"
+                  list="host-groups"
                 />
-                <button
-                  type="button"
-                  className="button"
-                  onClick={() =>
-                    void api
-                      .PickWorkspace()
-                      .then((v) => {
-                        if (v) field('workspace', v);
-                      })
-                      .catch((e) => setError(errorText(e)))
-                  }
+                <datalist id="host-groups">
+                  {[...new Set(data.hosts.map((h) => h.group).filter(Boolean))].map((g) => (
+                    <option key={g}>{g}</option>
+                  ))}
+                </datalist>
+              </Field>
+              <Field label="跳板机">
+                <select
+                  value={value.jumpHostId}
+                  onChange={(e) => field('jumpHostId', e.target.value)}
                 >
-                  <FolderOpen size={16} />
-                </button>
-              </div>
-            </Field>
-          </details>
-          <ErrorBox error={error} />
-          <div className="form-actions">
-            <button type="button" className="button" onClick={onClose}>
-              取消
-            </button>
-            <Submit busy={busy} label="保存主机" />
-          </div>
-        </fieldset>
+                  <option value="">直接连接</option>
+                  {data.hosts
+                    .filter((h) => h.id !== item.id)
+                    .map((h) => (
+                      <option value={h.id} key={h.id}>
+                        {h.name}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+              <Field label="AI 配置">
+                <select
+                  value={value.aiProfileId}
+                  onChange={(e) => field('aiProfileId', e.target.value)}
+                >
+                  <option value="">跟随默认配置</option>
+                  {data.aiProfiles.map((p) => (
+                    <option value={p.id} key={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field
+                label="本机工作区"
+                hint="AI 可以读取的本机项目目录；桌面连接不填则关闭本机文件访问。"
+              >
+                <div className="input-action">
+                  <input
+                    value={value.workspace}
+                    onChange={(e) => field('workspace', e.target.value)}
+                    placeholder="本机项目路径"
+                  />
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() =>
+                      void api
+                        .PickWorkspace()
+                        .then((v) => {
+                          if (v) field('workspace', v);
+                        })
+                        .catch((e) => setError(errorText(e)))
+                    }
+                  >
+                    <FolderOpen size={16} />
+                  </button>
+                </div>
+              </Field>
+            </details>
+            <ErrorBox error={error} />
+          </fieldset>
+        </div>
+        <div className="form-actions">
+          <button type="button" className="button" disabled={busy} onClick={onClose}>
+            取消
+          </button>
+          <Submit busy={busy} label="保存主机" />
+        </div>
       </form>
     </Modal>
   );

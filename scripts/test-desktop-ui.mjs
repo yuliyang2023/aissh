@@ -121,13 +121,24 @@ await page.addInitScript(() => {
   };
   window.__test = { data, emit, sessions, conversations, updateSession, writes: [], starts: [], trusted: false, resolutions: [], failStart: false };
 
+  const normalizeHost = (input) => {
+    const host = { ...input, address: input.address.trim(), user: input.user.trim(), port: input.port || 22 };
+    const user = host.user || data.credentials.find(c => c.id === host.credentialId)?.username.trim() || '';
+    const address = host.address.includes(':') ? `[${host.address}]` : host.address;
+    host.name = input.name.trim() || `${user ? user + '@' : ''}${address}:${host.port}`;
+    return host;
+  };
+
   window.go = {
     desktop: {
       Service: {
         Snapshot: async () => JSON.parse(JSON.stringify(data)),
         SaveCredential: async ({ credential, secret }) =>
           save(data.credentials, { ...credential, hasSecret: !!secret || credential.hasSecret }),
-        SaveHost: async (host) => save(data.hosts, host),
+        SaveHost: async (host) => {
+          window.__test.lastHostInput = { ...host };
+          return save(data.hosts, normalizeHost(host));
+        },
         SaveResource: async (resource) => save(data.resources, resource),
         SaveAIProfile: async (profile, defaultProfile) => {
           const p = save(data.aiProfiles, profile);
@@ -186,7 +197,7 @@ await page.addInitScript(() => {
           return { ...c };
         },
         CreateDirectConversation: async (input, saveHost) => {
-          const host = { ...input, id: 'direct-' + Date.now() + '-' + sequence++, name: input.name || (input.user ? input.user + '@' : '') + input.address };
+          const host = { ...normalizeHost(input), id: 'direct-' + Date.now() + '-' + sequence++ };
           if (saveHost) {
             data.hosts.push(host);
             sessionStorage.setItem('test-direct-saved-hosts', JSON.stringify(data.hosts.filter(h => h.id.startsWith('direct-'))));
@@ -324,7 +335,7 @@ try {
   assert.equal(await page.locator('tbody tr').count(), 1);
   await page.getByRole('button', { name: '全部', exact: true }).click();
   await page.getByRole('button', { name: '添加主机', exact: true }).click();
-  await page.getByLabel('主机名称', { exact: true }).fill('新建测试主机');
+  await page.getByLabel(/^主机名称/).fill('新建测试主机');
   await page.getByLabel('主机地址', { exact: true }).fill('192.0.2.30');
   await page.getByRole('button', { name: '新建', exact: true }).click();
   await page.getByLabel('凭据名称', { exact: true }).fill('测试密码');
@@ -338,6 +349,36 @@ try {
   await page.getByText('新建测试主机', { exact: true }).waitFor();
   assert.equal(await page.locator('input[type=password]').count(), 0);
   assert.equal(await page.evaluate(() => localStorage.length), 0);
+  // The optional name previews the current connection and can be saved empty.
+  await page.setViewportSize({ width: 940, height: 650 });
+  await page.getByRole('button', { name: '添加主机', exact: true }).click();
+  const hostDialog = page.getByRole('dialog');
+  const hostName = hostDialog.getByLabel(/^主机名称/);
+  assert.equal(await hostDialog.getByLabel('主机地址', { exact: true }).evaluate(el => el === document.activeElement), true);
+  assert.equal(await hostName.evaluate(el => el.required), false);
+  await hostDialog.getByLabel('主机地址', { exact: true }).fill('192.0.2.31');
+  assert.equal(await hostName.getAttribute('placeholder'), '192.0.2.31:22');
+  await hostDialog.getByLabel(/^登录凭据/).selectOption({ label: '测试密码' });
+  assert.equal(await hostName.getAttribute('placeholder'), 'tester@192.0.2.31:22');
+  await hostDialog.getByLabel('SSH 用户名', { exact: true }).fill('deploy');
+  await hostDialog.getByLabel('端口', { exact: true }).fill('2222');
+  assert.equal(await hostName.getAttribute('placeholder'), 'deploy@192.0.2.31:2222');
+  await hostDialog.getByLabel('主机地址', { exact: true }).fill('2001:db8::31');
+  assert.equal(await hostName.getAttribute('placeholder'), 'deploy@[2001:db8::31]:2222');
+  await hostDialog.getByLabel('主机地址', { exact: true }).fill('192.0.2.31');
+  await page.screenshot({ path: path.join(out, 'host-form-optional-name.png') });
+  await hostDialog.locator('summary').click();
+  await hostDialog.getByLabel(/^分组（可选）/).fill('测试分组');
+  assert.equal(await hostDialog.getByRole('button', { name: '保存主机', exact: true }).evaluate(el => {
+    const button = el.getBoundingClientRect();
+    const modal = el.closest('dialog').getBoundingClientRect();
+    return button.top >= modal.top && button.bottom <= modal.bottom && button.bottom <= innerHeight;
+  }), true, 'Host save action must remain visible with advanced settings expanded');
+  await page.screenshot({ path: path.join(out, 'host-form-advanced.png') });
+  await hostDialog.getByRole('button', { name: '保存主机', exact: true }).click();
+  await page.getByText('deploy@192.0.2.31:2222', { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => window.__test.lastHostInput.name), '');
+  await page.setViewportSize({ width: 1280, height: 840 });
   await page.getByRole('textbox', { name: '搜索', exact: true }).fill('192.0.2.30');
   assert.equal(await page.locator('tbody tr').count(), 1);
   await page.getByRole('textbox', { name: '搜索', exact: true }).fill('');
@@ -511,7 +552,7 @@ try {
   await page.screenshot({ path: path.join(out, 'compact.png') });
   // Native menu actions use this same event bridge. Do not discard open sheets.
   await page.evaluate(() => window.__test.emit('desktop-command', 'new-host'));
-  await page.getByLabel('主机名称', { exact: true }).waitFor();
+  await page.getByLabel(/^主机名称/).waitFor();
   await page.evaluate(() => window.__test.emit('desktop-command', 'page:credentials'));
   assert.equal(await page.locator('dialog[open]').count(), 1);
   await page.getByRole('button', { name: '取消', exact: true }).click();
@@ -567,6 +608,7 @@ try {
   const directHost = await page.evaluate(() => window.__test.data.conversationHosts[0].id);
   assert.equal(await page.evaluate(() => window.__test.data.hosts.some(h => h.address === '192.0.2.44')), false);
   assert.equal(await page.evaluate(() => window.__test.sessions[0].port), 2222);
+  assert.equal(await page.evaluate(() => window.__test.data.conversationHosts[0].name), 'deploy@192.0.2.44:2222');
   await page.evaluate(() => window.__test.updateSession(window.__test.sessions[0].id, 'ended'));
   await page.getByRole('button', { name: '重新连接', exact: true }).click();
   await page.waitForFunction(() => window.__test.starts.length === 2);

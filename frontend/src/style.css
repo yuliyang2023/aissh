@@ -444,11 +444,11 @@ h1 {
   width: 100%;
   margin-bottom: 16px;
 }
-.new-conversation-modal[open] {
+.connection-modal[open] {
   display: block;
   overflow: hidden;
 }
-.new-conversation-fields {
+.connection-fields {
   max-height: calc(100vh - 290px);
   overflow-y: auto;
   padding: 4px;

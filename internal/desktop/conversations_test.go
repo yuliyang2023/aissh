@@ -136,7 +136,7 @@ func TestDirectConversationCanStayOutsideHostLibrary(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if created.Host.ID == original.ID || created.Host.Name != "ops@direct.example" || created.Conversation.HostID != created.Host.ID {
+			if created.Host.ID == original.ID || created.Host.Name != "ops@direct.example:2222" || created.Conversation.HostID != created.Host.ID {
 				t.Fatalf("bad target: %+v", created)
 			}
 			d, err := s.Snapshot()

@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"git.example.com/ai/wrd-ai-cli/internal/credentialui"
@@ -161,15 +163,32 @@ func (s *Store) SaveCredential(in CredentialInput) (Credential, error) {
 	}
 	return c, nil
 }
-func (s *Store) SaveHost(h Host) (Host, error) {
-	if h.ID == "" {
-		h.ID = NewID()
-	}
+func (d Data) normalizeHost(h Host) Host {
 	if h.Port == 0 {
 		h.Port = 22
 	}
 	h.Name, h.Address = strings.TrimSpace(h.Name), strings.TrimSpace(h.Address)
+	h.User = strings.TrimSpace(h.User)
+	if h.Name == "" {
+		user := h.User
+		if user == "" && h.CredentialID != "" {
+			credential, _ := d.Credential(h.CredentialID)
+			user = strings.TrimSpace(credential.Username)
+		}
+		h.Name = net.JoinHostPort(h.Address, strconv.Itoa(h.Port))
+		if user != "" {
+			h.Name = user + "@" + h.Name
+		}
+	}
+	return h
+}
+
+func (s *Store) SaveHost(h Host) (Host, error) {
+	if h.ID == "" {
+		h.ID = NewID()
+	}
 	err := s.mutate(func(d *Data) error {
+		h = d.normalizeHost(h)
 		i := slices.IndexFunc(d.Hosts, func(v Host) bool { return v.ID == h.ID })
 		if i < 0 {
 			d.Hosts = append(d.Hosts, h)
@@ -186,22 +205,11 @@ func (s *Store) SaveHost(h Host) (Host, error) {
 // cannot overwrite a saved host or redirect an existing conversation.
 func (s *Store) CreateConversationHost(h Host, saveHost bool) (Host, error) {
 	h.ID = NewID()
-	h.Address = strings.TrimSpace(h.Address)
-	h.User = strings.TrimSpace(h.User)
-	h.Name = strings.TrimSpace(h.Name)
-	if h.Name == "" {
-		h.Name = h.Address
-		if h.User != "" {
-			h.Name = h.User + "@" + h.Address
-		}
-	}
-	if h.Port == 0 {
-		h.Port = 22
-	}
 	if saveHost {
 		return s.SaveHost(h)
 	}
 	err := s.mutate(func(d *Data) error {
+		h = d.normalizeHost(h)
 		d.ConversationHosts = append(d.ConversationHosts, h)
 		return nil
 	})

@@ -169,6 +169,16 @@ export const emptyCatalog: Catalog = {
   defaultAIProfileId: '',
 };
 export const allHosts = (data: Catalog) => [...data.hosts, ...(data.conversationHosts || [])];
+export function defaultHostName(host: Host, data: Catalog): string {
+  const address = host.address.trim();
+  if (!address) return '';
+  const user =
+    host.user.trim() ||
+    data.credentials.find((credential) => credential.id === host.credentialId)?.username.trim() ||
+    '';
+  const endpoint = `${address.includes(':') ? `[${address}]` : address}:${host.port || 22}`;
+  return user ? `${user}@${endpoint}` : endpoint;
+}
 export const newHost = (): Host => ({
   id: '',
   name: '',

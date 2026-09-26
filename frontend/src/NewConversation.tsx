@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { allHosts, Catalog, Credential, Host, newHost } from './api';
 import { ErrorBox, Field, Modal, Submit } from './components';
-import { CredentialField } from './forms';
+import { CredentialField, HostNameField } from './forms';
 
 export type NewConversationInput =
   | { kind: 'existing'; hostId: string }
@@ -51,7 +51,7 @@ export function NewConversation({
     setHost((previous) => ({ ...previous, [key]: value }));
   return (
     <Modal
-      className="new-conversation-modal"
+      className="new-conversation-modal connection-modal"
       title="新建 AI 对话"
       subtitle="选择已有连接，或直接填写服务器信息开始对话。"
       onClose={() => !busy && onClose()}
@@ -67,7 +67,7 @@ export function NewConversation({
           );
         }}
       >
-        <div className="new-conversation-fields">
+        <div className="connection-fields">
           <fieldset disabled={busy}>
             <div className="filter-tabs new-conversation-mode" role="group" aria-label="连接来源">
               <button
@@ -183,14 +183,11 @@ export function NewConversation({
                 </label>
                 {saveHost ? (
                   <div className="form-row">
-                    <Field label="主机名称" hint="可留空，默认使用账号和地址。">
-                      <input
-                        value={host.name}
-                        maxLength={100}
-                        onChange={(e) => field('name', e.target.value)}
-                        placeholder="例如：生产应用服务器"
-                      />
-                    </Field>
+                    <HostNameField
+                      host={host}
+                      data={data}
+                      onChange={(name) => field('name', name)}
+                    />
                     <Field label="分组">
                       <input
                         value={host.group}
