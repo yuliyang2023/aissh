@@ -49,7 +49,8 @@ import {
 import { AIEditor, CredentialEditor, HostEditor, ResourceEditor } from './forms';
 import { Empty, ErrorBox, Modal } from './components';
 import { Workbench } from './Workbench';
-import { SessionSidebar, conversationSession } from './SessionSidebar';
+import { SessionSidebar } from './SessionSidebar';
+import { conversationSession, sessionItemKey } from './session-items';
 import { useStoredFlag, useStoredStringSet } from './layout';
 import { Conversations, conversationKey } from './Conversations';
 import { NewConversation, NewConversationInput } from './NewConversation';
@@ -90,6 +91,9 @@ export function App() {
   const [sidebarVisible, setSidebarVisible] = useStoredFlag('aissh.sidebar.visible', true);
   const [removedSidebarHosts, setRemovedSidebarHosts] = useStoredStringSet(
     'aissh.sidebar.removedHosts',
+  );
+  const [hiddenSidebarItems, setHiddenSidebarItems] = useStoredStringSet(
+    'aissh.sidebar.hiddenSessions',
   );
   const restoreSidebarHost = (id: string) => {
     setRemovedSidebarHosts((previous) => {
@@ -141,6 +145,40 @@ export function App() {
   const [collapsedConversationHosts, setCollapsedConversationHosts] = useState<Set<string>>(
     new Set(),
   );
+  const restoreSidebarItem = (key: string, hostId: string, sessionId?: string) => {
+    restoreSidebarHost(hostId);
+    setHiddenSidebarItems((previous) => {
+      const next = new Set(previous);
+      next.delete(key);
+      if (sessionId) next.delete('session:' + sessionId);
+      for (const session of sessions) {
+        if (sessionItemKey(session) === key) next.delete('session:' + session.id);
+      }
+      return next.size === previous.size ? previous : next;
+    });
+    setCollapsedConversationHosts((previous) => {
+      if (!previous.has(hostId)) return previous;
+      const next = new Set(previous);
+      next.delete(hostId);
+      return next;
+    });
+  };
+  useEffect(() => {
+    // A plain SSH session can gain a saved conversation after its first AI message.
+    // Carry its hidden state over to the persistent conversation key.
+    setHiddenSidebarItems((previous) => {
+      const next = new Set(previous);
+      let changed = false;
+      for (const session of sessions) {
+        if (session.conversationId && previous.has('session:' + session.id)) {
+          next.add(sessionItemKey(session));
+          next.delete('session:' + session.id);
+          changed = true;
+        }
+      }
+      return changed ? next : previous;
+    });
+  }, [sessions, setHiddenSidebarItems]);
   const [selectedConversation, setSelectedConversation] = useState('');
   const [newConversationHost, setNewConversationHost] = useState<string | null>(null);
   const [conversationError, setConversationError] = useState('');
@@ -266,7 +304,7 @@ export function App() {
         sessionChanges.current++;
         setSessions((v) => [...v.filter((s) => s.id !== session.id), session]);
         setActiveSession(session.id);
-        restoreSidebarHost(session.hostId);
+        restoreSidebarItem(sessionItemKey(session), session.hostId, session.id);
         setPage('terminal');
         setSearch('');
         if (previous && previous.id !== session.id) await removeSession(previous.id);
@@ -473,7 +511,7 @@ export function App() {
     else void removeSession(session.id).catch((e) => setError(errorText(e)));
   };
   const openSession = (session: Session) => {
-    restoreSidebarHost(session.hostId);
+    restoreSidebarItem(sessionItemKey(session), session.hostId, session.id);
     setActiveSession(session.id);
     setConversationHost(session.hostId);
     if (session.conversationId)
@@ -495,6 +533,7 @@ export function App() {
     setSelectedConversation(conversationKey(conversation));
     setConversationHost(conversation.hostId);
     const session = conversationSession(sessions, conversation);
+    restoreSidebarItem(conversationKey(conversation), conversation.hostId, session?.id);
     if (session) openSession(session);
     else goto('conversations');
   };
@@ -646,6 +685,11 @@ export function App() {
             setToast('已从列表移除「' + host.name + '」，可在“已移除服务器”中恢复');
           }}
           onRestoreHost={restoreSidebarHost}
+          hiddenItems={hiddenSidebarItems}
+          onHide={(item) => {
+            setHiddenSidebarItems((previous) => new Set(previous).add(item.key));
+            setToast('已隐藏「' + item.title + '」，可从会话历史恢复');
+          }}
         />
         {conversationError && (
           <div className="sidebar-load-error">

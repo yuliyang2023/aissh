@@ -1,6 +1,8 @@
-import { RefObject } from 'react';
+import { RefObject, useState } from 'react';
 import {
   ChevronRight,
+  EyeOff,
+  History,
   MessageSquare,
   Plus,
   Search,
@@ -10,13 +12,9 @@ import {
   X,
 } from 'lucide-react';
 import { Conversation, Host, Session, sessionLive, sessionStatus } from './api';
-import { conversationKey } from './Conversations';
 import { sessionAddress } from './api';
-
-export function conversationSession(sessions: Session[], c: Conversation) {
-  const matches = sessions.filter((s) => s.hostId === c.hostId && s.conversationId === c.id);
-  return matches.find(sessionLive) || matches[matches.length - 1];
-}
+import { SessionHistory } from './SessionHistory';
+import { SessionItem, sessionItemHidden, sessionItems } from './session-items';
 
 export function SessionSidebar({
   hosts,
@@ -37,6 +35,8 @@ export function SessionSidebar({
   onRemoveHost,
   removedHosts,
   onRestoreHost,
+  hiddenItems,
+  onHide,
 }: {
   hosts: Host[];
   conversations: Conversation[];
@@ -56,7 +56,10 @@ export function SessionSidebar({
   onRemoveHost: (host: Pick<Host, 'id' | 'name'>) => void;
   removedHosts: Set<string>;
   onRestoreHost: (id: string) => void;
+  hiddenItems: Set<string>;
+  onHide: (item: SessionItem) => void;
 }) {
+  const [historyOpen, setHistoryOpen] = useState(false);
   const query = search.trim().toLowerCase();
   // Keep running connections reachable even if their saved host was removed in Settings.
   const groupHosts = [
@@ -77,56 +80,40 @@ export function SessionSidebar({
       })),
   ];
   const removed = groupHosts.filter((host) => removedHosts.has(host.id));
+  const allItems = sessionItems(conversations, sessions);
   const groups = groupHosts
     .filter((host) => !removedHosts.has(host.id))
-    .map((host) => {
-      const items: {
-        key: string;
-        title: string;
-        preview: string;
-        conversation?: Conversation;
-        session?: Session;
-      }[] = conversations
-        .filter((c) => c.hostId === host.id)
-        .map((c) => ({
-          key: conversationKey(c),
-          title: c.title,
-          preview: c.preview || '新的话题',
-          conversation: c,
-          session: conversationSession(sessions, c),
-        }));
-      sessions
-        .filter(
-          (s) =>
-            s.hostId === host.id &&
-            !conversations.some((c) => c.hostId === s.hostId && c.id === s.conversationId),
-        )
-        .forEach((s) =>
-          items.unshift({
-            key: 'session:' + s.id,
-            title: s.name,
-            preview: 'SSH + AI 工作区',
-            session: s,
-          }),
-        );
-      return {
-        host,
-        items: items.filter((item) =>
+    .map((host) => ({
+      host,
+      items: allItems.filter(
+        (item) =>
+          item.hostId === host.id &&
+          !sessionItemHidden(item, hiddenItems) &&
           [item.title, item.preview, host.name, host.address, host.user, host.group]
             .join(' ')
             .toLowerCase()
             .includes(query),
-        ),
-      };
-    })
+      ),
+    }))
     .filter((group) => group.items.length);
   return (
     <>
       <div className="session-sidebar-tools">
-        <button className="button primary" disabled={busy} onClick={() => onNew()}>
-          <Plus size={16} />
-          新建会话
-        </button>
+        <div className="session-sidebar-actions">
+          <button className="button primary" disabled={busy} onClick={() => onNew()}>
+            <Plus size={16} />
+            新建会话
+          </button>
+          <button
+            className="button"
+            title="会话历史"
+            aria-label="会话历史"
+            onClick={() => setHistoryOpen(true)}
+          >
+            <History size={16} />
+            历史
+          </button>
+        </div>
         <label className="search">
           <Search size={14} />
           <input
@@ -207,17 +194,28 @@ export function SessionSidebar({
                       )}
                       <strong>{item.title}</strong>
                     </button>
-                    {item.session && (
+                    <div className="session-row-actions">
                       <button
-                        className="icon-button session-close"
-                        title={sessionLive(item.session) ? '断开连接' : '移除已结束的连接'}
-                        aria-label={(sessionLive(item.session) ? '断开 ' : '移除 ') + item.title}
+                        className="icon-button"
+                        title="隐藏会话，可从历史恢复"
+                        aria-label={'隐藏 ' + item.title}
                         disabled={busy}
-                        onClick={() => onClose(item.session!)}
+                        onClick={() => onHide(item)}
                       >
-                        <X size={13} />
+                        <EyeOff size={13} />
                       </button>
-                    )}
+                      {item.session && (
+                        <button
+                          className="icon-button session-close"
+                          title={sessionLive(item.session) ? '断开连接' : '移除已结束的连接'}
+                          aria-label={(sessionLive(item.session) ? '断开 ' : '移除 ') + item.title}
+                          disabled={busy}
+                          onClick={() => onClose(item.session!)}
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -228,7 +226,13 @@ export function SessionSidebar({
           <div className="sidebar-empty">
             <TerminalSquare size={22} />
             <p>{query ? '没有匹配的会话' : '从一个新会话开始'}</p>
-            <small>{query ? '试试其他关键词' : '连接服务器后，对话和 SSH 会一起保存在这里'}</small>
+            <small>
+              {query
+                ? '试试其他关键词'
+                : allItems.length
+                  ? '隐藏的会话可在“历史”中找回'
+                  : '连接服务器后，对话和 SSH 会一起保存在这里'}
+            </small>
           </div>
         )}
       </div>
@@ -251,6 +255,22 @@ export function SessionSidebar({
             ))}
           </div>
         </details>
+      )}
+      {historyOpen && (
+        <SessionHistory
+          items={allItems}
+          hosts={groupHosts}
+          hiddenItems={hiddenItems}
+          removedHosts={removedHosts}
+          busy={busy}
+          onClose={() => setHistoryOpen(false)}
+          onSelect={(item) => {
+            onSearch('');
+            if (item.conversation) onSelect(item.conversation);
+            else onOpen(item.session);
+            setHistoryOpen(false);
+          }}
+        />
       )}
     </>
   );
