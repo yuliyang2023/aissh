@@ -84,7 +84,10 @@ export function App() {
   const [data, setData] = useState<Catalog>(emptyCatalog);
   const connectionHosts = allHosts(data);
   const [page, setPage] = useState<Page>('conversations');
-  const [monitorInventoryRequest, setMonitorInventoryRequest] = useState(0);
+  const [monitorInventoryRequest, setMonitorInventoryRequest] = useState({
+    sequence: 0,
+    sessionId: '',
+  });
   const [sidebarVisible, setSidebarVisible] = useStoredFlag('aissh.sidebar.visible', true);
   const [lastSettings, setLastSettings] = useState<SettingsPage>('hosts');
   const isSettings = settingsPages.some((item) => item.id === page);
@@ -637,7 +640,9 @@ export function App() {
           <nav aria-label="管理菜单">
             <button
               className="settings-entry"
-              onClick={() => setMonitorInventoryRequest((v) => v + 1)}
+              onClick={() =>
+                setMonitorInventoryRequest((v) => ({ sequence: v.sequence + 1, sessionId: '' }))
+              }
             >
               <Activity size={18} />
               <span>告警监控</span>
@@ -1429,6 +1434,12 @@ export function App() {
                 }
                 session={s}
                 active={page === 'terminal' && activeSession === s.id}
+                onOpenMonitoring={() =>
+                  setMonitorInventoryRequest((v) => ({
+                    sequence: v.sequence + 1,
+                    sessionId: s.id,
+                  }))
+                }
                 onReconnect={() => {
                   const host = connectionHosts.find((h) => h.id === s.hostId);
                   if (host) void hostAction(host, false, s);

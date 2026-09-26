@@ -14,7 +14,7 @@ export function Monitoring({
   onOpenSession: (id: string) => void;
   sessions: Session[];
   activeSession: string;
-  inventoryRequest: number;
+  inventoryRequest: { sequence: number; sessionId: string };
 }) {
   const [state, setState] = useState<MonitoringState | null>(null);
   const [opened, setOpened] = useState(false);
@@ -26,11 +26,28 @@ export function Monitoring({
   const [aiOpen, setAIOpen] = useState(false);
   const [aiPrompt, setAIPrompt] = useState('');
   const [aiSession, setAISession] = useState('');
+  const [scopeSession, setScopeSession] = useState('');
   const live = sessions.filter(sessionLive);
+  const targets = scopeSession ? live.filter((s) => s.id === scopeSession) : live;
   const target =
-    live.find((s) => s.id === aiSession) || live.find((s) => s.id === activeSession) || live[0];
+    targets.find((s) => s.id === aiSession) ||
+    targets.find((s) => s.id === activeSession) ||
+    targets[0];
+  const scopeName = sessions.find((s) => s.id === scopeSession)?.name || '已结束的会话';
+  const scopedState =
+    state && scopeSession
+      ? {
+          ...state,
+          monitors: (state.monitors || []).filter((m) => m.sessionId === scopeSession),
+          incidents: state.incidents.filter((i) => i.sessionId === scopeSession),
+        }
+      : state;
   useEffect(() => {
-    if (inventoryRequest) {
+    if (inventoryRequest.sequence) {
+      setScopeSession(inventoryRequest.sessionId);
+      setAISession(inventoryRequest.sessionId);
+      setAIOpen(false);
+      setAIPrompt('');
       setView('monitors');
       setEditing(null);
       setOpened(true);
@@ -55,6 +72,10 @@ export function Monitoring({
         !document.querySelector('dialog[open]')
       ) {
         setView(command === 'monitor-inventory' ? 'monitors' : 'incidents');
+        setScopeSession('');
+        setAISession('');
+        setAIOpen(false);
+        setAIPrompt('');
         setEditing(null);
         setOpened(true);
       }
@@ -87,27 +108,36 @@ export function Monitoring({
       setBusy(false);
     }
   }
-  const active = state?.incidents.filter((i) => i.status === 'firing') || [];
+  const allActive = state?.incidents.filter((i) => i.status === 'firing') || [];
+  const active = scopedState?.incidents.filter((i) => i.status === 'firing') || [];
   const muted = !!state && Date.parse(state.snoozedUntil) > Date.now();
   return (
     <>
       <button
-        className={'icon-button monitoring-launch ' + (active.length ? 'has-alerts' : '')}
-        aria-label={`告警监控${active.length ? `，${active.length} 个问题` : ''}`}
+        className={'icon-button monitoring-launch ' + (allActive.length ? 'has-alerts' : '')}
+        aria-label={`告警监控${allActive.length ? `，${allActive.length} 个问题` : ''}`}
         title="告警监控 · 桌宠"
         onClick={() => {
+          setScopeSession('');
+          setAISession('');
+          setAIOpen(false);
+          setAIPrompt('');
           setView('incidents');
           setEditing(null);
           setOpened(true);
         }}
       >
         <Bell size={17} />
-        {active.length > 0 && <span>{active.length}</span>}
+        {allActive.length > 0 && <span>{allActive.length}</span>}
       </button>
       {opened && (
         <Modal
           title="告警监控"
-          subtitle="独立告警任务 · 后台检查 · 桌宠提醒"
+          subtitle={
+            scopeSession
+              ? `${scopeName} · 当前会话的任务与问题记录`
+              : '独立告警任务 · 后台检查 · 桌宠提醒'
+          }
           wide
           className="monitoring-modal"
           onClose={() => {
@@ -119,7 +149,25 @@ export function Monitoring({
         >
           <div className="monitoring-body">
             <ErrorBox error={error || state?.error || ''} />
-            {!state ? (
+            {scopeSession && (
+              <div className="monitoring-session-scope">
+                <span>
+                  当前会话：<strong>{scopeName}</strong>
+                </span>
+                <button
+                  className="button small"
+                  disabled={busy}
+                  onClick={() => {
+                    setScopeSession('');
+                    setAIOpen(false);
+                    setAIPrompt('');
+                  }}
+                >
+                  查看全部会话
+                </button>
+              </div>
+            )}
+            {!state || !scopedState ? (
               <p>正在读取监控状态…</p>
             ) : (
               <>
@@ -135,7 +183,9 @@ export function Monitoring({
                             : '暂无已触发的告警'}
                     </strong>
                     <small>
-                      {state.liveSessions} 个会话有告警任务
+                      {scopeSession
+                        ? `${scopedState.monitors.length} 个告警任务`
+                        : `${state.liveSessions} 个会话有告警任务`}
                       {muted && ` · 静音至 ${new Date(state.snoozedUntil).toLocaleTimeString()}`}
                     </small>
                   </div>
@@ -145,7 +195,13 @@ export function Monitoring({
                     onClick={() => void act(() => api.SnoozeAlerts(muted ? 0 : 15))}
                   >
                     <BellOff size={14} />
-                    {muted ? '恢复提醒' : '静音 15 分钟'}
+                    {scopeSession
+                      ? muted
+                        ? '恢复全局提醒'
+                        : '全局静音 15 分钟'
+                      : muted
+                        ? '恢复提醒'
+                        : '静音 15 分钟'}
                   </button>
                 </div>
                 <div className="monitoring-pet-setting">
@@ -172,7 +228,7 @@ export function Monitoring({
                       setEditing(null);
                     }}
                   >
-                    告警任务（{state.monitors?.length || 0}）
+                    告警任务（{scopedState.monitors?.length || 0}）
                   </button>
                   <button
                     className={'button small ' + (view === 'incidents' ? 'primary' : '')}
@@ -200,7 +256,7 @@ export function Monitoring({
                   </button>
                   <button
                     className="button small"
-                    disabled={busy || !live.length}
+                    disabled={busy || !target}
                     onClick={() => setAIOpen(!aiOpen)}
                   >
                     <Sparkles size={14} />
@@ -228,9 +284,11 @@ export function Monitoring({
                     <Field label="监控哪个会话">
                       <select
                         value={target?.id || ''}
+                        disabled={!!scopeSession || busy}
                         onChange={(e) => setAISession(e.target.value)}
                       >
-                        {live.map((s) => (
+                        {!target && <option value="">当前会话未连接</option>}
+                        {targets.map((s) => (
                           <option key={s.id} value={s.id}>
                             {s.name}
                           </option>
@@ -260,7 +318,9 @@ export function Monitoring({
                 )}
                 {view === 'monitors' && (
                   <MonitorInventory
-                    state={state}
+                    key={scopeSession}
+                    scoped={!!scopeSession}
+                    state={scopedState}
                     busy={busy}
                     onOpenSession={(id) => void act(() => api.OpenMonitorSession(id))}
                     onAction={(id, panelId, kind) =>
@@ -357,7 +417,7 @@ export function Monitoring({
                       问题恢复时提醒
                     </label>
                     <p className="monitoring-note">
-                      这里管理告警任务的采集失败、数据过期和断线提醒。业务阈值与持续时间由每个告警任务单独配置；实时面板不参与判定。
+                      此策略适用于所有会话的告警任务，管理采集失败、数据过期和断线提醒。业务阈值与持续时间由每个告警任务单独配置；实时面板不参与判定。
                     </p>
                     <button className="button primary" disabled={busy}>
                       保存提醒策略
@@ -365,14 +425,14 @@ export function Monitoring({
                   </form>
                 ) : view === 'incidents' ? (
                   <div className="alert-history" aria-label="问题记录">
-                    {state.incidents.length === 0 ? (
+                    {scopedState.incidents.length === 0 ? (
                       <div className="alert-empty">
                         <Check size={24} />
                         <strong>暂时没有问题记录</strong>
                         <p>在「告警任务」中添加需要提醒的项目，触发和恢复会记录在这里。</p>
                       </div>
                     ) : (
-                      [...state.incidents]
+                      [...scopedState.incidents]
                         .sort(
                           (a, b) => Number(b.status === 'firing') - Number(a.status === 'firing'),
                         )

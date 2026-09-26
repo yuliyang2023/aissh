@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDown, Send, Sparkles } from 'lucide-react';
+import { ArrowDown, Bell, Send, Sparkles } from 'lucide-react';
 import { api, errorText, Session, sessionLive, WorkbenchCommand, WorkbenchState } from './api';
 import { Empty, ErrorBox } from './components';
 import { Terminal } from './Terminal';
@@ -15,12 +15,14 @@ export function Workbench({
   title,
   onReconnect,
   canReconnect,
+  onOpenMonitoring,
 }: {
   session: Session;
   active: boolean;
   title: string;
   onReconnect: () => void;
   canReconnect: boolean;
+  onOpenMonitoring: () => void;
 }) {
   const [state, setState] = useState<WorkbenchState | null>(null);
   const [error, setError] = useState('');
@@ -113,6 +115,17 @@ export function Workbench({
               {session.name} · {sessionAddress(session)}
             </small>
           </div>
+          <button
+            type="button"
+            className="button small session-monitoring-entry"
+            aria-label="当前会话告警监控"
+            onClick={onOpenMonitoring}
+            title="查看当前会话的告警任务和问题记录"
+          >
+            <Bell size={14} />
+            告警监控
+            {!!state?.alertMonitors?.length && <span>{state.alertMonitors.length}</span>}
+          </button>
         </header>
         <div
           className="native-chat-messages"

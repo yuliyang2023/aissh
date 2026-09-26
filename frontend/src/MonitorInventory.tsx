@@ -26,11 +26,13 @@ export function MonitorInventory({
   busy,
   onOpenSession,
   onAction,
+  scoped = false,
 }: {
   state: MonitoringState;
   busy: boolean;
   onOpenSession: (id: string) => void;
   onAction: (id: string, panelId: string, kind: 'alert-refresh' | 'alert-close') => void;
+  scoped?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [session, setSession] = useState('');
@@ -65,18 +67,20 @@ export function MonitorInventory({
             onChange={(e) => setQuery(e.target.value)}
           />
         </label>
-        <select
-          aria-label="筛选监控会话"
-          value={filter}
-          onChange={(e) => setSession(e.target.value)}
-        >
-          <option value="">全部会话</option>
-          {sessions.map(([id, name]) => (
-            <option key={id} value={id}>
-              {name}
-            </option>
-          ))}
-        </select>
+        {!scoped && (
+          <select
+            aria-label="筛选监控会话"
+            value={filter}
+            onChange={(e) => setSession(e.target.value)}
+          >
+            <option value="">全部会话</option>
+            {sessions.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       {error && (
         <p className="error-box" role="alert">
@@ -86,7 +90,13 @@ export function MonitorInventory({
       {!visible.length ? (
         <div className="alert-empty">
           <Activity size={24} />
-          <strong>{monitors.length ? '没有匹配的告警任务' : '还没有告警任务'}</strong>
+          <strong>
+            {monitors.length
+              ? '没有匹配的告警任务'
+              : scoped
+                ? '当前会话还没有告警任务'
+                : '还没有告警任务'}
+          </strong>
           <p>
             {monitors.length
               ? '调整搜索条件或切换会话查看。'
