@@ -8,8 +8,20 @@ export function PixelCat({ mood, style = 'classic' }: { mood: PetMood; style?: P
   return style === 'hacker' ? <HackerCat mood={mood} /> : <ClassicCat mood={mood} />;
 }
 
+function AlertEmote({ mood, x, y }: { mood: PetMood; x: number; y: number }) {
+  return (
+    <g transform={`translate(${x} ${y})`}>
+      <g className={`pet-emote pet-alert-emote-${mood}`}>
+        <path d="M0 0h2v6H0z M0 8h2v2H0z" />
+        {mood === 'critical' && <path d="M4 0h2v6H4z M4 8h2v2H4z" />}
+      </g>
+    </g>
+  );
+}
+
 function ClassicCat({ mood }: { mood: PetMood }) {
   const asleep = mood === 'resting';
+  const critical = mood === 'critical';
   const alert = mood === 'warning' || mood === 'critical';
   return (
     <svg
@@ -59,8 +71,24 @@ function ClassicCat({ mood }: { mood: PetMood }) {
                 <path d="M20 18h1v1h-1z M35 18h1v1h-1z" fill="#fff8e8" />
               </g>
             )}
-            {alert && <path d="M19 16h4v1h-4z M35 16h4v1h-4z" />}
-            <path d={alert ? 'M28 24h3v2h-3z' : 'M25 24h1v1h3v-1h1v1h3v-1h1v2h-9z'} />
+            {alert && (
+              <path
+                d={
+                  critical
+                    ? 'M19 15h2v1h2v1h-2v-1h-2z M35 16h2v-1h2v1h-2v1h-2z'
+                    : 'M19 16h4v1h-4z M35 16h4v1h-4z'
+                }
+              />
+            )}
+            <path
+              d={
+                critical
+                  ? 'M27 24h5v3h-5z'
+                  : alert
+                    ? 'M28 24h3v2h-3z'
+                    : 'M25 24h1v1h3v-1h1v1h3v-1h1v2h-9z'
+              }
+            />
           </g>
           <path d="M28 22h3v1h-3z M29 23h1v1h-1z" fill="#ba736b" />
           <path d="M17 23h4v1h-4z M37 23h4v1h-4z" fill="#e8a090" />
@@ -74,7 +102,7 @@ function ClassicCat({ mood }: { mood: PetMood }) {
           fill="#a7b4c9"
         />
       ) : alert ? (
-        <path className="pet-emote pet-badge" d="M49 7h2v6h-2z M49 15h2v2h-2z" />
+        <AlertEmote mood={mood} x={48} y={7} />
       ) : (
         <path className="pet-emote" d="M49 8h1v2h2v1h-2v2h-1v-2h-2v-1h2z" fill="#8fc4a3" />
       )}
@@ -84,6 +112,7 @@ function ClassicCat({ mood }: { mood: PetMood }) {
 
 function HackerCat({ mood }: { mood: PetMood }) {
   const asleep = mood === 'resting';
+  const critical = mood === 'critical';
   const alert = mood === 'warning' || mood === 'critical';
   return (
     <svg
@@ -127,9 +156,27 @@ function HackerCat({ mood }: { mood: PetMood }) {
               <path d="M20 18h1v1h-1z M33 18h1v1h-1z" fill="#d9ffec" />
             </g>
           )}
-          {alert && <path className="pet-badge" d="M20 16h4v1h-4z M34 16h4v1h-4z" />}
+          {alert && (
+            <path
+              className="pet-badge"
+              d={
+                critical
+                  ? 'M20 15h2v1h2v1h-2v-1h-2z M34 16h2v-1h2v1h-2v1h-2z'
+                  : 'M20 16h4v1h-4z M34 16h4v1h-4z'
+              }
+            />
+          )}
           <path d="M28 21h2v1h-2z" fill="#6df7b0" />
-          <path d={alert ? 'M28 23h2v2h-2z' : 'M25 23h1v1h2v-1h2v1h2v-1h1v2h-8z'} fill="#9cb7bd" />
+          <path
+            d={
+              critical
+                ? 'M27 23h4v3h-4z'
+                : alert
+                  ? 'M28 23h2v2h-2z'
+                  : 'M25 23h1v1h2v-1h2v1h2v-1h1v2h-8z'
+            }
+            fill="#9cb7bd"
+          />
           <path d="M11 21h6v1h-6z M12 24h5v1h-5z M41 21h6v1h-6z M41 24h5v1h-5z" fill="#5c8b8e" />
         </g>
       </g>
@@ -159,7 +206,7 @@ function HackerCat({ mood }: { mood: PetMood }) {
           fill="#76bca7"
         />
       ) : alert ? (
-        <path className="pet-emote pet-badge" d="M49 6h2v6h-2z M49 14h2v2h-2z" />
+        <AlertEmote mood={mood} x={48} y={6} />
       ) : (
         <g className="pet-emote" fill="#6df7b0">
           <path d="M6 13h2v1H6v1H5v1h1v1h2v1H6v-1H4v-3h2z" />
@@ -172,6 +219,7 @@ function HackerCat({ mood }: { mood: PetMood }) {
 
 function SpaceCat({ mood }: { mood: PetMood }) {
   const asleep = mood === 'resting';
+  const critical = mood === 'critical';
   const alert = mood === 'warning' || mood === 'critical';
   return (
     <svg
@@ -234,9 +282,27 @@ function SpaceCat({ mood }: { mood: PetMood }) {
               <path d="M22 17h1v1h-1z M32 17h1v1h-1z" fill="#fff" />
             </g>
           )}
-          {alert && <path d="M21 16h4v1h-4z M32 16h4v1h-4z" fill="#535d85" />}
+          {alert && (
+            <path
+              d={
+                critical
+                  ? 'M21 15h2v1h2v1h-2v-1h-2z M32 16h2v-1h2v1h-2v1h-2z'
+                  : 'M21 16h4v1h-4z M32 16h4v1h-4z'
+              }
+              fill="#535d85"
+            />
+          )}
           <path d="M27 20h3v1h-3z" fill="#c18d9e" />
-          <path d={alert ? 'M27 22h3v2h-3z' : 'M25 22h1v1h2v-1h1v1h2v-1h1v2h-7z'} fill="#535d85" />
+          <path
+            d={
+              critical
+                ? 'M26 22h5v3h-5z'
+                : alert
+                  ? 'M27 22h3v2h-3z'
+                  : 'M25 22h1v1h2v-1h1v1h2v-1h1v2h-7z'
+            }
+            fill="#535d85"
+          />
           <path d="M19 21h3v1h-3z M35 21h3v1h-3z" fill="#e6b7be" />
           <path
             d="M17 7h3v1h-2v2h-2v4h-1v-4h1V8h1z M38 21h2v-3h1v4h-3z"
@@ -258,7 +324,7 @@ function SpaceCat({ mood }: { mood: PetMood }) {
           fill="#baa9e8"
         />
       ) : alert ? (
-        <path className="pet-emote pet-badge" d="M50 5h2v6h-2z M50 13h2v2h-2z" />
+        <AlertEmote mood={mood} x={49} y={5} />
       ) : (
         <g className="pet-emote">
           <path d="M49 6h4v1h1v4h-1v1h-4v-1h-1V7h1z" fill="#baa9e8" />
@@ -266,6 +332,32 @@ function SpaceCat({ mood }: { mood: PetMood }) {
           <path d="M53 6h2v2h-2v2h-3v2h-3v-2h3V8h3z" fill="#e9c77f" />
         </g>
       )}
+    </svg>
+  );
+}
+
+export function PixelNoticeIcon({
+  kind,
+}: {
+  kind: 'warning' | 'critical' | 'positive' | 'attention';
+}) {
+  const paths = {
+    warning: 'M7 1h2v2h2v3h2v3h2v5H1V9h2V6h2V3h2z M7 5v4h2V5z M7 11v2h2v-2z',
+    critical: 'M5 1h6v2h2v2h2v6h-2v2h-2v2H5v-2H3v-2H1V5h2V3h2z M7 4v5h2V4z M7 11v2h2v-2z',
+    positive: 'M12 3h3v3h-2v2h-2v2H9v2H7v2H5v-2H3v-2H1V7h3v2h2v2h1V9h2V7h2V5h1z',
+    attention: 'M2 2h12v10H7v2H5v1H3v-3H2z M4 6v2h2V6z M7 6v2h2V6z M10 6v2h2V6z',
+  };
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      fillRule="evenodd"
+      shapeRendering="crispEdges"
+      aria-hidden="true"
+    >
+      <path d={paths[kind]} />
     </svg>
   );
 }

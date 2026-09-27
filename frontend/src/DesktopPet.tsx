@@ -1,8 +1,24 @@
 import { useEffect, useReducer, useState } from 'react';
-import { PixelCat, PixelIcon, PetMood } from './PixelCat';
+import { PixelCat, PixelIcon, PixelNoticeIcon, PetMood } from './PixelCat';
 import { PetState, petStyles } from './monitoring-api';
-import { emptyPetInbox, petInboxReducer, petSessionLabel, PetNotice } from './pet-notices';
+import {
+  emptyPetInbox,
+  petInboxReducer,
+  petNoticeAppearance,
+  petSessionLabel,
+  PetNotice,
+} from './pet-notices';
 import { errorText } from './api';
+
+function NoticeBadge({ notice }: { notice: PetNotice }) {
+  const { tone, label } = petNoticeAppearance(notice);
+  return (
+    <span className="pet-notice-badge">
+      <PixelNoticeIcon kind={tone} />
+      {label}
+    </span>
+  );
+}
 
 export function DesktopPet() {
   const [state, setState] = useState<PetState | null>(null);
@@ -154,14 +170,16 @@ export function DesktopPet() {
               {inbox.items.map((item) => (
                 <button
                   key={item.id}
-                  className={`pet-inbox-item ${item.positive ? 'positive' : 'attention'}`}
+                  className={`pet-inbox-item pet-notice-${petNoticeAppearance(item).tone}`}
                   disabled={busy}
                   onClick={() => void action('open', item.sessionId, item)}
                   title={`${petSessionLabel(item, inbox.items)} · ${item.title}`}
                 >
-                  <span className="pet-inbox-dot" />
-                  <span>
-                    <strong>{item.title}</strong>
+                  <span className="pet-inbox-content">
+                    <span className="pet-inbox-title">
+                      <NoticeBadge notice={item} />
+                      <strong>{item.title}</strong>
+                    </span>
                     <small>{petSessionLabel(item, inbox.items)}</small>
                   </span>
                   <PixelIcon kind="open" />
@@ -176,7 +194,9 @@ export function DesktopPet() {
             </div>
           </section>
         ) : visibleBubble ? (
-          <div className={'pet-bubble ' + (visibleBubble.positive ? 'recovered' : '')}>
+          <div
+            className={`pet-bubble pet-notice-${petNoticeAppearance(visibleBubble).tone} ${visibleBubble.positive ? 'recovered' : ''}`}
+          >
             <button
               className="pet-bubble-close"
               aria-label="收起气泡"
@@ -189,7 +209,10 @@ export function DesktopPet() {
               disabled={busy}
               onClick={() => void action('open', visibleBubble.sessionId, visibleBubble)}
             >
-              <small>{visibleBubble.heading}</small>
+              <small>
+                <NoticeBadge notice={visibleBubble} />
+                <span>{visibleBubble.heading}</span>
+              </small>
               <strong>{visibleBubble.title}</strong>
               <span title={petSessionLabel(visibleBubble, inbox.items)}>
                 {petSessionLabel(visibleBubble, inbox.items)}

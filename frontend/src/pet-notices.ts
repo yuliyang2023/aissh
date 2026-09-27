@@ -15,6 +15,22 @@ export type PetNotice = {
   alert?: AlertNotice;
 };
 
+// A notice keeps its own severity even while the cat reflects another active alert.
+export function petNoticeAppearance(notice: PetNotice): {
+  tone: 'warning' | 'critical' | 'positive' | 'attention';
+  label: string;
+} {
+  if (notice.alert) {
+    if (notice.alert.kind === 'recovered') return { tone: 'positive', label: '已恢复' };
+    return notice.alert.incident.severity === 'critical'
+      ? { tone: 'critical', label: '严重告警' }
+      : { tone: 'warning', label: '警告' };
+  }
+  if (notice.taskKind === 'completed') return { tone: 'positive', label: '已完成' };
+  if (notice.taskKind === 'failed') return { tone: 'warning', label: '任务失败' };
+  return { tone: 'attention', label: notice.taskKind === 'approval' ? '待确认' : '待回复' };
+}
+
 function alertNotice(notice: AlertNotice): PetNotice {
   return {
     id: `alert:${notice.sequence}`,

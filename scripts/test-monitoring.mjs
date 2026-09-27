@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { testPetSeverity } from './test-pet-severity.mjs';
 
 export function installMonitoringMock(pet) {
   const monitoring = {
@@ -303,6 +304,7 @@ export async function testPet(page, out) {
   await page.locator('.pet-status').click();
   await page.getByRole('button', { name: '全部已读', exact: true }).click();
   await testPetTasks(page, out);
+  await testPetSeverity(page, out);
   await page.locator('.pet-status').focus();
   await page.keyboard.press('Tab');
   assert.equal(await page.getByRole('button', { name: '打开告警监控' }).evaluate(el => el === document.activeElement), true);
