@@ -876,7 +876,8 @@ html[data-pet='true'] #root {
 }
 .pet-eyes {
   animation: pet-blink 6s steps(1, end) infinite;
-  transform-origin: 29px 21px;
+  transform-box: fill-box;
+  transform-origin: center;
 }
 .pet-tail {
   animation: pet-tail 3s steps(1, end) infinite;
