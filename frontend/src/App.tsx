@@ -798,9 +798,9 @@ export function App() {
                     : page === 'knowledge'
                       ? '文件文档 · 会话经验 · 数据表'
                       : page === 'terminal'
-                        ? currentSession?.name +
-                          ' · ' +
-                          sessionStatus[currentSession?.status || 'starting']
+                        ? currentSession
+                          ? currentSession.name + ' · ' + sessionStatus[currentSession.status]
+                          : '未连接'
                         : '对话内容 · SSH · 监控'}
             </span>
           </div>

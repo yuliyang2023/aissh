@@ -1675,6 +1675,10 @@ tbody tr:last-child td {
   display: flex;
   container-type: inline-size;
 }
+.workbench-sessions > .empty {
+  flex: 1;
+  min-width: 0;
+}
 .native-workbench {
   grid-template-columns:
     minmax(280px, var(--workbench-chat-share, 43fr)) 8px
@@ -2966,6 +2970,11 @@ tbody tr:last-child td {
 }
 .history-workbench {
   display: grid;
+}
+@container (min-width: 641px) {
+  .history-workbench {
+    grid-template-columns: minmax(280px, 43fr) minmax(280px, 57fr);
+  }
 }
 .disconnected-workspace {
   flex: 1;
