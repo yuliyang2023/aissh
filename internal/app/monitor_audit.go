@@ -25,6 +25,7 @@ type monitorAudit struct {
 type monitorDecision struct {
 	key, proposalID string
 	approved        bool
+	shown           bool
 }
 
 func (r monitorAudit) scope() string { return r.PanelID + "/" + r.SourceID }
@@ -54,6 +55,9 @@ func (a *App) pipelineMonitorAudit(b *pipelineBatch) monitorAudit {
 }
 
 func (a *App) ensureMonitorAudit(r monitorAudit) bool {
+	if isBuiltinMonitorCommand(r.Command) {
+		return true
+	}
 	if d, ok := a.monitorDecisions[r.scope()]; ok && d.key == r.key() {
 		return d.approved
 	}
@@ -61,7 +65,7 @@ func (a *App) ensureMonitorAudit(r monitorAudit) bool {
 		return false
 	}
 	a.monitorReview = &r
-	explanation := fmt.Sprintf("监控采集：%s。批准后在当前 SSH 终端执行，并允许此配置每 %g 秒重复采集；终端忙时延后。每次运行显示命令、输出及退出状态。修改命令或周期后重新审计。", firstText(r.Title, r.PanelID), r.Interval.Seconds())
+	explanation := fmt.Sprintf("监控采集：%s。批准后在当前 SSH 终端执行，并允许此配置每 %g 秒重复采集；终端忙时延后。首次运行显示命令、输出及退出状态，后续刷新仅更新监控面板。修改命令或周期后重新审计。", firstText(r.Title, r.PanelID), r.Interval.Seconds())
 	if r.SourceID != "" {
 		explanation += " 数据源：" + r.SourceID + "。首次试采也需此次批准。"
 	}
@@ -78,6 +82,18 @@ func (a *App) ensureMonitorAudit(r monitorAudit) bool {
 	a.focus, a.aiExpanded, a.dirty = focusApproval, true, true
 	a.notifyAgentTurn(agent.Turn{Proposal: a.proposal}, nil)
 	return false
+}
+
+// Match the shipped scripts exactly; a built-in name or panel ID must not
+// exempt a modified or custom command from review.
+func isBuiltinMonitorCommand(command string) bool {
+	switch command {
+	case panel.BuiltinOverviewCommand, panel.BuiltinProcessCommand, panel.BuiltinDiskCommand,
+		panel.BuiltinNetworkCommand, panel.BuiltinServiceCommand:
+		return true
+	default:
+		return false
+	}
 }
 
 func (a *App) currentMonitorAudit(r monitorAudit) (monitorAudit, bool) {

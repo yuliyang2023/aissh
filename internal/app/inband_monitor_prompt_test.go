@@ -18,13 +18,15 @@ func monitorScreenText(a *App) string {
 	return strings.ReplaceAll(text.String(), "\ue000", "")
 }
 
-func TestRepeatedMonitorOutputRemainsVisibleAcrossChunkedPrompts(t *testing.T) {
+func TestRepeatedMonitorsPreserveScreenAcrossChunkedPrompts(t *testing.T) {
 	for _, bytewise := range []bool{false, true} {
 		t.Run(fmt.Sprint(bytewise), func(t *testing.T) {
 			a, _ := newMonitorTestApp(t)
 			a.panels.ByID("system").Command = "printf 'HOST=server\\n'"
 			a.ensureMonitorAudit(a.panelMonitorAudit(a.panels.ByID("system")))
 			a.approveProposal()
+			var firstScreen string
+			var firstHistory int
 			for tick := 0; tick < 20; tick++ {
 				a.scheduleInBandMonitor(time.Now().Add(time.Duration(tick+1) * time.Minute))
 				if a.inBandMonitor == nil {
@@ -46,9 +48,14 @@ func TestRepeatedMonitorOutputRemainsVisibleAcrossChunkedPrompts(t *testing.T) {
 				if !strings.Contains(screen, "HOST=server") || !strings.Contains(screen, "退出码：0") || strings.Contains(screen, marker) {
 					t.Fatalf("missing visible result: %s", screen)
 				}
+				if tick == 0 {
+					firstScreen, firstHistory = screen, len(a.terminalHistory)
+				} else if screen != firstScreen || len(a.terminalHistory) != firstHistory {
+					t.Fatalf("recurring monitor changed the terminal at tick %d: %s", tick, screen)
+				}
 			}
-			if len(a.terminalHistory) == 0 {
-				t.Fatal("monitor runs were missing from scrollback")
+			if a.panels.ByID("system").RefreshCount != 20 {
+				t.Fatal("silent monitoring stopped updating the panel")
 			}
 		})
 	}

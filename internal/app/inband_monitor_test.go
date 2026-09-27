@@ -323,6 +323,7 @@ func newMonitorTestApp(t *testing.T) (*App, *monitorTestPTY) {
 	terminal := &monitorTestPTY{}
 	a.sshPTY = terminal
 	a.monitorViaPrimary = true
+	a.panels.ByID("system").Command = "printf 'test sample\\n'"
 	approveMonitorFixture(t, a)
 	return a, terminal
 }
@@ -483,10 +484,12 @@ func TestInBandMonitorWaitsUntilTerminalInputIsIdle(t *testing.T) {
 	}
 }
 
-// Existing transport tests begin with an explicitly reviewed built-in collector.
+// Transport tests can use either a built-in or an explicitly reviewed script.
 func approveMonitorFixture(t *testing.T, a *App) {
 	t.Helper()
-	a.ensureMonitorAudit(a.panelMonitorAudit(a.panels.ByID("system")))
+	if a.ensureMonitorAudit(a.panelMonitorAudit(a.panels.ByID("system"))) {
+		return
+	}
 	if a.monitorReview == nil {
 		t.Fatal("fixture did not request audit")
 	}

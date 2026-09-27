@@ -100,7 +100,8 @@ func (a *App) startInBandCollection(item *panel.Panel, now time.Time, pipelineID
 		return
 	}
 	marker := "__AISSH_MONITOR_" + token + "_"
-	state := &inBandMonitorState{visible: true, auditID: a.monitorDecisions[r.scope()].proposalID, pipelineID: pipelineID, timeout: timeout,
+	decision := a.monitorDecisions[r.scope()]
+	state := &inBandMonitorState{visible: !isBuiltinMonitorCommand(r.Command) && !decision.shown, auditID: decision.proposalID, pipelineID: pipelineID, timeout: timeout,
 		panelID: item.ID,
 		binding: item.BindingID, revision: item.SourceRevision, runID: item.RunID,
 		command:   item.Command,
@@ -114,8 +115,12 @@ func (a *App) startInBandCollection(item *panel.Panel, now time.Time, pipelineID
 	a.monitorActive[item.ID] = true
 	a.atPrompt = false
 	a.promptIdleSince = time.Time{}
-	a.renderSSHOutput([]byte("\r\n" + strings.ReplaceAll(a.safeText(fmt.Sprintf("[监控 %s · %s]\n$ %s\n", firstText(item.Title, r.Title, r.PanelID), now.Format("15:04:05"), item.Command)), "\n", "\r\n")))
-	a.updateSSHActivity(state.auditID, "running", "正在 SSH 终端采集")
+	if state.visible {
+		decision.shown = true
+		a.monitorDecisions[r.scope()] = decision
+		a.renderSSHOutput([]byte("\r\n" + strings.ReplaceAll(a.safeText(fmt.Sprintf("[监控 %s · %s]\n$ %s\n", firstText(item.Title, r.Title, r.PanelID), now.Format("15:04:05"), item.Command)), "\n", "\r\n")))
+		a.updateSSHActivity(state.auditID, "running", "正在 SSH 终端采集")
+	}
 	// Only the fresh prompt after the completion marker can release user input.
 	a.outputTail.Append("\n[aissh monitor]\n")
 	if _, err := a.writeSSH([]byte(command)); err != nil {
@@ -172,6 +177,8 @@ func (a *App) processInBandMonitorOutput(data []byte) bool {
 	if state.pipelineID != "" {
 		delete(a.monitorActive, state.panelID)
 	}
+	a.outputTail.value = ""
+	a.pendingError, a.errorCarry = nil, ""
 	if state.visible {
 		status, detail := "completed", "退出状态未知"
 		if state.exitCode != nil {
@@ -182,8 +189,6 @@ func (a *App) processInBandMonitorOutput(data []byte) bool {
 		}
 		a.renderSSHOutput([]byte("\r\n[监控完成 · " + detail + "]\r\n"))
 		a.updateSSHActivity(state.auditID, status, detail)
-		a.outputTail.value = ""
-		a.pendingError, a.errorCarry = nil, ""
 		// consume keeps only the fresh prompt separate from collector bytes.
 		a.monitorPrompt = &monitorPromptState{}
 		a.processSSHOutput(state.after)

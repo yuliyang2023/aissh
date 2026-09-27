@@ -86,6 +86,7 @@ func TestRepeatedApprovedMonitorsRunInInteractiveTerminal(t *testing.T) {
 	}
 	a.approveProposal()
 	before := monitorScreenText(a)
+	var firstScreen string
 	for tick := 0; tick < 20; tick++ {
 		a.scheduleInBandMonitor(time.Now().Add(time.Duration(tick+1) * time.Minute))
 		if a.inBandMonitor == nil {
@@ -98,11 +99,14 @@ func TestRepeatedApprovedMonitorsRunInInteractiveTerminal(t *testing.T) {
 			t.Fatalf("tick %d missing visible command/result: %s", tick, screen)
 		}
 		if tick == 0 {
+			firstScreen = monitorScreenText(a)
 			t.Logf("Visible output from the real Shell/PTY:\n%s", transcript.String())
+		} else if monitorScreenText(a) != firstScreen {
+			t.Fatalf("recurring monitor changed the terminal at tick %d", tick)
 		}
 	}
-	if strings.Count(transcript.String(), "[监控完成 · 退出码：0]") != 20 {
-		t.Fatal("not every recurring execution was visible")
+	if strings.Count(transcript.String(), "[监控完成 · 退出码：0]") != 1 || a.panels.ByID("system").RefreshCount != 20 {
+		t.Fatal("monitor did not collect silently after the first visible execution")
 	}
 	if target := os.Getenv("AISSH_MONITOR_AUDIT_TRANSCRIPT"); target != "" {
 		if err := os.WriteFile(target, transcript.Bytes(), 0600); err != nil {

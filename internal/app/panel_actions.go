@@ -242,7 +242,7 @@ func (a *App) addPanelContext(request *agent.Request) {
 	if a.config.DesktopUI {
 		request.SystemContext["monitorWidgetV2"] = agent.WidgetV2Guidance
 	}
-	request.SystemContext["monitor_panel_rules"] = "面板操作是否成功，以 monitor_panel_result 和 monitor_panel_state 为准；创建成功不代表采集成功。监控命令（含 probe、内置命令、历史组件）首次及变更时需用户审计批准，不能绕过审计或宣称已执行；批准后的采集在可见 SSH 终端按周期运行。自定义 command 优先于 collector；使用自定义命令时 collector 留空。update 可修改采集配置，面板不存在时需提供 command 或有效 collector 才能创建。"
+	request.SystemContext["monitor_panel_rules"] = "面板操作是否成功，以 monitor_panel_result 和 monitor_panel_state 为准；创建成功不代表采集成功。内置默认采集脚本免审批并静默采集；自定义监控命令（含 probe、告警、历史组件）首次及变更时需用户审计批准，不能绕过审计或宣称已执行。批准后的首次采集在 SSH 终端显示，后续按周期静默更新监控面板。自定义 command 优先于 collector；使用自定义命令时 collector 留空。update 可修改采集配置，面板不存在时需提供 command 或有效 collector 才能创建。"
 	for index, result := range a.panelActionResults {
 		request.SystemContext[fmt.Sprintf("monitor_panel_result_%d", index)] = a.safeText(result)
 	}

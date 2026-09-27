@@ -49,6 +49,90 @@ func TestMonitorRequiresManualAuditEvenWithAlwaysYesAndExecTransport(t *testing.
 	if a.proposal != nil || a.inBandMonitor == nil {
 		t.Fatal("unchanged recurring collector required another approval")
 	}
+	visible.Reset()
+	marker = a.inBandMonitor.marker
+	a.processSSHOutput([]byte(marker + "BEGIN__\r\nsecond sample\r\n" + marker + "END__:0__\r\nroot@server:~# "))
+	if strings.Contains(visible.String(), "sample") || strings.Contains(visible.String(), "监控") || p.RefreshCount != 2 || !strings.Contains(p.Content, "second sample") {
+		t.Fatalf("recurring collection was displayed or failed to update: %q / %q", visible.String(), p.Content)
+	}
+	// Changing an approved configuration requires review and a new visible run.
+	p.Interval += time.Second
+	a.monitorLast[p.ID] = time.Time{}
+	a.scheduleMonitors()
+	if a.monitorReview == nil {
+		t.Fatal("changed configuration skipped review")
+	}
+	a.approveProposal()
+	visible.Reset()
+	a.scheduleMonitors()
+	if a.inBandMonitor == nil || !a.inBandMonitor.visible || !strings.Contains(visible.String(), p.Command) {
+		t.Fatal("newly approved configuration did not show its first run")
+	}
+}
+
+func TestBuiltinMonitorsRunSilentlyWithoutApproval(t *testing.T) {
+	for name, command := range map[string]string{
+		"system": panel.BuiltinOverviewCommand, "process": panel.BuiltinProcessCommand,
+		"disk": panel.BuiltinDiskCommand, "network": panel.BuiltinNetworkCommand, "service": panel.BuiltinServiceCommand,
+	} {
+		t.Run(name, func(t *testing.T) {
+			a, terminal := newMonitorTestApp(t)
+			a.config.DesktopUI = true
+			a.monitorDecisions, a.chat = nil, nil
+			p := a.panels.ByID("system")
+			p.Command = command
+			var visible bytes.Buffer
+			a.screenOut = &visible
+			before := monitorScreenText(a)
+			for tick := 0; tick < 2; tick++ {
+				a.monitorLast[p.ID] = time.Time{}
+				a.scheduleMonitors()
+				if a.inBandMonitor == nil || a.inBandMonitor.visible || a.monitorReview != nil || a.proposal != nil || terminal.Len() == 0 {
+					t.Fatal("built-in requested approval or did not start silently")
+				}
+				marker := a.inBandMonitor.marker
+				a.processSSHOutput([]byte(marker + "BEGIN__\r\nHOST=sample\r\n" + marker + "END__:0__\r\nroot@server:~# "))
+				if !a.atPrompt || monitorScreenText(a) != before || len(a.chat) != 0 {
+					t.Fatal("built-in changed terminal/chat or failed to restore input")
+				}
+			}
+			if p.RefreshCount != 2 || p.Content == "" || strings.Contains(visible.String(), "sample") || strings.Contains(visible.String(), "监控") {
+				t.Fatal("silent built-in did not update its panel or leaked output")
+			}
+			// Keeping the built-in panel identity must not exempt a changed script.
+			p.Command += "; printf modified"
+			a.monitorLast[p.ID] = time.Time{}
+			terminal.Reset()
+			a.scheduleMonitors()
+			if a.monitorReview == nil || a.inBandMonitor != nil || terminal.Len() != 0 {
+				t.Fatal("modified built-in script skipped review")
+			}
+		})
+	}
+}
+
+func TestSilentMonitorFailureUpdatesPanelAndRestoresQueuedInput(t *testing.T) {
+	a, terminal := newMonitorTestApp(t)
+	a.config.DesktopUI = true
+	var visible bytes.Buffer
+	a.screenOut = &visible
+	a.scheduleMonitors()
+	marker := a.inBandMonitor.marker
+	a.processSSHOutput([]byte(marker + "BEGIN__\r\nfirst sample\r\n" + marker + "END__:0__\r\nroot@server:~# "))
+	visible.Reset()
+	a.monitorLast["system"] = time.Time{}
+	a.scheduleMonitors()
+	terminal.Reset()
+	a.handleInput([]byte("date\r"))
+	marker = a.inBandMonitor.marker
+	a.processSSHOutput([]byte(marker + "BEGIN__\r\npermission denied\r\n" + marker + "END__:7__"))
+	if terminal.Len() != 0 || a.atPrompt || visible.Len() != 0 || !strings.Contains(a.panels.ByID("system").LastError, "permission denied") {
+		t.Fatal("silent failure leaked output, lost its diagnostic or released input early")
+	}
+	a.processSSHOutput([]byte("\r\nroot@server:~# "))
+	if terminal.String() != "date\r" {
+		t.Fatal("silent failure did not restore queued input")
+	}
 }
 
 func TestMonitorRejectChangeStaleDecisionAndExplicitRetry(t *testing.T) {

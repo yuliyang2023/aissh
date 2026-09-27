@@ -30,6 +30,7 @@ func TestDesktopCLIStreamsChatAndMonitoringOutsideTerminal(t *testing.T) {
 	const answer = "native-answer-not-in-terminal"
 	var mu sync.Mutex
 	sent, acknowledged, sawPrompt, sawMonitor, sawAnswer := false, false, false, false, false
+	sawApproval := false
 	complete := make(chan struct{}, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
@@ -56,6 +57,7 @@ func TestDesktopCLIStreamsChatAndMonitoringOutsideTerminal(t *testing.T) {
 				http.Error(w, "bad snapshot", 400)
 				return
 			}
+			sawApproval = sawApproval || input.State.Proposal != nil
 			for _, result := range input.Results {
 				if result.ID == "test-prompt" && result.Error == "" {
 					acknowledged = true
@@ -88,7 +90,13 @@ func TestDesktopCLIStreamsChatAndMonitoringOutsideTerminal(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	script := filepath.Join(t.TempDir(), "ssh")
+	fixtureDir := t.TempDir()
+	script := filepath.Join(fixtureDir, "ssh")
+	// The built-in now collects through the interactive shell. Supply a stable
+	// hostname there as well as in the standalone SSH-exec fixture below.
+	if err := os.WriteFile(filepath.Join(fixtureDir, "hostname"), []byte("#!/bin/sh\nprintf 'native-test\\n'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nfor arg do\n case \"$arg\" in *HOST=*) printf 'HOST=native-test\\nLOAD=0.1 0.2 0.3\\nMEM=1/4 MB (25%%)\\n'; exit 0;; esac\ndone\nPS1='ops@test:~$ '; export PS1\nexec /bin/sh -i\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +112,7 @@ func TestDesktopCLIStreamsChatAndMonitoringOutsideTerminal(t *testing.T) {
 			cmd.Env = append(cmd.Env, variable)
 		}
 	}
-	cmd.Env = append(cmd.Env, "AISSH_TEST_NATIVE_SSH="+script, "AISSH_TEST_NATIVE_AI="+server.URL+"/agent/stream", "AISSH_CONFIG_DIR="+t.TempDir(), credentialui.AddressEnv+"="+strings.TrimPrefix(server.URL, "http://"), credentialui.CapabilityEnv+"="+token)
+	cmd.Env = append(cmd.Env, "PATH="+fixtureDir+string(os.PathListSeparator)+os.Getenv("PATH"), "AISSH_TEST_NATIVE_SSH="+script, "AISSH_TEST_NATIVE_AI="+server.URL+"/agent/stream", "AISSH_CONFIG_DIR="+t.TempDir(), credentialui.AddressEnv+"="+strings.TrimPrefix(server.URL, "http://"), credentialui.CapabilityEnv+"="+token)
 	terminal, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 90})
 	if err != nil {
 		t.Fatal(err)
@@ -128,6 +136,14 @@ func TestDesktopCLIStreamsChatAndMonitoringOutsideTerminal(t *testing.T) {
 	rendered := <-output
 	if strings.Contains(rendered, prompt) || strings.Contains(rendered, answer) || strings.Contains(rendered, "/sidebar") {
 		t.Fatal("native chat/sidebar rendered inside SSH terminal")
+	}
+	if strings.Contains(rendered, "HOST=native-test") || strings.Contains(rendered, "[监控") || strings.Contains(rendered, "__AISSH_MONITOR_") {
+		t.Fatal("built-in monitor leaked collection output into SSH terminal")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if sawApproval {
+		t.Fatal("built-in monitor requested approval")
 	}
 }
 
