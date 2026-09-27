@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
   BookOpen,
+  Bell,
   CheckCircle2,
   ChevronRight,
   Database,
@@ -57,10 +58,10 @@ import { NewConversation, NewConversationInput } from './NewConversation';
 import { primaryModifier } from './platform';
 import { KnowledgeLibrary } from './Knowledge';
 import { ResourceGuide, discoveryStatus } from './ResourceGuide';
-import { Monitoring } from './Monitoring';
+import { Monitoring, MonitoringView, useMonitoringState } from './Monitoring';
 
 type SettingsPage = 'hosts' | 'credentials' | 'ai' | 'removedHosts';
-type Page = SettingsPage | 'resources' | 'knowledge' | 'conversations' | 'terminal';
+type Page = SettingsPage | 'resources' | 'knowledge' | 'conversations' | 'terminal' | 'monitoring';
 type Editor =
   | { kind: 'host'; value: Host }
   | { kind: 'resource'; value: Resource }
@@ -89,7 +90,10 @@ export function App() {
   const [monitorInventoryRequest, setMonitorInventoryRequest] = useState({
     sequence: 0,
     sessionId: '',
+    view: 'monitors' as MonitoringView,
   });
+  const monitoring = useMonitoringState();
+  const alertCount = monitoring.state?.incidents.filter((i) => i.status === 'firing').length || 0;
   const [sidebarVisible, setSidebarVisible] = useStoredFlag('aissh.sidebar.visible', true);
   const [removedSidebarHosts, setRemovedSidebarHosts] = useStoredStringSet(
     'aissh.sidebar.removedHosts',
@@ -107,13 +111,14 @@ export function App() {
   };
   const [lastSettings, setLastSettings] = useState<SettingsPage>('hosts');
   const isSettings = settingsPages.some((item) => item.id === page);
-  const isManagement = isSettings || page === 'resources' || page === 'knowledge';
+  const isManagement =
+    isSettings || page === 'resources' || page === 'knowledge' || page === 'monitoring';
   const [knowledgeRevision, setKnowledgeRevision] = useState(0);
   const [knowledgeIntent, setKnowledgeIntent] = useState<'new' | Conversation | null>(null);
   const workspacePage = useRef<'conversations' | 'terminal'>('conversations');
   useEffect(() => {
-    if (!isManagement) workspacePage.current = page as 'conversations' | 'terminal';
-  }, [page, isManagement]);
+    if (page === 'conversations' || page === 'terminal') workspacePage.current = page;
+  }, [page]);
   const [conversationSearch, setConversationSearch] = useState('');
   const conversationSearchRef = useRef<HTMLInputElement>(null);
   const [selectedRow, setSelectedRow] = useState('');
@@ -511,11 +516,13 @@ export function App() {
     ? '设置'
     : page === 'resources'
       ? '外联系统'
-      : page === 'knowledge'
-        ? '本地知识'
-        : page === 'terminal'
-          ? activeConversation?.title || currentSession?.name || '工作区'
-          : currentConversation?.title || 'SSH + AI 工作区';
+      : page === 'monitoring'
+        ? '告警监控'
+        : page === 'knowledge'
+          ? '本地知识'
+          : page === 'terminal'
+            ? activeConversation?.title || currentSession?.name || '工作区'
+            : currentConversation?.title || 'SSH + AI 工作区';
   const add = () => {
     if (page === 'hosts') setEditor({ kind: 'host', value: newHost() });
     if (page === 'credentials') setCredentialEditor({ value: newCredential() });
@@ -548,6 +555,10 @@ export function App() {
     setSelectedRow('');
     setRouteFilter('all');
   };
+  const openMonitoring = (view: MonitoringView = 'monitors') => {
+    setMonitorInventoryRequest((v) => ({ sequence: v.sequence + 1, sessionId: '', view }));
+    goto('monitoring');
+  };
   const returnToWorkspace = () =>
     goto(workspacePage.current === 'terminal' && currentSession ? 'terminal' : 'conversations');
   const selectConversation = (conversation: Conversation) => {
@@ -562,7 +573,9 @@ export function App() {
     return window.runtime?.EventsOn('desktop-command', (command: string) => {
       // Native menu commands must not dismiss an unfinished sheet or approve it.
       if (document.querySelector('dialog[open]') || busy) return;
-      if (command === 'settings') {
+      if (command === 'monitoring' || command === 'monitor-inventory') {
+        openMonitoring(command === 'monitoring' ? 'incidents' : 'monitors');
+      } else if (command === 'settings') {
         goto(lastSettings);
       } else if (
         command === 'workspace' ||
@@ -724,10 +737,9 @@ export function App() {
         <div className="session-sidebar-footer">
           <nav aria-label="管理菜单">
             <button
-              className="settings-entry"
-              onClick={() =>
-                setMonitorInventoryRequest((v) => ({ sequence: v.sequence + 1, sessionId: '' }))
-              }
+              className={'settings-entry ' + (page === 'monitoring' ? 'selected' : '')}
+              aria-current={page === 'monitoring' ? 'page' : undefined}
+              onClick={() => openMonitoring()}
             >
               <Activity size={18} />
               <span>告警监控</span>
@@ -781,26 +793,28 @@ export function App() {
                 ? '管理主机、凭据与 AI 服务'
                 : page === 'resources'
                   ? '管理系统信息、连接与访问授权'
-                  : page === 'knowledge'
-                    ? '文件文档 · 会话经验 · 数据表'
-                    : page === 'terminal'
-                      ? currentSession?.name +
-                        ' · ' +
-                        sessionStatus[currentSession?.status || 'starting']
-                      : '对话内容 · SSH · 监控'}
+                  : page === 'monitoring'
+                    ? '独立告警任务 · 后台检查 · 桌宠提醒'
+                    : page === 'knowledge'
+                      ? '文件文档 · 会话经验 · 数据表'
+                      : page === 'terminal'
+                        ? currentSession?.name +
+                          ' · ' +
+                          sessionStatus[currentSession?.status || 'starting']
+                        : '对话内容 · SSH · 监控'}
             </span>
           </div>
           <div className="toolbar-actions">
-            <Monitoring
-              inventoryRequest={monitorInventoryRequest}
-              sessions={sessions}
-              activeSession={activeSession}
-              onOpenSession={(id) => {
-                const session = sessions.find((s) => s.id === id);
-                if (session) openSession(session);
-                else setError('该会话已移除，请重新连接对应服务器');
-              }}
-            />
+            <button
+              className={'icon-button monitoring-launch ' + (alertCount ? 'has-alerts' : '')}
+              aria-label={`告警监控${alertCount ? `，${alertCount} 个问题` : ''}`}
+              aria-current={page === 'monitoring' ? 'page' : undefined}
+              title="告警监控 · 桌宠"
+              onClick={() => openMonitoring('incidents')}
+            >
+              <Bell size={17} />
+              {alertCount > 0 && <span>{alertCount}</span>}
+            </button>
             {isManagement ? (
               <button className="button" onClick={returnToWorkspace}>
                 返回工作区
@@ -990,7 +1004,23 @@ export function App() {
             </button>
           </div>
         )}
-        <div className="page-content" style={{ display: isManagement ? undefined : 'none' }}>
+        <Monitoring
+          inventoryRequest={monitorInventoryRequest}
+          monitoring={monitoring}
+          pageVisible={page === 'monitoring'}
+          onOpenPage={() => openMonitoring()}
+          sessions={sessions}
+          activeSession={activeSession}
+          onOpenSession={(id) => {
+            const session = sessions.find((s) => s.id === id);
+            if (session) openSession(session);
+            else setError('该会话已移除，请重新连接对应服务器');
+          }}
+        />
+        <div
+          className="page-content"
+          style={{ display: isManagement && page !== 'monitoring' ? undefined : 'none' }}
+        >
           {page === 'credentials' && !!data.pendingDeletes?.length && (
             <div className="info-box">
               <span>有 {data.pendingDeletes.length} 项已停用的秘密等待从系统凭据库清理。</span>
@@ -1565,6 +1595,7 @@ export function App() {
                   setMonitorInventoryRequest((v) => ({
                     sequence: v.sequence + 1,
                     sessionId: s.id,
+                    view: 'monitors',
                   }))
                 }
                 onReconnect={() => {

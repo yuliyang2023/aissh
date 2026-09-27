@@ -15,8 +15,7 @@ const statuses: Record<MonitorSummary['status'], string> = {
 };
 const origins: Record<string, string> = { ai: 'AI 创建', user: '手动添加', system: '系统默认' };
 
-function alertSummary(m: MonitorSummary, state: MonitoringState) {
-  if (!state.policy.enabled) return '异常提醒已全局关闭，仍然采集数据';
+function alertSummary(m: MonitorSummary) {
   if (m.alert) return conditionSummary(m.alert);
   return '未收到此任务的异常条件';
 }
@@ -120,17 +119,33 @@ export function MonitorInventory({
                 <header>
                   <div>
                     <strong>{m.title}</strong>
-                    <span className="monitor-origin">{origins[m.origin] || '已有项目'}</span>
                   </div>
                   <span className={'monitor-collection-status ' + m.status}>
                     {statuses[m.status] || '等待更新'}
                   </span>
                 </header>
-                <dl className="monitor-inventory-meta">
-                  <div>
-                    <dt>所在会话</dt>
-                    <dd>{m.sessionName}</dd>
-                  </div>
+                <div className="monitor-inventory-rule">
+                  <span>触发条件</span>
+                  {m.alert?.enabled && (
+                    <span className={'monitor-rule-severity ' + m.alert.severity}>
+                      {m.alert.severity === 'critical' ? '严重' : '注意'}
+                    </span>
+                  )}
+                  <p>{alertSummary(m)}</p>
+                  {m.alert?.enabled && m.alert.pattern && <code>{m.alert.pattern}</code>}
+                </div>
+                {m.error && (
+                  <p className="monitor-inventory-error" role="status">
+                    最近采集失败：{m.error}
+                  </p>
+                )}
+                <dl className={'monitor-inventory-meta ' + (scoped ? 'scoped' : '')}>
+                  {!scoped && (
+                    <div>
+                      <dt>所在会话</dt>
+                      <dd>{m.sessionName}</dd>
+                    </div>
+                  )}
                   <div>
                     <dt>检查周期</dt>
                     <dd>每 {m.intervalMs / 1000} 秒</dd>
@@ -144,49 +159,42 @@ export function MonitorInventory({
                     </dd>
                   </div>
                 </dl>
-                <div className="monitor-command-heading">
-                  <strong>采集命令</strong>
-                  {m.command && (
-                    <button
-                      className="button small"
-                      onClick={async () => {
-                        setError('');
-                        try {
-                          await navigator.clipboard.writeText(m.command);
-                          setCopied(key);
-                        } catch (e) {
-                          setError('复制失败，可选中下方命令手动复制：' + errorText(e));
-                        }
-                      }}
-                    >
-                      {copied === key ? <Check size={12} /> : <Copy size={12} />}
-                      {copied === key ? '已复制' : '复制命令'}
-                    </button>
-                  )}
-                </div>
-                <div className="monitor-inventory-command">
-                  {m.command ? (
-                    <ShellCode command={m.command} wrap />
-                  ) : (
-                    <p>尚未收到采集命令；旧版本会话需重新连接后读取。</p>
-                  )}
-                </div>
-                {m.error && (
-                  <p className="monitor-inventory-error" role="status">
-                    最近采集失败：{m.error}
-                  </p>
-                )}
-                <div className="monitor-inventory-rule">
-                  <span>异常提醒</span>
-                  <p>{alertSummary(m, state)}</p>
-                  {m.alert?.enabled && <code>{m.alert.pattern}</code>}
-                </div>
-                <footer>
-                  <span>
+                <details className="monitor-collection-details">
+                  <summary>采集详情</summary>
+                  <div className="monitor-command-heading">
+                    <span>采集命令 · {origins[m.origin] || '已有项目'}</span>
+                    {m.command && (
+                      <button
+                        className="button small"
+                        onClick={async () => {
+                          setError('');
+                          try {
+                            await navigator.clipboard.writeText(m.command);
+                            setCopied(key);
+                          } catch (e) {
+                            setError('复制失败，可选中下方命令手动复制：' + errorText(e));
+                          }
+                        }}
+                      >
+                        {copied === key ? <Check size={12} /> : <Copy size={12} />}
+                        {copied === key ? '已复制' : '复制命令'}
+                      </button>
+                    )}
+                  </div>
+                  <div className="monitor-inventory-command">
+                    {m.command ? (
+                      <ShellCode command={m.command} wrap />
+                    ) : (
+                      <p>尚未收到采集命令；旧版本会话需重新连接后读取。</p>
+                    )}
+                  </div>
+                  <p className="monitoring-note">
                     {m.status === 'stopped'
                       ? '保留上次配置，当前不再采集'
                       : '检查周期为计划间隔，SSH 忙碌时可能延后'}
-                  </span>
+                  </p>
+                </details>
+                <footer>
                   <button
                     className="button small"
                     disabled={busy || m.status === 'stopped'}
@@ -214,9 +222,6 @@ export function MonitorInventory({
           })}
         </div>
       )}
-      <p className="monitoring-note">
-        这里只显示独立告警任务，桌宠接收这些任务的异常与恢复提醒。采集失败、数据过期与断线沿用提醒策略；实时面板单独管理。
-      </p>
     </section>
   );
 }

@@ -1,19 +1,6 @@
 .monitoring-launch {
   position: relative;
 }
-.monitoring-session-scope {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 14px;
-  font-size: 12px;
-}
-.monitoring-session-scope > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
 .monitoring-launch.has-alerts {
   color: var(--danger);
 }
@@ -33,10 +20,31 @@
 .monitoring-modal {
   width: min(740px, calc(100vw - 48px));
 }
+.monitoring-modal[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.monitoring-modal .modal-heading {
+  flex: none;
+}
+.monitoring-modal .modal-heading > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .monitoring-body {
   overflow: auto;
   padding: 20px 24px 24px;
   min-height: 0;
+}
+.monitoring-page {
+  padding-top: 24px;
+}
+.monitoring-page .monitoring-body {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0;
+  overflow: visible;
 }
 .monitoring-overview,
 .monitoring-pet-setting {
@@ -63,6 +71,57 @@
 }
 .monitoring-pet-setting {
   background: var(--row-selection);
+}
+.monitoring-overview {
+  background: var(--alternate);
+}
+.monitoring-overview.has-alerts {
+  background: color-mix(in srgb, var(--danger) 5%, var(--content));
+  border-color: color-mix(in srgb, var(--danger) 20%, var(--line));
+}
+.monitoring-overview.has-alerts > svg,
+.monitoring-overview.has-alerts strong {
+  color: var(--danger);
+}
+.monitoring-overview > .button {
+  flex: none;
+}
+.monitoring-reminder-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+.monitoring-footer {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid var(--line);
+  margin-top: 20px;
+  padding-top: 14px;
+}
+.monitoring-footer > .button {
+  flex: none;
+}
+.monitoring-help {
+  min-width: 0;
+}
+.monitoring-help summary,
+.monitor-collection-details summary {
+  cursor: pointer;
+  color: var(--secondary);
+  font-size: 12px;
+  width: fit-content;
+}
+.monitoring-help summary:focus-visible,
+.monitor-collection-details summary:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: 3px;
 }
 .pet-preview {
   --pet-color: #558b73;
@@ -105,8 +164,20 @@
   color: var(--secondary);
   font-size: 12px;
 }
+.monitoring-tabs .monitor-add-button {
+  margin-left: auto;
+}
+.monitoring-tab-count {
+  min-width: 17px;
+  padding: 1px 5px;
+  border-radius: 9px;
+  background: var(--danger);
+  color: white;
+  font-size: 10px;
+}
 .monitor-inventory-summary {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 10px;
   margin: 14px 0;
@@ -153,14 +224,6 @@
 .monitor-inventory-item > header strong {
   overflow-wrap: anywhere;
 }
-.monitor-origin {
-  font-size: 10px;
-  color: var(--secondary);
-  background: var(--alternate);
-  border-radius: 5px;
-  padding: 3px 6px;
-  flex: none;
-}
 .monitor-collection-status {
   font-size: 11px;
   color: var(--secondary);
@@ -183,6 +246,13 @@
   gap: 10px;
   margin: 14px 0;
   font-size: 11px;
+}
+.monitor-inventory-meta.scoped {
+  grid-template-columns: 1fr 2fr;
+}
+.monitor-collection-details {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
 }
 .monitor-inventory-meta dt {
   color: var(--secondary);
@@ -215,11 +285,24 @@
 }
 .monitor-inventory-rule {
   margin-top: 12px;
-  font-size: 11px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--alternate);
+  font-size: 12px;
   line-height: 1.7;
 }
 .monitor-inventory-rule > span {
   color: var(--secondary);
+}
+.monitor-inventory-rule .monitor-rule-severity {
+  margin-left: 8px;
+  font-size: 11px;
+}
+.monitor-rule-severity.critical {
+  color: var(--danger);
+}
+.monitor-rule-severity.warning {
+  color: #996719;
 }
 .monitor-inventory-rule p {
   margin: 4px 0;
@@ -232,13 +315,9 @@
 .monitor-inventory-item > footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 10px;
   margin-top: 14px;
-}
-.monitor-inventory-item > footer > span {
-  font-size: 10px;
-  color: var(--secondary);
 }
 .alert-history {
   display: grid;
