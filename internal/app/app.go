@@ -18,6 +18,7 @@ import (
 	"git.example.com/ai/wrd-ai-cli/internal/credentialui"
 	"git.example.com/ai/wrd-ai-cli/internal/history"
 	app_i18n "git.example.com/ai/wrd-ai-cli/internal/i18n"
+	"git.example.com/ai/wrd-ai-cli/internal/localworkspace"
 	"git.example.com/ai/wrd-ai-cli/internal/monitor"
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
 	"git.example.com/ai/wrd-ai-cli/internal/redact"
@@ -240,6 +241,23 @@ func New(config Config) (*App, error) {
 		config.ModelURL = firstText(config.ModelURL, "https://api.deepseek.com")
 		config.ModelName = firstText(config.ModelName, "deepseek-v4-pro")
 	}
+	// Restore the conversation directory before validating the host default.
+	if config.ConversationID != "" && config.HistoryDir != "" {
+		target := config.HistoryTarget
+		if target == "" {
+			target = parsed.Target
+		}
+		conversations, err := history.New(config.HistoryDir).LoadConversations(target)
+		if err != nil {
+			return nil, err
+		}
+		for _, conversation := range conversations {
+			if conversation.ID == config.ConversationID && conversation.Workspace != nil {
+				config.Workspace = *conversation.Workspace
+				break
+			}
+		}
+	}
 	if mode != "codex" && mode != "local" && mode != "claude" {
 		config.Workspace = ""
 		config.WorkspaceWritable = false
@@ -362,33 +380,7 @@ func agentMode(config Config) string {
 }
 
 func resolveLocalWorkspace(value string) (string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", nil
-	}
-	if value == "~" || strings.HasPrefix(value, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		value = filepath.Join(home, strings.TrimPrefix(value, "~/"))
-	}
-	absolute, err := filepath.Abs(value)
-	if err != nil {
-		return "", err
-	}
-	resolved, err := filepath.EvalSymlinks(absolute)
-	if err != nil {
-		return "", err
-	}
-	info, err := os.Stat(resolved)
-	if err != nil {
-		return "", err
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("%s is not a directory", resolved)
-	}
-	return filepath.Clean(resolved), nil
+	return localworkspace.Resolve(value)
 }
 
 func (a *App) Run() error {

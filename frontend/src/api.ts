@@ -166,6 +166,9 @@ export interface MonitorPanel {
   pinned: boolean;
 }
 export interface WorkbenchState {
+  workspace: string;
+  workspaceSupported: boolean;
+  workspaceWritable: boolean;
   widgetCandidates?: WidgetCandidate[];
   conversationId: string;
   messages: ChatMessage[];
@@ -188,6 +191,7 @@ export interface WorkbenchState {
 export interface WorkbenchCommand {
   kind:
     | 'prompt'
+    | 'workspace'
     | 'approve'
     | 'reject'
     | 'monitor-open'
@@ -284,6 +288,7 @@ type Backend = ExternalBackend & {
   CreateSession(id: string): Promise<Session>;
   ListConversations(): Promise<Conversation[]>;
   CreateConversation(hostId: string): Promise<Conversation>;
+  CreateConversationWithWorkspace(hostId: string, workspace: string): Promise<Conversation>;
   CreateDirectConversation(
     host: Host,
     saveHost: boolean,

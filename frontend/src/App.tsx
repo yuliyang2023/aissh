@@ -363,7 +363,7 @@ export function App() {
               },
         );
       } else {
-        conversation = await api.CreateConversation(input.hostId);
+        conversation = await api.CreateConversationWithWorkspace(input.hostId, input.workspace);
       }
       created = true;
       restoreSidebarHost(conversation.hostId);

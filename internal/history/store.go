@@ -31,6 +31,7 @@ type Message struct {
 	Content        string          `json:"content"`
 	Time           string          `json:"time"`
 	Proposal       *agent.Proposal `json:"proposal,omitempty"`
+	Workspace      *string         `json:"workspace,omitempty"`
 }
 
 type Conversation struct {
@@ -39,6 +40,7 @@ type Conversation struct {
 	StartedAt time.Time
 	UpdatedAt time.Time
 	Messages  []Message
+	Workspace *string // nil preserves the host default for older conversations
 }
 
 type Store struct {
@@ -118,6 +120,9 @@ func (s *Store) LoadConversations(target string) ([]Conversation, error) {
 			conversations = append(conversations, conversation)
 		}
 		conversation.Messages = append(conversation.Messages, message)
+		if message.Workspace != nil {
+			conversation.Workspace = message.Workspace
+		}
 		createdAt, _ := time.Parse(time.RFC3339Nano, message.Time)
 		if !createdAt.IsZero() {
 			if conversation.StartedAt.IsZero() || createdAt.Before(conversation.StartedAt) {

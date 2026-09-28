@@ -1778,6 +1778,28 @@ tbody tr:last-child td {
   user-select: text;
   -webkit-user-select: text;
 }
+.chat-workspace {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--secondary);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.chat-workspace > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-workspace > svg,
+.chat-workspace > small,
+.chat-workspace > button {
+  flex-shrink: 0;
+}
 .native-chat-messages .empty {
   padding: 28px 8px;
   min-height: 220px;

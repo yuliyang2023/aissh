@@ -3,9 +3,10 @@ import { Search, X } from 'lucide-react';
 import { allHosts, Catalog, Credential, Host, newHost } from './api';
 import { ErrorBox, Field, Modal, Submit } from './components';
 import { CredentialField, HostNameField } from './forms';
+import { WorkspaceField } from './Workspace';
 
 export type NewConversationInput =
-  | { kind: 'existing'; hostId: string }
+  | { kind: 'existing'; hostId: string; workspace: string }
   | { kind: 'direct'; host: Host; saveHost: boolean };
 
 export function NewConversation({
@@ -47,6 +48,16 @@ export function NewConversation({
     : matchingHosts[0]?.id || '';
   const [host, setHost] = useState<Host>(newHost);
   const [saveHost, setSaveHost] = useState(false);
+  const [directories, setDirectories] = useState<Record<string, string>>({});
+  const selectedHost = hosts.find((item) => item.id === selectedHostId);
+  const workspace =
+    mode === 'direct'
+      ? host.workspace
+      : (directories[selectedHostId] ?? selectedHost?.workspace ?? '');
+  const profileId =
+    (mode === 'direct' ? host.aiProfileId : selectedHost?.aiProfileId) || data.defaultAIProfileId;
+  const provider = data.aiProfiles.find((profile) => profile.id === profileId)?.provider || 'codex';
+  const workspaceSupported = ['codex', 'local', 'claude'].includes(provider);
   const field = (key: keyof Host, value: string | number) =>
     setHost((previous) => ({ ...previous, [key]: value }));
   return (
@@ -62,7 +73,7 @@ export function NewConversation({
           if (mode === 'existing' && !selectedHostId) return;
           onCreate(
             mode === 'existing'
-              ? { kind: 'existing', hostId: selectedHostId }
+              ? { kind: 'existing', hostId: selectedHostId, workspace }
               : { kind: 'direct', host, saveHost },
           );
         }}
@@ -230,6 +241,20 @@ export function NewConversation({
                 </details>
               </>
             )}
+            <WorkspaceField
+              value={workspace}
+              disabled={!workspaceSupported}
+              onChange={(value) =>
+                mode === 'direct'
+                  ? field('workspace', value)
+                  : setDirectories((previous) => ({ ...previous, [selectedHostId]: value }))
+              }
+              hint={
+                workspaceSupported
+                  ? '此对话的本机项目目录，默认只读；留空关闭本机项目访问。'
+                  : '当前 AI 配置不支持本机工作目录；Codex 和 Claude 支持此功能。'
+              }
+            />
             <ErrorBox error={error} />
           </fieldset>
         </div>

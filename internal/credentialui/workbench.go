@@ -22,17 +22,20 @@ type WorkbenchState struct {
 	WidgetCandidates []widgets.Candidate `json:"widgetCandidates,omitempty"`
 	WidgetTransfer   widgets.Transfer    `json:"-"`
 
-	ConversationID string             `json:"conversationId"`
-	Messages       []WorkbenchMessage `json:"messages"`
-	Busy           bool               `json:"busy"`
-	Status         string             `json:"status"`
-	Proposal       *WorkbenchProposal `json:"proposal,omitempty"`
-	CanApprove     bool               `json:"canApprove"`
-	ApprovalStatus string             `json:"approvalStatus"`
-	Executing      bool               `json:"executing"`
-	Panels         []MonitorPanel     `json:"panels"`
-	AlertMonitors  []MonitorPanel     `json:"alertMonitors"`
-	UpdatedAt      string             `json:"updatedAt"`
+	ConversationID     string             `json:"conversationId"`
+	Workspace          string             `json:"workspace"`
+	WorkspaceSupported bool               `json:"workspaceSupported"`
+	WorkspaceWritable  bool               `json:"workspaceWritable"`
+	Messages           []WorkbenchMessage `json:"messages"`
+	Busy               bool               `json:"busy"`
+	Status             string             `json:"status"`
+	Proposal           *WorkbenchProposal `json:"proposal,omitempty"`
+	CanApprove         bool               `json:"canApprove"`
+	ApprovalStatus     string             `json:"approvalStatus"`
+	Executing          bool               `json:"executing"`
+	Panels             []MonitorPanel     `json:"panels"`
+	AlertMonitors      []MonitorPanel     `json:"alertMonitors"`
+	UpdatedAt          string             `json:"updatedAt"`
 }
 
 // Notices describe final AI outcomes without carrying prompts, commands or output.

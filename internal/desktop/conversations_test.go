@@ -128,6 +128,50 @@ func TestConversationHistoryDisabled(t *testing.T) {
 	}
 }
 
+func TestNewConversationWorkspaceDoesNotChangeHostDefault(t *testing.T) {
+	s, host, _ := conversationService(t)
+	host.Workspace = t.TempDir()
+	if _, err := s.SaveHost(host); err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	for _, directory := range []string{workspace, ""} {
+		created, err := s.CreateConversationWithWorkspace(host.ID, directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		conversation, err := s.conversation(host.ID, created.ID)
+		if directory != "" {
+			directory, _ = filepath.EvalSymlinks(directory)
+		}
+		if err != nil || conversation.Workspace == nil || *conversation.Workspace != directory {
+			t.Fatalf("directory not saved: %+v %v", conversation, err)
+		}
+	}
+	data, _ := s.store.Load()
+	saved, _ := data.Host(host.ID)
+	if saved.Workspace != host.Workspace {
+		t.Fatal("conversation changed host default")
+	}
+	before, _ := s.ListConversations()
+	if _, err := s.CreateConversationWithWorkspace(host.ID, filepath.Join(workspace, "missing")); err == nil {
+		t.Fatal("invalid directory accepted")
+	}
+	after, _ := s.ListConversations()
+	if len(after) != len(before) {
+		t.Fatal("invalid directory created a conversation")
+	}
+	created, err := s.CreateDirectConversation(catalog.Host{Address: "direct.example", Port: 22, Workspace: workspace}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversation, err := s.conversation(created.Host.ID, created.Conversation.ID)
+	resolved, _ := filepath.EvalSymlinks(workspace)
+	if err != nil || conversation.Workspace == nil || *conversation.Workspace != resolved {
+		t.Fatalf("direct directory lost: %+v %v", conversation, err)
+	}
+}
+
 func TestDirectConversationCanStayOutsideHostLibrary(t *testing.T) {
 	for _, saveHost := range []bool{false, true} {
 		t.Run(fmt.Sprint(saveHost), func(t *testing.T) {

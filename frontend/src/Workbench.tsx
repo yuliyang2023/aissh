@@ -1,6 +1,6 @@
 import { WidgetPreviews } from './widgets/WidgetHost';
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDown, Send, Sparkles } from 'lucide-react';
+import { ArrowDown, FolderOpen, Send, Sparkles } from 'lucide-react';
 import { api, errorText, Session, sessionLive, WorkbenchCommand, WorkbenchState } from './api';
 import { Empty, ErrorBox } from './components';
 import { Terminal } from './Terminal';
@@ -10,6 +10,7 @@ import { sessionAddress } from './api';
 import { CommandReview } from './CommandReview';
 import { useChatSubmit } from './useChatSubmit';
 import { useWorkbenchSplit } from './useWorkbenchSplit';
+import { WorkspaceEditor } from './Workspace';
 
 export function Workbench({
   session,
@@ -30,6 +31,7 @@ export function Workbench({
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
   const [prompt, setPrompt] = useState('');
+  const [editingWorkspace, setEditingWorkspace] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [follow, setFollow] = useState(true);
   const [monitorSize, setMonitorSize] = useState<MonitorSize>('normal');
@@ -144,6 +146,42 @@ export function Workbench({
             </small>
           </div>
         </header>
+        {state && (
+          <div className="chat-workspace" aria-label="当前 AI 工作目录">
+            <FolderOpen size={14} />
+            <span title={state.workspace || ''}>
+              {state.workspaceSupported
+                ? state.workspace || '未设置本机工作目录'
+                : '当前 AI 不支持本机工作目录'}
+            </span>
+            {state.workspaceSupported && (
+              <>
+                {state.workspace && <small>{state.workspaceWritable ? '可修改' : '只读'}</small>}
+                <button
+                  className="button small"
+                  type="button"
+                  disabled={blocked}
+                  onClick={() => {
+                    setError('');
+                    setEditingWorkspace(true);
+                  }}
+                >
+                  {state.workspace ? '切换目录' : '设置目录'}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+        {editingWorkspace && state && (
+          <WorkspaceEditor
+            workspace={state.workspace}
+            busy={pending}
+            blocked={!!blocked}
+            error={error}
+            onSave={(directory) => action({ kind: 'workspace', text: directory })}
+            onClose={() => setEditingWorkspace(false)}
+          />
+        )}
         <div
           className="native-chat-messages"
           ref={messages}

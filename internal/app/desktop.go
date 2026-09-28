@@ -40,6 +40,11 @@ func (a *App) desktopState() credentialui.WorkbenchState {
 		Messages: []credentialui.WorkbenchMessage{}, Panels: []credentialui.MonitorPanel{},
 		AlertMonitors: []credentialui.MonitorPanel{},
 	}
+	if provider, ok := a.agent.(localWorkspaceAgent); ok {
+		state.WorkspaceSupported = true
+		state.Workspace = provider.LocalWorkspace()
+		state.WorkspaceWritable = a.config.WorkspaceWritable
+	}
 	if a.proposal != nil {
 		p := *a.proposal
 		p.Command, p.Explanation, p.ExpectedEffect = a.safeText(p.Command), a.safeText(p.Explanation), a.safeText(p.ExpectedEffect)
@@ -258,6 +263,22 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 		}
 		return a.restorePipeline(*d)
 
+	case "workspace":
+		if a.agentBusy || a.proposal != nil || a.execution != nil || a.executionRecovery {
+			return errors.New("请等待当前任务完成，或先处理命令建议")
+		}
+		provider, ok := a.agent.(localWorkspaceAgent)
+		if !ok {
+			return errors.New(a.t("当前 AI 后端不支持本机代码工作区"))
+		}
+		workspace, err := resolveLocalWorkspace(command.Text)
+		if err != nil {
+			return fmt.Errorf("无法访问本机工作目录：%w", err)
+		}
+		a.setLocalWorkspace(provider, workspace)
+		message, _ := a.applyLocalWorkspaceCommand("")
+		a.appendPersistentChat(chatMessage{Role: "system", Content: message, Time: time.Now()})
+		a.dirty = true
 	case "prompt":
 		prompt := strings.TrimSpace(command.Text)
 		if prompt == "" || len(prompt) > 64*1024 {
@@ -266,7 +287,9 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 		if a.agentBusy || a.proposal != nil || a.execution != nil || a.executionRecovery {
 			return errors.New("请等待当前任务完成，或先处理命令建议")
 		}
-		a.startAI(prompt, false)
+		if !a.handleLocalWorkspaceCommand(prompt, false) {
+			a.startAI(prompt, false)
+		}
 	case "approve", "reject":
 		if a.proposal == nil || a.proposal.ID != command.ProposalID || a.agentBusy {
 			return errors.New("命令建议已变化，请查看最新状态")

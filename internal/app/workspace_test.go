@@ -8,7 +8,115 @@ import (
 	"time"
 
 	"git.example.com/ai/wrd-ai-cli/internal/agent"
+	"git.example.com/ai/wrd-ai-cli/internal/credentialui"
+	"git.example.com/ai/wrd-ai-cli/internal/history"
 )
+
+func TestDesktopWorkspaceChangesPersistAndResetProviderContext(t *testing.T) {
+	initial, next := t.TempDir(), t.TempDir()
+	config := Config{DesktopUI: true, AgentProvider: "codex", SSHArgs: []string{"server"}, Workspace: initial, HistoryDir: t.TempDir()}
+	a, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.cancel)
+	a.appendPersistentChat(chatMessage{Role: "user", Content: "继续检查配置", Time: time.Now()})
+	a.agentSessionID = "old-provider-session"
+	command := credentialui.WorkbenchCommand{Kind: "workspace", Text: next, Deadline: time.Now().Add(time.Minute).UnixMilli()}
+	if err := a.handleDesktopCommand(command); err != nil {
+		t.Fatal(err)
+	}
+	resolved, _ := filepath.EvalSymlinks(next)
+	state := a.desktopState()
+	if !state.WorkspaceSupported || state.Workspace != resolved || state.WorkspaceWritable || a.agentSessionID != "" || !strings.Contains(a.agentSeedContext, "继续检查配置") || a.agentBusy {
+		t.Fatalf("workspace/context not updated: %+v session=%q seed=%q", state, a.agentSessionID, a.agentSeedContext)
+	}
+	config.ConversationID = a.historyConversationID
+	// A stale host default must not override or prevent resuming the chat.
+	config.Workspace = filepath.Join(t.TempDir(), "missing-host-default")
+	reopened, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(reopened.cancel)
+	if reopened.desktopState().Workspace != resolved {
+		t.Fatal("directory lost on reconnect")
+	}
+	command.Kind, command.Text = "prompt", "/workspace off"
+	if err := reopened.handleDesktopCommand(command); err != nil || reopened.agentBusy || reopened.desktopState().Workspace != "" {
+		t.Fatalf("slash command reached AI or failed: %v", err)
+	}
+	again, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(again.cancel)
+	if again.desktopState().Workspace != "" {
+		t.Fatal("disabled workspace reverted to host default")
+	}
+	command.Text = "/ws"
+	if err := again.handleDesktopCommand(command); err != nil || again.agentBusy || !strings.Contains(again.chat[len(again.chat)-1].Content, "未启用") {
+		t.Fatalf("workspace query was not handled locally: %v", err)
+	}
+}
+
+func TestDesktopWorkspaceRejectsUnavailableOrBusyChanges(t *testing.T) {
+	a, err := New(Config{DesktopUI: true, AgentProvider: "codex", SSHArgs: []string{"server"}, Workspace: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.cancel)
+	original := a.config.Workspace
+	command := credentialui.WorkbenchCommand{Kind: "workspace", Text: t.TempDir(), Deadline: time.Now().Add(time.Minute).UnixMilli()}
+	for _, block := range []func(){
+		func() { a.agentBusy = true },
+		func() { a.proposal = &agent.Proposal{ID: "pending"} },
+		func() { a.executionRecovery = true },
+	} {
+		block()
+		if err := a.handleDesktopCommand(command); err == nil || a.config.Workspace != original {
+			t.Fatal("changed workspace during a pending task")
+		}
+		a.agentBusy, a.executionRecovery, a.proposal = false, false, nil
+	}
+	command.Text = filepath.Join(t.TempDir(), "missing")
+	if err := a.handleDesktopCommand(command); err == nil || a.config.Workspace != original {
+		t.Fatal("invalid directory changed current workspace")
+	}
+	a.agent = approvalTestProvider{}
+	if a.desktopState().WorkspaceSupported {
+		t.Fatal("unsupported backend exposed workspace controls")
+	}
+	command.Text = t.TempDir()
+	if err := a.handleDesktopCommand(command); err == nil {
+		t.Fatal("unsupported provider accepted workspace")
+	}
+}
+
+func TestHistoryWorkspaceIsIsolatedBetweenConversations(t *testing.T) {
+	dir, first, second := t.TempDir(), t.TempDir(), ""
+	store := history.New(dir)
+	for id, workspace := range map[string]string{"first": first, "second": second} {
+		if err := store.Append("server", history.Message{ConversationID: id, Role: "system", Content: "新对话", Workspace: &workspace}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, err := New(Config{SSHArgs: []string{"server"}, HistoryDir: dir, ConversationID: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.cancel)
+	resolved, _ := filepath.EvalSymlinks(first)
+	if a.config.Workspace != resolved {
+		t.Fatal("initial directory lost")
+	}
+	if err := a.resumeConversation("second"); err != nil || a.config.Workspace != "" {
+		t.Fatalf("disabled directory lost: %v", err)
+	}
+	if err := a.resumeConversation("first"); err != nil || a.config.Workspace != resolved {
+		t.Fatalf("conversation directory leaked: %v", err)
+	}
+}
 
 func TestLocalWorkspaceIsResolvedAndShownInConversation(t *testing.T) {
 	workspace := t.TempDir()

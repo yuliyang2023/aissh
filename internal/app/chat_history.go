@@ -131,6 +131,14 @@ func (a *App) selectHistoryConversation(index int) bool {
 		return true
 	}
 	conversation := a.historyConversations[index-1]
+	if provider, ok := a.agent.(localWorkspaceAgent); ok && conversation.Workspace != nil {
+		workspace, err := resolveLocalWorkspace(*conversation.Workspace)
+		if err != nil {
+			a.chat = append(a.chat, chatMessage{Role: "error", Content: a.t("无法访问本机代码工作区：%s", err.Error()), Time: time.Now()})
+			return false
+		}
+		a.setLocalWorkspace(provider, workspace)
+	}
 	keepRuntimeSession := conversation.ID == a.historyConversationID && a.agentSessionID != ""
 	messages := make([]chatMessage, 0, len(conversation.Messages)+1)
 	for _, message := range conversation.Messages {
@@ -234,8 +242,14 @@ func (a *App) persistChatMessage(message chatMessage) {
 	if a.historyConversationID == "" {
 		a.historyConversationID = history.NewConversationID()
 	}
+	var workspace *string
+	if provider, ok := a.agent.(localWorkspaceAgent); ok {
+		value := provider.LocalWorkspace()
+		workspace = &value
+	}
 	err := a.historyStore.Append(a.historyTarget, history.Message{
 		ConversationID: a.historyConversationID,
+		Workspace:      workspace,
 		Role:           message.Role,
 		Content:        message.Content,
 		Time:           message.Time.Format(time.RFC3339Nano),

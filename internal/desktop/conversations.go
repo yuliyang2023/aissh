@@ -9,6 +9,7 @@ import (
 
 	"git.example.com/ai/wrd-ai-cli/internal/catalog"
 	"git.example.com/ai/wrd-ai-cli/internal/history"
+	"git.example.com/ai/wrd-ai-cli/internal/localworkspace"
 )
 
 // ConversationInfo is independent of the lifetime of its SSH terminal.
@@ -73,7 +74,12 @@ func (s *Service) CreateDirectConversation(host catalog.Host, saveHost bool) (Di
 	if s.history == nil || s.history.Dir == "" {
 		return DirectConversation{}, errors.New("AI 历史已禁用，请启用本机历史后新建对话")
 	}
-	host, err := s.store.CreateConversationHost(host, saveHost)
+	workspace, err := localworkspace.Resolve(host.Workspace)
+	if err != nil {
+		return DirectConversation{}, fmt.Errorf("无法访问本机工作目录：%w", err)
+	}
+	host.Workspace = workspace
+	host, err = s.store.CreateConversationHost(host, saveHost)
 	if err != nil {
 		return DirectConversation{}, err
 	}
@@ -113,6 +119,19 @@ func (s *Service) GetConversation(hostID, id string) ([]history.Message, error) 
 }
 
 func (s *Service) CreateConversation(hostID string) (ConversationInfo, error) {
+	d, err := s.store.Load()
+	if err != nil {
+		return ConversationInfo{}, err
+	}
+	host, err := d.Host(hostID)
+	if err != nil {
+		return ConversationInfo{}, err
+	}
+	return s.CreateConversationWithWorkspace(hostID, host.Workspace)
+}
+
+// A conversation's directory is independent of the saved host and other chats.
+func (s *Service) CreateConversationWithWorkspace(hostID, directory string) (ConversationInfo, error) {
 	if s.history == nil || s.history.Dir == "" {
 		return ConversationInfo{}, errors.New("AI 历史已禁用，请启用本机历史后新建对话")
 	}
@@ -123,11 +142,15 @@ func (s *Service) CreateConversation(hostID string) (ConversationInfo, error) {
 	if _, err := d.Host(hostID); err != nil {
 		return ConversationInfo{}, err
 	}
+	workspace, err := localworkspace.Resolve(directory)
+	if err != nil {
+		return ConversationInfo{}, fmt.Errorf("无法访问本机工作目录：%w", err)
+	}
 	now := time.Now().UTC()
 	id := history.NewConversationID()
 	// Persist an empty conversation without inserting a synthetic user prompt.
 	if err := s.history.Append("profile:"+hostID, history.Message{
-		ConversationID: id, Role: "system", Content: "新对话", Time: now.Format(time.RFC3339Nano),
+		ConversationID: id, Role: "system", Content: "新对话", Time: now.Format(time.RFC3339Nano), Workspace: &workspace,
 	}); err != nil {
 		return ConversationInfo{}, err
 	}

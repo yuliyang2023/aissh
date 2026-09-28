@@ -6,6 +6,7 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { testCommandReview } from './test-command-review.mjs';
+import { testWorkspace } from './test-workspace.mjs';
 import { testTerminalScroll } from './test-terminal-scroll.mjs';
 import { testWidgets } from './test-widgets.mjs';
 import { testMonitorResize } from './test-monitor-resize.mjs';
@@ -217,6 +218,12 @@ await page.addInitScript(() => {
           persistConversations();
           return { ...c };
         },
+        CreateConversationWithWorkspace: async (hostId, workspace) => {
+          const c = await window.go.desktop.Service.CreateConversation(hostId);
+          conversations.find(item => item.id === c.id).workspace = workspace;
+          persistConversations();
+          return { ...c, workspace };
+        },
         CreateDirectConversation: async (input, saveHost) => {
           const host = { ...normalizeHost(input), id: 'direct-' + Date.now() + '-' + sequence++ };
           if (saveHost) {
@@ -226,7 +233,7 @@ await page.addInitScript(() => {
             data.conversationHosts.push(host);
             sessionStorage.setItem('test-conversation-hosts', JSON.stringify(data.conversationHosts));
           }
-          return { host, conversation: await window.go.desktop.Service.CreateConversation(host.id) };
+          return { host, conversation: await window.go.desktop.Service.CreateConversationWithWorkspace(host.id, host.workspace) };
         },
         OpenConversationSession: async (hostId, id) => {
           const existing = sessions.find(s => s.hostId === hostId && s.conversationId === id && (s.status === 'starting' || s.status === 'running'));
@@ -259,6 +266,8 @@ await page.addInitScript(() => {
           updateSession(id, 'running');
           const session = sessions.find(s => s.id === id);
           workbenches[id] = {
+            workspace: conversations.find(c => c.id === session.conversationId && c.hostId === session.hostId)?.workspace ?? [...data.hosts, ...data.conversationHosts].find(h => h.id === session.hostId)?.workspace ?? '',
+            workspaceSupported: true, workspaceWritable: false,
             conversationId: session.conversationId, busy: false, status: '', canApprove: false, executing: false, approvalStatus: '',
             messages: [
               { role: 'user', content: '检查 nginx 最近的响应情况', time: new Date().toISOString() },
@@ -274,7 +283,14 @@ await page.addInitScript(() => {
         WorkbenchAction: async (id, command) => {
           window.__test.actions.push({ id, ...command });
           const state = workbenches[id];
-          if (command.kind === 'prompt') {
+          if (command.kind === 'workspace') {
+            if (command.text === '/missing') throw new Error('无法访问本机工作目录');
+            state.workspace = command.text;
+            const conversation = conversations.find(c => c.id === state.conversationId && c.hostId === sessions.find(s => s.id === id)?.hostId);
+            if (conversation) conversation.workspace = command.text;
+            persistConversations();
+            publishWorkbench(id);
+          } else if (command.kind === 'prompt') {
             state.messages.push({ role: 'user', content: command.text, time: new Date().toISOString() });
             state.busy = true; state.status = '正在分析'; publishWorkbench(id);
             setTimeout(() => {
@@ -320,7 +336,10 @@ const openSettings = async (name = '主机') => {
 };
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  if (process.env.MODAL_ESCAPE_ONLY) {
+  if (process.env.WORKSPACE_ONLY) {
+    await testWorkspace(page, out);
+    assert.deepEqual(errors, []);
+  } else if (process.env.MODAL_ESCAPE_ONLY) {
     await testModalEscape(page);
     assert.deepEqual(errors, []);
   } else if (process.env.WIDGETS_ONLY) {

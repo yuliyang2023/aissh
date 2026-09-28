@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"git.example.com/ai/wrd-ai-cli/internal/history"
 )
 
 // localWorkspaceAgent is implemented by AI providers that can read a local
@@ -63,24 +65,37 @@ func (a *App) applyLocalWorkspaceCommand(argument string) (string, error) {
 		}
 		return a.t("当前未启用本机代码工作区；使用 /workspace 本机路径 开启"), nil
 	}
-	if a.agentBusy {
+	if a.agentBusy || a.proposal != nil || a.execution != nil || a.executionRecovery {
 		return "", fmt.Errorf("%s", a.t("AI 正在处理请求；请在本次请求结束后切换工作区"))
 	}
 	if workspaceDisabledArgument(argument) {
-		provider.SetLocalWorkspace("")
-		a.config.Workspace = ""
+		a.setLocalWorkspace(provider, "")
 		return a.t("已关闭本机代码工作区；后续 %s 请求不会读取本机项目", provider.Name()), nil
 	}
 	workspace, err := resolveLocalWorkspace(argument)
 	if err != nil {
 		return "", fmt.Errorf("%s", a.t("无法访问本机代码工作区：%s", err.Error()))
 	}
-	provider.SetLocalWorkspace(workspace)
-	a.config.Workspace = workspace
+	a.setLocalWorkspace(provider, workspace)
 	if a.config.WorkspaceWritable {
 		return a.t("本机代码工作区已切换（可修改）：%s；后续 %s 请求将使用此目录", workspace, provider.Name()), nil
 	}
 	return a.t("本机代码工作区已切换（只读）：%s；后续 %s 请求将使用此目录", workspace, provider.Name()), nil
+}
+
+func (a *App) setLocalWorkspace(provider localWorkspaceAgent, workspace string) {
+	if provider.LocalWorkspace() != workspace {
+		// A directory change starts a fresh provider session with the visible chat
+		// as context, so the old provider session cannot retain its previous cwd.
+		messages := make([]history.Message, 0, len(a.chat))
+		for _, message := range a.chat {
+			messages = append(messages, history.Message{Role: message.Role, Content: message.Content})
+		}
+		a.agentSessionID = ""
+		a.agentSeedContext = historyConversationContext(messages)
+	}
+	provider.SetLocalWorkspace(workspace)
+	a.config.Workspace = workspace
 }
 
 func workspaceDisabledArgument(value string) bool {
