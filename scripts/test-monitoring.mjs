@@ -439,7 +439,11 @@ async function testPetTasks(page, out) {
 
   await add(['approval']);
   await page.getByText('需要你确认一下', { exact: true }).waitFor();
-  await page.getByRole('button', { name: '已读', exact: true }).click();
+  assert.equal(await page.locator('.pet-notice-badge').textContent(), '待确认');
+  assert.equal(await page.locator('.pet-bubble-open strong').textContent(), 'AI 等待命令确认');
+  await page.locator('.pet-bubble-open').click();
+  assert.deepEqual(await page.evaluate(() => window.__petActions.at(-1)), { kind: 'open', id: 'task-session' });
+  await poll();
   assert.equal(await page.locator('.pet-bubble').count(), 0);
   await add(['reply']);
   await page.getByRole('button', { name: '静音 15 分钟' }).click();

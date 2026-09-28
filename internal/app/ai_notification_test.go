@@ -117,6 +117,48 @@ func TestDesktopTaskNoticesWithoutOSNotifier(t *testing.T) {
 	}
 }
 
+func TestDesktopCommandRemindsForManualReviewButNotExecution(t *testing.T) {
+	for _, automatic := range []bool{false, true} {
+		name := "manual approval"
+		if automatic {
+			name = "automatic approval"
+		}
+		t.Run(name, func(t *testing.T) {
+			a := desktopTestApp(t)
+			a.config.AlwaysYes = automatic
+			a.agent = &alwaysYesTestProvider{}
+			a.atPrompt = true
+			a.sshInput = newSSHInputWriter(a.ctx, io.Discard, a.events)
+			a.finishAgentTurn(agent.Turn{Proposal: &agent.Proposal{ID: "p", Command: "uptime", Risk: "read_only"}}, nil)
+			before := len(a.desktopState().Notices)
+			if automatic && before != 0 {
+				t.Fatal("automatic risk review produced a reminder")
+			}
+			if !automatic {
+				if before != 1 || a.desktopNotices[0].Kind != "approval" {
+					t.Fatal("manual review reminder missing")
+				}
+				a.approveProposal()
+			}
+			deadline := time.After(time.Second)
+			for a.execution == nil {
+				select {
+				case event := <-a.events:
+					a.handleEvent(event)
+				case <-deadline:
+					t.Fatal("command did not start")
+				}
+			}
+			awaitExecutionWrite(t, a)
+			a.handleEvent(agentStatusEvent{status: ""})
+			state := a.desktopState()
+			if !state.Executing || len(state.Notices) != before {
+				t.Fatalf("command execution produced an extra reminder: %+v", state.Notices)
+			}
+		})
+	}
+}
+
 func TestDesktopTaskNoticesWaitForFinalOutcomeAndStayBounded(t *testing.T) {
 	a := desktopTestApp(t)
 	a.agentBusy = true
