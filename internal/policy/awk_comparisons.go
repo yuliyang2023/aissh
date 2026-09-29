@@ -2,7 +2,6 @@ package policy
 
 import (
 	"path"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -10,7 +9,7 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// The textual policy must not interpret a parenthesized AWK scalar comparison
+// The textual policy must not interpret an AWK expression comparison
 // as a shell/print redirect. Keep this exception narrow: it is only available
 // for a statically known AWK program, never arbitrary quoted shell arguments.
 // The returned text is for policy inspection only; the collector is unchanged.
@@ -41,7 +40,7 @@ func maskMonitorAWKComparisons(command string, depth int) string {
 		switch path.Base(name) {
 		case "awk", "gawk", "mawk", "nawk":
 			word = monitorAWKProgram(call.Args[1:])
-			mask = maskAWKScalarComparisons
+			mask = maskAWKComparisons
 		case "sh", "bash", "dash", "ksh":
 			for i := 1; i+1 < len(call.Args); i++ {
 				flag, literal := literalMonitorWord(call.Args[i])
@@ -121,52 +120,131 @@ func monitorAWKProgram(args []*syntax.Word) *syntax.Word {
 	return nil
 }
 
-const awkScalar = `(?:\$?[A-Za-z_][A-Za-z_0-9]*|\$[0-9]+|[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)`
-
-var awkScalarComparison = regexp.MustCompile(`^\([ \t]*` + awkScalar + `(?:[ \t]*[+*-][ \t]*` + awkScalar + `)*[ \t]*(>=?)[ \t]*` + awkScalar + `(?:[ \t]*[+*-][ \t]*` + awkScalar + `)*[ \t]*\)`)
-
-func maskAWKScalarComparisons(program string) string {
+func maskAWKComparisons(program string) string {
 	masked := []byte(program)
-	previous := byte(0)
+	// In AWK, > is a comparison except at the outer level of print/printf
+	// arguments. Track that level separately, including print in a for header.
+	// Strings and regexes are never masked: they may contain shell commands.
+	printDepth := -1
+	var parens []bool // true for control headers, whose closing ) starts a statement
+	brackets := 0
+	expectOperand := true
+	control := false
+	continued := false
 	for i := 0; i < len(program); i++ {
 		c := program[i]
 		switch c {
-		case ' ', '\t', '\r', '\n':
+		case ' ', '\t', '\r':
+			continue
+		case '\n':
+			if !continued && len(parens) == 0 && brackets == 0 {
+				printDepth = -1
+				expectOperand = true
+			}
 			continue
 		case '#':
 			for i < len(program) && program[i] != '\n' {
 				i++
 			}
+			i-- // Process the newline as a statement boundary.
 			continue
+		case '\\':
+			// Do not guess how a dialect joins tokens across escaped newlines.
+			return program
 		case '"':
 			end := awkLiteralEnd(program, i, false)
 			if end < 0 {
 				return program
 			}
 			i = end
+			expectOperand = false
 		case '/':
-			// Only recognize an unambiguous regex context. Division and dialect
-			// extensions retain the original conservative check for this program.
-			if previous != 0 && !strings.ContainsRune("~(,=!:;{", rune(previous)) {
-				return program
-			}
-			end := awkLiteralEnd(program, i, true)
-			if end < 0 {
-				return program
-			}
-			i = end
-		case '(':
-			if match := awkScalarComparison.FindStringSubmatchIndex(program[i:]); match != nil {
-				// Mask just the comparison operator, never strings, regexes,
-				// print destinations or the rest of the program.
-				for j := match[2]; j < match[3]; j++ {
-					masked[i+j] = ' '
+			if expectOperand {
+				end := awkLiteralEnd(program, i, true)
+				if end < 0 {
+					return program
 				}
+				i = end
+				expectOperand = false
+			} else {
+				expectOperand = true // Division, not the start of a regex.
+			}
+		case '(':
+			parens = append(parens, control)
+			expectOperand = true
+		case ')':
+			if len(parens) == 0 {
+				return program
+			}
+			if printDepth == len(parens) {
+				printDepth = -1
+			}
+			expectOperand = parens[len(parens)-1]
+			parens = parens[:len(parens)-1]
+		case '{', '}', ';':
+			printDepth = -1
+			expectOperand = true
+		case '>':
+			if i+1 < len(program) && program[i+1] == '>' {
+				i++ // Append redirection is never a comparison.
+			} else if printDepth < 0 || len(parens) > printDepth || brackets > 0 || i+1 < len(program) && program[i+1] == '=' {
+				masked[i] = ' '
+			}
+			expectOperand = true
+		case '[':
+			brackets++
+			expectOperand = true
+		case ']':
+			if brackets == 0 {
+				return program
+			}
+			brackets--
+			expectOperand = false
+		case '+', '-':
+			if i+1 < len(program) && program[i+1] == c {
+				i++ // Prefix/postfix increment keeps its operand context.
+			} else {
+				expectOperand = true
+			}
+		case '$', '.', '=', '<', '!', '~', '*', '%', '^', ',', '|', '&', '?', ':':
+			expectOperand = true
+		default:
+			if awkWordByte(c) {
+				start := i
+				for i+1 < len(program) && awkWordByte(program[i+1]) {
+					i++
+				}
+				word := program[start : i+1]
+				switch word {
+				case "print", "printf":
+					printDepth = len(parens)
+					expectOperand = true
+				case "if", "while", "for":
+					control = true
+					expectOperand = true
+					continued = false
+					continue
+				case "return", "exit", "delete", "in", "else", "do":
+					expectOperand = true
+				default:
+					expectOperand = false
+				}
+			} else {
+				return program // Unknown dialect syntax gets no exception.
 			}
 		}
-		previous = c
+		control = false
+		// AWK permits an unescaped newline after these expression separators.
+		continued = strings.ContainsRune(",|&?:", rune(c))
+	}
+	if len(parens) != 0 || brackets != 0 {
+		return program
 	}
 	return string(masked)
+}
+
+func awkWordByte(c byte) bool {
+	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c >= 0x80
 }
 
 func awkLiteralEnd(program string, start int, regex bool) int {

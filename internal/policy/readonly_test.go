@@ -79,6 +79,15 @@ func TestMySQLWidgetSafeIntegerComparison(t *testing.T) {
 
 func TestAWKComparisonsDoNotBecomeFileRedirects(t *testing.T) {
 	for _, command := range []string{
+		`awk 'BEGIN { running=(active=="active" || active=="reloading") && pid+0>0; print running }'`,
+		`awk 'END { if (NR==0 || invalid>0) print "unknown" }'`,
+		`awk '{ if (counts[group]>maximum) maximum=counts[group] }'`,
+		`awk 'END { if (counts[order[i]]>=5) affected++ }'`,
+		`awk -v start="$since" -v end="$until" '/^-- / { next } /^[[:space:]]*$/ { next } END { if (NR==0 || invalid>0) print start, end }'`,
+		`awk '{ ratio=$1/$2; if (ratio>0.5 && length($0)>4) print ratio }'`,
+		`awk '$1>0 { print ($1>1), ($2>=2) }'`,
+		`awk 'BEGIN { print x>=1, counts[x>1] }'`,
+		`awk 'BEGIN { print (3>2) / 2; printf "%d", (4/2>1) }'`,
 		`awk 'BEGIN { x=1; if(x+0>9007199254740991) print "null"; else print x }'`,
 		`awk 'BEGIN { x=1; print (x > 0); printf "%d\n", (x >= 1) }'`,
 		`printf 'n=3\n' | awk -F= -v max=10 '{ if($2>max) print "overflow"; else print $2 }'`,
@@ -93,8 +102,45 @@ func TestAWKComparisonsDoNotBecomeFileRedirects(t *testing.T) {
 	}
 }
 
+func TestWebVPNAlertCommandsPassPolicy(t *testing.T) {
+	for _, name := range []string{"stopped", "crash", "reconnect"} {
+		t.Run(name, func(t *testing.T) {
+			command, err := os.ReadFile("testdata/webvpn_" + name + ".sh")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ValidateReadOnlyMonitorCommand(string(command)); err != nil {
+				t.Fatalf("original WebVPN alert rejected: %v", err)
+			}
+			if err := ValidateReadOnlyMonitorCommand(string(command) + " > /tmp/webvpn-status"); err == nil {
+				t.Fatal("alert output file write accepted")
+			}
+			// An AWK output destination inside the same program must still fail.
+			quote := strings.LastIndex(string(command), "'")
+			withWrite := string(command[:quote]) + ` END { print "state" > "/tmp/webvpn-status" }` + string(command[quote:])
+			if err := ValidateReadOnlyMonitorCommand(withWrite); err == nil || !strings.Contains(err.Error(), "/tmp/webvpn-status") {
+				t.Fatalf("AWK file write not identified: %v", err)
+			}
+		})
+	}
+}
+
 func TestAWKComparisonExceptionRetainsWriteChecks(t *testing.T) {
 	for _, command := range []string{
+		`awk 'BEGIN { running=pid+0>0; print running > "/tmp/output" }'`,
+		`awk 'BEGIN { if (counts[group]>maximum) print(counts[group]) > "/tmp/output" }'`,
+		`awk 'BEGIN { print (3>2), (4>3) > "/tmp/output" }'`,
+		`awk 'BEGIN { print counts[x>1] > "/tmp/output" }'`,
+		`awk 'BEGIN { for (print 1 > "/tmp/output"; x>0; x--) print x }'`,
+		`awk 'BEGIN { print (3>2),
+ 1 > "/tmp/output" }'`,
+		`awk 'BEGIN { print (3>2) \
+ > "/tmp/output" }'`,
+		`awk 'BEGIN { if (x>0) system("echo (1>0) > /tmp/output") }'`,
+		`awk -v start="$(echo data > /tmp/output)" 'BEGIN { print (3>2) }'`,
+		`awk '/[)]/ { print (3>2) > "/tmp/output" }'`,
+		`awk '/[(]/ { print 3 > "/tmp/output" }'`,
+		`awk '{ ratio=$1/$2; if (ratio>0.5) print ratio > "/tmp/output" }'`,
 		`awk 'BEGIN { if(x+0>9007199254740991) print 1 }' > /tmp/output`,
 		`awk 'BEGIN { if(x>0) print x > "/tmp/output" }'`,
 		`awk 'BEGIN { print (x+0) > 9007199254740991 }'`,

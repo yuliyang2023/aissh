@@ -17,6 +17,38 @@ import (
 
 const mysqlProcessCommand = "ps -C mysqld,mariadbd -o pid,comm,etime,pcpu,pmem,rss,nlwp,stat"
 
+func TestCreateWebVPNAlertsWithAWKComparisons(t *testing.T) {
+	a := desktopTestApp(t)
+	for _, name := range []string{"stopped", "crash", "reconnect"} {
+		t.Run(name, func(t *testing.T) {
+			command, err := os.ReadFile("../policy/testdata/webvpn_" + name + ".sh")
+			if err != nil {
+				t.Fatal(err)
+			}
+			action := agent.PanelAction{Action: "create", Panel: agent.PanelSpec{
+				ID: "alert-webvpn-" + name, Purpose: "alert", Type: "monitor",
+				Command: string(command), IntervalMS: 30000,
+				Alert: &panel.AlertCondition{Enabled: true, Kind: "match", Pattern: "=1", Severity: "warning"},
+			}}
+			item, _, err := a.executePanelAction(action)
+			if err != nil || item == nil {
+				t.Fatalf("WebVPN alert could not be created: %v", err)
+			}
+			if !item.IsAlert() || item.Command != strings.TrimSpace(string(command)) || item.Interval != 30*time.Second {
+				t.Fatal("policy normalization changed the stored alert command or configuration")
+			}
+			action.Action = "update"
+			action.Panel.Command = string(command) + " > /tmp/webvpn-status"
+			if _, _, err := a.executePanelAction(action); err == nil {
+				t.Fatal("alert update with a file write accepted")
+			}
+			if item.Command != strings.TrimSpace(string(command)) {
+				t.Fatal("rejected update replaced the live alert command")
+			}
+		})
+	}
+}
+
 func TestCreateMySQLMonitorWithSafeIntegerComparison(t *testing.T) {
 	command, err := os.ReadFile("../policy/testdata/mysql_widget_monitor.sh")
 	if err != nil {
