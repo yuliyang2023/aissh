@@ -347,6 +347,9 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 			delete(a.monitorActive, command.PanelID)
 			delete(a.monitorLast, command.PanelID)
 		} else {
+			if err := a.resumePausedMonitoring(); err != nil {
+				return err
+			}
 			a.resetMonitorAudit(command.PanelID, true)
 			a.monitorLast[command.PanelID] = time.Time{}
 		}

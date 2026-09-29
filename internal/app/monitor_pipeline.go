@@ -424,7 +424,10 @@ func (a *App) schedulePipelines(now time.Time) {
 			for _, b := range a.pipelineBatches {
 				busy = busy || b.panelID == p.ID && b.draftID == "" && b.candidateID == ""
 			}
-			if !busy && now.Sub(a.monitorLast[p.ID]) >= p.Interval {
+			// Waiting for an occupied/paused shell is not a failed SSH sample.
+			// Keep the last data stale and defer recurring work until it can run;
+			// otherwise each 90-second wait creates another failure and chat entry.
+			if !busy && a.canStartInBandMonitor() && now.Sub(a.monitorLast[p.ID]) >= p.Interval {
 				a.newPipelineBatch(p.ID, p.Pipeline.Sources, "", "", p.SourceRevision, p.BindingID)
 			}
 		}

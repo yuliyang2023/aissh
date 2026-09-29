@@ -58,6 +58,10 @@ func (a *App) sshSessionError() error {
 		return nil
 	}
 	message := a.t("SSH 连接失败或异常结束（%s）", a.parsed.Target)
+	output := a.outputTail.String()
+	if a.sshOutputTail != nil && a.sshOutputTail.String() != "" {
+		output = a.sshOutputTail.String()
+	}
 	// The bounded output tail includes OpenSSH's connection/authentication
 	// diagnostics. Strip terminal controls before replaying it outside the TUI.
 	detail := strings.TrimSpace(strings.Map(func(r rune) rune {
@@ -65,7 +69,7 @@ func (a *App) sshSessionError() error {
 			return -1
 		}
 		return r
-	}, trigger.StripANSI(a.outputTail.String())))
+	}, trigger.StripANSI(output)))
 	if detail == "" {
 		return fmt.Errorf("%s: %w", message, a.terminalErr)
 	}

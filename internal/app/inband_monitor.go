@@ -72,10 +72,27 @@ func (a *App) scheduleInBandMonitor(now time.Time) {
 }
 
 func (a *App) canStartInBandMonitor() bool {
-	return !a.monitorPrimaryPaused && !a.monitorAwaitingPrompt && a.monitorWorkspaceVisible() &&
+	return !a.monitorPrimaryPaused && a.monitorWorkspaceVisible() && a.monitorShellReady()
+}
+
+func (a *App) monitorShellReady() bool {
+	return !a.monitorAwaitingPrompt &&
 		!a.executionRecovery && a.execution == nil && a.proposal == nil && a.inBandMonitor == nil && len(a.monitorDeferredInput) == 0 && a.atPrompt && !a.sensitive &&
 		!a.agentBusy && !a.terminalDone && a.zmodem == nil && a.sshPTY != nil && len(a.lineInput) == 0 &&
 		a.lineReliable && !a.aiLineCapture && !a.terminalPasteMode
+}
+
+// Timeouts and user interrupts pause automatic collection. Only an explicit
+// refresh may resume it, after a fresh, empty shell prompt has been observed.
+func (a *App) resumePausedMonitoring() error {
+	if !a.monitorPrimaryPaused {
+		return nil
+	}
+	if !a.monitorShellReady() {
+		return fmt.Errorf("监控已暂停；请先让 SSH 终端回到空闲提示符并清空未提交的输入，再点击刷新")
+	}
+	a.monitorPrimaryPaused = false
+	return nil
 }
 
 func (a *App) startInBandMonitor(item *panel.Panel, now time.Time) {

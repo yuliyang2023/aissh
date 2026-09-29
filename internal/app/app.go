@@ -154,6 +154,7 @@ type App struct {
 	sensitive               bool
 	lastCommand             string
 	outputTail              *rollingBuffer
+	sshOutputTail           *rollingBuffer // raw PTY tail, independent of monitor/prompt filtering
 	recentOutput            *contextBuffer
 	errorCarry              string
 	pendingError            *trigger.ErrorMatch
@@ -292,6 +293,7 @@ func New(config Config) (*App, error) {
 		aiExpanded:            true,
 		lineReliable:          true,
 		outputTail:            newRollingBuffer(16 * 1024),
+		sshOutputTail:         newRollingBuffer(16 * 1024),
 		recentOutput:          newContextBuffer(config.AIContextChars),
 		agent:                 provider,
 		localizer:             localizer,
@@ -706,6 +708,9 @@ func (a *App) handleEvent(event interface{}) {
 	case inputEvent:
 		a.handleInput(value.data)
 	case outputEvent:
+		if a.sshOutputTail != nil {
+			a.sshOutputTail.Append(string(value.data))
+		}
 		a.processSSHOutput(value.data)
 	case resizeEvent:
 		_ = a.updateSize()
@@ -714,7 +719,7 @@ func (a *App) handleEvent(event interface{}) {
 		a.invalidatePipelines()
 		a.terminalErr = value.err
 		if !a.terminalDone && value.err != nil {
-			a.appendPersistentChat(chatMessage{Role: "system", Content: a.t("SSH 已结束：%s", value.err.Error()), Time: time.Now()})
+			a.appendPersistentChat(chatMessage{Role: "system", Content: a.safeText(a.sshSessionError().Error()), Time: time.Now()})
 		}
 		a.terminalDone = true
 		a.dirty = true
