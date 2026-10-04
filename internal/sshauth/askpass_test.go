@@ -82,12 +82,16 @@ func TestCleanEnvironment(t *testing.T) {
 
 func startTestSSH(t *testing.T, callback func(ssh.ConnMetadata, []byte) (*ssh.Permissions, error), public func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error)) (net.Listener, ssh.PublicKey) {
 	t.Helper()
+	return startTestSSHServer(t, &ssh.ServerConfig{PasswordCallback: callback, PublicKeyCallback: public})
+}
+
+func startTestSSHServer(t *testing.T, config *ssh.ServerConfig) (net.Listener, ssh.PublicKey) {
+	t.Helper()
 	_, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 	signer, _ := ssh.NewSignerFromKey(private)
-	config := &ssh.ServerConfig{PasswordCallback: callback, PublicKeyCallback: public}
 	config.AddHostKey(signer)
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {

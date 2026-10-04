@@ -93,7 +93,11 @@ func PrepareSnapshot(ctx context.Context, store *catalog.Store, d catalog.Data, 
 		chain = append(chain, current)
 	}
 	home, _ := os.UserHomeDir()
+	var managedAliases, unmanagedPatterns []string
+	unmanagedPatterns = append(unmanagedPatterns, "*")
 	for _, h := range chain {
+		managedAliases = append(managedAliases, "aissh-"+h.ID)
+		unmanagedPatterns = append(unmanagedPatterns, "!aissh-"+h.ID)
 		user := h.User
 		var credential catalog.Credential
 		if h.CredentialID != "" {
@@ -135,9 +139,16 @@ func PrepareSnapshot(ctx context.Context, store *catalog.Store, d catalog.Data, 
 			}
 		}
 	}
-	// Preserve global user settings (algorithms, agent socket, etc.). Managed
-	// host/destination/identity settings above win under OpenSSH's first-value rule.
-	fmt.Fprintf(&config, "Host *\n  Include %s\n", configQuote(filepath.Join(home, ".ssh", "config")))
+	// Request a final parse, when OpenSSH matches Host against the resolved
+	// HostName instead of our internal aissh-ID. Only include the user config
+	// on that pass: reading Host * on the initial pass would otherwise mask
+	// more specific settings such as Host *.example.com / ProxyCommand.
+	// Managed destination, identity and jump settings above still take priority.
+	userConfig := configQuote(filepath.Join(home, ".ssh", "config"))
+	fmt.Fprintf(&config, "Match final originalhost %s\n  Include %s\n", strings.Join(managedAliases, ","), userConfig)
+	// An unmanaged ProxyJump alias also inherits -F. It must read the user's
+	// config on the initial pass so its own HostName and port can be resolved.
+	fmt.Fprintf(&config, "Match originalhost %s\n  Include %s\n", strings.Join(unmanagedPatterns, ","), userConfig)
 	path := filepath.Join(dir, "ssh_config")
 	if err := os.WriteFile(path, []byte(config.String()), 0600); err != nil {
 		return nil, err

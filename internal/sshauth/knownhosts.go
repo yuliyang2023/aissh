@@ -74,28 +74,80 @@ func scan(ctx context.Context, store *catalog.Store, h catalog.Host, helper stri
 	result := HostCheck{HostID: h.ID, Name: h.Name, Address: HostAddress(h), Keys: []HostKey{}}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	args := []string{"-T", "5", "-p", strconv.Itoa(h.Port), "-t", "ed25519,ecdsa,rsa", h.Address}
-	cmd := exec.CommandContext(ctx, "ssh-keyscan", args...)
-	if h.JumpHostID != "" {
-		lease, err := Prepare(ctx, store, h.JumpHostID, helper, nil)
-		if err != nil {
-			return result, err
-		}
-		defer lease.Close()
-		sshArgs := append([]string{"-T", "-o", "ConnectTimeout=8"}, lease.Args...)
-		// Host/port are validated metadata; quote each value anyway. No secret
-		// is present in this fixed remote keyscan operation.
-		command := "ssh-keyscan"
-		for _, arg := range args {
-			command += " '" + strings.ReplaceAll(arg, "'", "'\"'\"'") + "'"
-		}
-		cmd = exec.CommandContext(ctx, "ssh", append(sshArgs, command)...)
-		cmd.Env = lease.Env
-	}
-	out, err := cmd.Output()
+	lease, err := Prepare(ctx, store, h.ID, helper, nil)
 	if err != nil {
-		return result, errors.New("无法读取主机指纹；请检查地址、网络和跳板机，远端跳板机需提供 ssh-keyscan")
+		return result, err
 	}
+	defer lease.Close()
+	dir, err := os.MkdirTemp("", "aissh-host-key-")
+	if err != nil {
+		return result, err
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "known_hosts")
+	// Use the same OpenSSH transport (including ProxyCommand/ProxyJump) as the
+	// session. The candidate key goes ONLY into this disposable file, never a
+	// trusted store. Disable destination authentication and all session actions;
+	// only already-trusted jump hosts may use the lease's saved credentials.
+	args := []string{"-N", "-T"}
+	for _, option := range []string{
+		"ConnectTimeout=8", "ConnectionAttempts=1", "BatchMode=yes",
+		"PreferredAuthentications=none", "PubkeyAuthentication=no",
+		"PasswordAuthentication=no", "KbdInteractiveAuthentication=no",
+		"StrictHostKeyChecking=accept-new", "UserKnownHostsFile=" + configQuote(path),
+		"GlobalKnownHostsFile=none", "KnownHostsCommand=none", "VerifyHostKeyDNS=no",
+		"HashKnownHosts=no", "CheckHostIP=no", "UpdateHostKeys=no",
+		"ControlPath=none", "ControlMaster=no", "ControlPersist=no",
+		"ClearAllForwardings=yes", "ForwardAgent=no", "PermitLocalCommand=no", "RemoteCommand=none",
+	} {
+		args = append(args, "-o", option)
+	}
+	cmd := exec.CommandContext(ctx, "ssh", append(args, lease.Args...)...)
+	cmd.Env = lease.Env
+	// Let OpenSSH close its proxy children when the candidate has been read.
+	// Windows does not support os.Interrupt; fall back to terminating there.
+	cmd.Cancel = func() error {
+		err := cmd.Process.Signal(os.Interrupt)
+		if err != nil && !errors.Is(err, os.ErrProcessDone) {
+			return cmd.Process.Kill()
+		}
+		return err
+	}
+	cmd.WaitDelay = time.Second
+	if err := cmd.Start(); err != nil {
+		return result, errors.New("无法启动 SSH 主机指纹检查")
+	}
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	defer func() { cancel(); <-done }()
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		// Usually ssh exits after its disabled authentication fails. Poll too,
+		// so a server allowing authentication method 'none' cannot keep -N open.
+		select {
+		case <-done:
+			result.Keys = scannedKeys(path, h)
+			if len(result.Keys) == 0 {
+				return result, errors.New("无法读取主机指纹；请检查地址、网络、SSH 代理配置和跳板机")
+			}
+			return result, nil
+		case <-ticker.C:
+			if result.Keys = scannedKeys(path, h); len(result.Keys) > 0 {
+				return result, nil
+			}
+		case <-ctx.Done():
+			return result, errors.New("读取 SSH 主机指纹超时或已取消")
+		}
+	}
+}
+
+func scannedKeys(path string, h catalog.Host) []HostKey {
+	out, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var keys []HostKey
 	for _, line := range strings.Split(string(out), "\n") {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -104,17 +156,15 @@ func scan(ctx context.Context, store *catalog.Store, h catalog.Host, helper stri
 		if err != nil {
 			continue
 		}
-		// Rewrite keyscan's hostname using the catalog's exact authority.
+		// Bind the candidate to the catalog's exact authority, independently
+		// of user settings such as HostKeyAlias.
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
 			continue
 		}
-		result.Keys = append(result.Keys, HostKey{Algorithm: key.Type(), Fingerprint: ssh.FingerprintSHA256(key), Line: HostAddress(h) + " " + fields[1] + " " + fields[2]})
+		keys = append(keys, HostKey{Algorithm: key.Type(), Fingerprint: ssh.FingerprintSHA256(key), Line: HostAddress(h) + " " + fields[1] + " " + fields[2]})
 	}
-	if len(result.Keys) == 0 {
-		return result, errors.New("没有获得有效的 SSH 主机公钥")
-	}
-	return result, nil
+	return keys
 }
 func Trust(store *catalog.Store, check HostCheck) error {
 	d, err := store.Load()
