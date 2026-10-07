@@ -1,434 +1,469 @@
-# WRD AI SSH
+# aissh
 
-**English** | [简体中文](README.zh-CN.md)
+> **The AI workspace for remote machines.**
+>
+> Bring your AI coding agent, SSH terminal, live server state, and human-controlled execution into one workspace.
 
-Native iPhone client: see [iOS setup and usage](ios/README.md). SSH and AI connect directly from the phone; no desktop relay is required.
+**aissh** is a local-first AI workspace for working with remote machines over SSH.
 
-> Bring an AI assistant, live observability, and human-controlled execution into the SSH workflow you already know.
-
-`aissh` is a local-first AI workspace for SSH. It keeps the native OpenSSH experience while bringing troubleshooting,
-command proposals, live monitoring, and AI conversations together in one terminal UI.
-
-Nothing needs to be installed on the target server—no agent, no script, and no resident service. Connect as usual and
-start working.
+It lets you use **Codex, Claude Code, or other AI providers** alongside a normal SSH session — without installing an agent, daemon, or script on the target server.
 
 ```text
-┌──────────────────── SSH Terminal ────────────────────┬──── Live Monitoring ────┐
-│                                                     │ [System] [Process] [Disk]│
-│ root@server:~# /ai find out why nginx is slowing down │                        │
-│ AI ⠹ Analyzing server state and local code…           ├──── AI Conversation ────┤
-│ AI: Upstream connections are timing out. Start with   │ Full context and review │
-│     the error log and current connection count.       │ history                 │
-└───────────────────────────────────────────────────────┴─────────────────────────┘
+┌───────────────────────────────┬──────────────────────┐
+│                               │  Live Server State    │
+│  SSH Terminal                 │                      │
+│                               │  CPU      12%         │
+│  root@server:~# /ai           │  Memory   48%         │
+│  Why is nginx returning       │  Disk     62%         │
+│  502 errors?                  │  Network  1.2 MB/s    │
+│                               │                      │
+│  AI is investigating...       ├──────────────────────┤
+│                               │  AI Conversation      │
+│  AI: I found repeated        │                      │
+│  upstream timeouts...         │  Full context        │
+│                               │  Investigation history│
+└───────────────────────────────┴──────────────────────┘
 ```
 
-## Upgrade SSH with one command
+## Why aissh?
 
-There is no new connection workflow to learn:
+AI coding agents are becoming very good at operating a shell.
+
+But working with a remote machine is more than running commands.
+
+You need to:
+
+* understand what is happening on the server
+* inspect logs, processes, networking and services
+* keep an eye on live system state
+* connect production behavior with local source code
+* review commands before they change anything
+* remember what happened the last time you investigated the same server
+
+With `aissh`, these things live in the same workspace.
+
+```text
+                AI Agent
+                   │
+       ┌───────────┼───────────┐
+       │           │           │
+   SSH Shell    Server State   Local Code
+       │           │           │
+       └───────────┼───────────┘
+                   │
+             Remote Machine
+```
+
+The goal is simple:
+
+> **Make a remote machine feel like a first-class AI workspace.**
+
+## No agent on the server
+
+aissh uses your existing SSH connection.
+
+Nothing needs to be installed on the target machine:
+
+* no resident agent
+* no daemon
+* no custom script
+* no additional server-side service
+
+Your existing OpenSSH setup continues to work:
 
 ```bash
+aissh production
 aissh root@192.0.2.1
 aissh -p 2222 production
 aissh -J bastion internal-server
 ```
 
-Your existing `~/.ssh/config`, keys, SSH agent, jump hosts, and OpenSSH options continue to work.
+Existing `~/.ssh/config`, keys, SSH agent, jump hosts, and OpenSSH options remain usable.
 
-## Core experience
+This is intentional.
 
-### ✦ AI answers where you are working
+**aissh changes your local workflow, not your server infrastructure.**
 
-Ask a question directly from the SSH prompt and the answer appears immediately below it, without moving you away from
-the current terminal context.
+---
 
-```text
-root@server:~# /ai check nginx for recent errors
-AI: Nginx is running, but several upstream timeouts occurred in the last 10 minutes…
-```
+# What you can do
 
-Chinese questions can be entered directly. For English and other languages, use `/ai`:
+## 🤖 Ask AI directly from SSH
+
+Stay in the terminal and ask the AI about the problem you're working on.
 
 ```text
-/ai check why this service keeps restarting
+root@server:~# /ai why is nginx returning 502 errors?
+
+AI:
+I found repeated upstream connection timeouts.
+Let's inspect the upstream service and current connection count.
 ```
 
-The left pane is optimized for handling the issue at hand. The bottom-right conversation keeps the full context,
-history, and review trail. Both views stay synchronized.
+You don't need to:
 
-On Windows, AI responses (including reviews of command results) trigger a desktop notification and a system sound.
-The status bar also keeps a completion notice until your next input. Command approvals, requests for more information,
-and failures have distinct alerts. Ongoing `--always-yes` reviews and execution do not trigger premature completion alerts.
-Desktop notifications and sounds follow your Windows notification and sound settings.
-In a standalone PowerShell / CMD window, clicking a notification brings its aissh session window to the foreground
-and restores it if minimized. Targeting a specific tab in Windows Terminal or other tabbed terminals is not yet supported.
+1. copy terminal output
+2. switch to another AI application
+3. paste the logs
+4. copy a command back
+5. return to SSH
 
-### ⚡ Proactive failure analysis
+The AI stays in the SSH workflow.
 
-When common errors such as `command not found` appear, `aissh` can automatically analyze the failed command together
-with recent terminal output. There is no need to copy logs into another window and explain the situation again.
+---
 
-After an approved command completes, AI can review its output and help determine whether the issue is actually resolved.
-While a long AI turn is running, `aissh` also keeps the SSH transport and an idle shell prompt active to prevent
-automatic logout.
+## ⚡ Let AI investigate the problem
 
-### 🛡️ AI proposes, you decide
+aissh can use command output and the current server context to continue an investigation.
 
-By default, AI-generated commands are never executed automatically. Each proposal is shown in the SSH pane with its
-purpose, expected effect, and risk level.
+For example:
 
-- Enter `yes` to run it.
-- Enter `no` to reject it.
-- High-risk commands are highlighted in red.
-- Long commands are formatted for readability and can be expanded in place.
-- Approved commands run in an isolated child shell on the same SSH connection, so shell-local control flow such as
-  `exit`, `exec`, `set -e`, or `cd` cannot terminate or mutate the outer login shell.
+```text
+You:
+Why is this service restarting?
 
-Press `Ctrl+C` while an approved command is being sent or executed to stop sending its remaining bytes and forward
-an interrupt to SSH. Chinese AI input and command approval resume after a fresh shell prompt appears. An interrupt
-while the shell is still parsing may produce no completion marker; the exit status is then reported as unknown.
-After 30 seconds of waiting, aissh shows a recovery hint without automatically interrupting the remote command.
-For large Base64 file payloads, use SFTP/scp and verify file integrity. A complete local PTY write does not prove that
-the remote interactive shell received every byte.
+AI:
+I'll check the service status and recent logs.
 
-For trusted environments, `--always-yes` (or `AISSH_ALWAYS_YES=1`) can automatically approve commands below high risk.
-Before doing so, aissh asks the configured AI provider for three fresh, independent risk reviews. If any review returns
-`high` or `critical`, changes the reviewed command, reports an unknown result, or fails, the command stays on screen for
-manual confirmation. Initially high-risk commands are never sent through automatic approval.
+→ systemctl status myservice
+→ journalctl -u myservice --since "10 minutes ago"
 
-### 📊 A monitoring workspace inside SSH
+AI:
+The process is being killed because it exceeds the memory limit.
+Let's inspect the recent memory usage before changing anything.
+```
 
-The upper-right workspace can display system health, processes, disks, networking, services, and custom monitors at the
-same time.
+The important part is not that AI can run commands.
 
-- Single, split, `1×3`, `2×2`, and adaptive grid layouts
-- Independent content selection for every tile
-- User-created monitor tabs
-- Monitoring panels that AI can open or update while investigating
+**Modern coding agents can already do that.**
 
-Stay focused on a small screen, or turn a large terminal into a lightweight operations dashboard.
+The point of aissh is that the agent operates inside a workspace designed around the remote machine.
 
-### 🔗 Connect local code with the remote environment
+---
 
-With the local Codex or Claude Code provider, `aissh` inspects a local project in read-only mode by default and analyzes
-it together with output from the remote server.
+## 🛡️ AI proposes. You decide.
+
+AI-generated commands are not executed automatically by default.
+
+Every proposed command can show:
+
+* what it does
+* expected effect
+* risk level
+
+You decide whether to run it.
+
+```text
+AI proposes:
+
+sudo systemctl restart nginx
+
+Risk: medium
+
+Run this command? [yes/no]
+```
+
+High-risk commands are explicitly highlighted.
+
+For trusted environments, automatic approval can be enabled separately.
+
+The default philosophy is:
+
+> **AI can investigate and propose. The human remains in control of changes.**
+
+---
+
+## 📊 Live server state beside the terminal
+
+Aissh includes a monitoring workspace directly inside the SSH interface.
+
+You can display:
+
+* system health
+* CPU / memory
+* processes
+* disks
+* networking
+* services
+* custom monitors
+
+For example:
+
+```text
+┌──────────────────────┬──────────────────────┐
+│ System               │ Processes            │
+│ CPU       18%        │ nginx       3.2%     │
+│ Memory    42%        │ java       21.4%     │
+│ Load      1.82       │ postgres    8.1%     │
+├──────────────────────┼──────────────────────┤
+│ Network               │ Services             │
+│ RX       1.2 MB/s     │ nginx       running  │
+│ TX       0.8 MB/s     │ docker      running  │
+└──────────────────────┴──────────────────────┘
+```
+
+AI can open or update monitoring panels while investigating a problem.
+
+So instead of:
+
+```text
+AI chat → terminal → monitoring tool → logs → browser
+```
+
+the investigation happens in one place.
+
+---
+
+# Local code + remote machine
+
+One of the most useful workflows is debugging a running application together with its source code.
+
+For example:
 
 ```bash
-cd /path/to/local/project
+cd ~/projects/my-service
 aissh production
 ```
 
-To let AI modify the local project, explicitly enable write mode:
+Now the AI can reason about:
+
+```text
+Local source code
+       +
+Production logs
+       +
+Remote processes
+       +
+Remote configuration
+       +
+Current system state
+```
+
+Ask:
+
+> Why is the production API returning this error?
+
+The AI can inspect the relevant local code and compare it with what is happening on the remote machine.
+
+Local workspace access is read-only by default.
+
+If you explicitly enable write access:
 
 ```bash
 aissh --workspace-write production
 ```
 
-You can also set `AISSH_WORKSPACE_WRITE=1`. Codex uses its `workspace-write` sandbox; Claude only gains file-editing
-tools, while Bash and network tools remain disabled.
+the AI can modify the local project according to the configured provider's permissions.
 
-The local workspace can also be changed after the SSH connection is established:
+**Local code is never automatically uploaded or deployed to the server.**
+
+---
+
+# A separate AI context for every server
+
+Different servers have different problems.
+
+aissh keeps AI conversations locally and associates them with SSH targets.
+
+You can:
+
+* continue an earlier investigation
+* review previous conversations
+* start a fresh investigation
+* keep context separated between servers
+
+So when you return to a server later, you don't always have to explain the problem again.
+
+---
+
+# Works with the AI tools you already use
+
+aissh is not another AI model.
+
+Use the AI provider you already prefer.
+
+Currently supported:
+
+* **Codex**
+* **Claude Code**
+* OpenAI-compatible providers
+* other providers supported by the project
+
+The goal is to keep the Agent layer replaceable.
 
 ```text
-/workspace                    # Show the current workspace
-/workspace /path/to/project   # Change the workspace
-/workspace off                # Disable local workspace access
+              aissh
+                │
+       ┌────────┼────────┐
+       │        │        │
+     Codex    Claude    Other
+       │        │        │
+       └────────┼────────┘
+                │
+             SSH / OS
+                │
+          Remote Machine
 ```
 
-These commands are handled locally and are never sent to the target server. A workspace change affects subsequent AI
-requests only; local code is never uploaded or deployed automatically. It remains unmodified unless
-`--workspace-write` was explicitly provided.
+aissh focuses on the layer around the Agent:
 
-### 💬 A separate AI memory for every server
+**SSH + remote context + terminal + monitoring + execution control + history.**
 
-Conversation history is stored locally and grouped by SSH target. Enter the AI conversation with `/ai`, then press
-`Ctrl+R` to:
+---
 
-- Browse previous conversations for the current server
-- Continue an earlier investigation with its context
-- Start a clean conversation at any time
+# When is aissh useful?
 
-Recurring problems no longer need to be explained from scratch every time.
+### Diagnose a production problem
 
-### 🖱️ Mouse scrolling and terminal selection
-
-aissh starts in native terminal selection mode, so text can be selected and copied by dragging normally. Press `Ctrl+]`
-to switch to mouse mode for wheel scrolling, scrollbar dragging, panel switching, and approval buttons. Press `Ctrl+]`
-again to return to native selection. Copying still uses the native shortcuts and context menus in iTerm2, macOS
-Terminal.app, or Windows Terminal, and aissh does not write to the system clipboard.
-
-Keyboard-first users can still access every core feature.
-
-## Built for
-
-- Diagnosing service failures immediately after connecting to a server
-- Watching CPU, memory, logs, and connections while running commands
-- Analyzing local source code and production output in the same context
-- Getting AI-assisted command proposals without giving up human approval
-- Adding AI to an existing SSH workflow without changing server infrastructure
-- Maintaining per-host troubleshooting history across a fleet of servers
-
-## Desktop client and saved credentials
-
-The desktop opens directly into a unified workspace: a collapsible SSH + AI
-session list on the left, with chat, SSH and monitoring on the right. Select a
-running session to resume work, or preview offline history and reconnect. There
-is no separate SSH sessions page. The bottom-left menu exposes external systems,
-local knowledge, and settings. Systems manage connection details and descriptions;
-local knowledge stores document references, editable conversation summaries and
-custom tables with CSV/TSV import, pasted Excel cells, and online source links.
-Both New dialogs offer an AI conversation using the default AI profile: describe
-the system or local data, answer any missing details, and see automatic save
-receipts without opening SSH. Online source tables are not synchronized or edited.
-Settings groups hosts, credentials and AI profiles. Switching management pages or sessions keeps
-terminals and unsent AI drafts intact. The client renders chat, streaming answers,
-command approvals and monitoring cards; the SSH pane has no terminal sidebar.
-Monitoring spans the top of the chat and SSH panes and folds into a single
-status row, with the collapse preference saved locally.
-Secrets live in the OS keyring.
-
-Build on macOS with Go 1.25+, Node.js 20+ and Xcode command-line tools:
-
-```bash
-make desktop
-open "dist/desktop/WRD AI SSH.app"
+```text
+"Why did nginx start returning 502s?"
 ```
 
-On Windows, use `powershell -File scripts/build-desktop.ps1` (OpenSSH Client and
-WebView2 Runtime are required). Linux builds require GTK3/WebKitGTK development
-packages. See [desktop setup and credential usage](docs/desktop.md), including
-local tool access, authorization policies and platform validation limits.
+### Understand an unfamiliar server
 
-## Quick start
+```text
+"Give me an overview of what's running on this machine."
+```
 
-The project can currently be built from source and requires Go 1.25 or newer:
+### Investigate a performance problem
+
+```text
+"Why is the load average so high?"
+```
+
+### Connect production behavior with source code
+
+```text
+"Find the code responsible for this error and compare it with the production logs."
+```
+
+### Watch a server while fixing it
+
+```text
+"Monitor CPU, memory and connections while I restart the service."
+```
+
+### Return to an old problem
+
+```text
+"What did we find the last time this server had this issue?"
+```
+
+---
+
+# Quick Start
+
+## Requirements
+
+* macOS or Linux
+* Go 1.23+
+* OpenSSH
+* a supported AI provider
+
+Build from source:
 
 ```bash
+git clone https://github.com/friparia/aissh.git
+cd aissh
+
 go test ./...
 go build -o bin/aissh ./cmd/aissh
 ```
 
-Local Codex is the default AI provider. First, make sure Codex is authenticated:
+Authenticate your preferred AI provider.
+
+For Codex:
 
 ```bash
 codex exec --ephemeral "reply with ok only"
 ```
 
-Then connect to a server:
+Then connect normally:
 
 ```bash
 bin/aissh production
 ```
 
-To select a Codex executable or model:
+Or connect directly:
 
 ```bash
-export AISSH_CODEX_PATH='/usr/local/bin/codex'
-export AISSH_CODEX_MODEL='gpt-5.2'
-bin/aissh production
+bin/aissh root@192.0.2.1
 ```
-
-Claude Code is also supported as a local provider; see “Choose an AI provider” below.
-
-## Release builds and GitLab distribution
-
-The included GitLab pipeline tests the project and builds Linux/macOS packages for AMD64 and ARM64. It uses a pinned
-Go container image, so a Docker or Kubernetes GitLab Runner does not need Go installed on the host. Branch packages
-are retained as job artifacts for seven days. Tags matching `vX.Y.Z` are also uploaded to the Generic Package Registry
-and exposed through a GitLab Release.
-
-Go jobs use `https://goproxy.cn,direct` for module downloads and `sum.golang.google.cn` for checksum verification by
-default. To use an internal mirror, define the `GOPROXY` and, if necessary, `GOSUMDB` variables in the project's CI/CD
-settings; project variables override these pipeline defaults.
-
-Create a release by pushing a version tag:
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-For a Shell Runner without Go or container support, set the project CI/CD variable `AISSH_LOCAL_RELEASE=true` to skip
-the container-based jobs, then build and publish from a development machine instead:
-
-```bash
-make dist VERSION=v1.0.0
-
-git tag v1.0.0
-git push origin v1.0.0
-
-export GITLAB_API_URL='https://git.example.com/api/v4'
-export GITLAB_PROJECT_ID='123'
-export GITLAB_TOKEN='glpat-...'
-make publish VERSION=v1.0.0
-```
-
-The tag must already exist in GitLab before `make publish` creates the Release. The personal access token needs API
-access to the project. `dist/` contains the four archives and `SHA256SUMS`; it is intentionally excluded from Git.
-
-## Choose an AI provider
-
-### Local Codex (default)
-
-Best when investigations should include local source code. It reuses your local Codex authentication and configuration;
-no AI component is installed on the server.
-Each running SSH session owns one local Codex thread. Follow-up questions, command approvals, and execution results
-resume that thread instead of creating a new agent. The thread is removed when the SSH session ends, while aissh's
-local text history remains available.
-
-```bash
-bin/aissh --agent codex production
-```
-
-### Local Claude Code
-
-The same local-first experience backed by the Claude Code CLI, with read-only workspace access by default and optional
-file editing through `--workspace-write`. Make sure the `claude` CLI is installed and authenticated:
-
-```bash
-claude -p "reply with ok only"
-```
-
-Then connect with:
-
-```bash
-bin/aissh --agent claude production
-```
-
-To select a Claude executable or model:
-
-```bash
-export AISSH_CLAUDE_PATH='/usr/local/bin/claude'
-export AISSH_CLAUDE_MODEL='opus'
-bin/aissh --agent claude production
-```
-
-Each running SSH session owns one persistent Claude session that is resumed across follow-up questions, approvals, and
-result reviews. Claude uses a read-only tool allowlist by default. With `--workspace-write`, only Edit, Write, and
-NotebookEdit are added; Bash and network tools remain disabled. With `--no-workspace`, local file access is disabled
-entirely. Note that the Claude Code CLI keeps its own local session transcripts and provides no delete command, so
-unlike Codex threads they are not removed when the SSH session ends.
-
-### DeepSeek
-
-No Codex CLI is required. Configure an API key and connect:
-
-```bash
-export DEEPSEEK_API_KEY='...'
-bin/aissh --agent deepseek production
-```
-
-### Other OpenAI-compatible models
-
-```bash
-export AISSH_MODEL_URL='https://model.example/v1'
-export AISSH_MODEL_API_KEY='...'
-export AISSH_MODEL_NAME='your-model'
-bin/aissh --agent model production
-```
-
-Direct model providers support AI conversations, command approval, result review, and monitoring panels, but they do not
-receive access to the local code workspace.
-
-## Everyday controls
-
-| Input | Action |
-| --- | --- |
-| Chinese question / `/ai question` | Ask AI from the current SSH prompt |
-| `/workspace PATH` | Change the local AI code workspace |
-| `/sidebar` / `/sidebar toggle` | Hide or show the entire monitoring and AI sidebar |
-| `/sidebar show` / `/sidebar hide` | Show / hide the sidebar |
-| `yes` / `no` | Run or reject an AI command proposal |
-| `Ctrl+O` | Expand the currently folded command |
-| `Ctrl+Shift+-` | Hide or show the monitoring and AI sidebar |
-| `Ctrl+]` | Toggle mouse scrolling and native terminal selection |
-| `Ctrl+R` | Browse sessions while the AI conversation is focused |
-| `Shift+Enter` / `Ctrl+J` | Insert a new line in the AI editor |
-| `Ctrl+T` | Switch monitoring tabs |
-| `Ctrl+L` | Change the monitoring layout |
-| `Ctrl+N` | Add a monitoring tab |
-| `Esc` | Return to the main SSH terminal |
-
-The sidebar starts hidden. Type `/sidebar` or `/sidebar show` at the SSH prompt and press Enter to open it. It also works in the AI editor. aissh handles
-the command locally, so it is not executed by the remote shell. Pasted commands wait for Enter. Requires at least 92 columns.
-
-`rz` and `sz` file transfers continue to work. The workspace temporarily yields terminal control during a transfer and
-restores the full UI afterward.
-
-## Common configuration
-
-```bash
-# Select a local project
-bin/aissh --workspace /path/to/project production
-
-# Allow AI to modify the local project (or set AISSH_WORKSPACE_WRITE=1)
-bin/aissh --workspace-write production
-
-# Auto-approve commands below high risk after three independent reviews
-# (or set AISSH_ALWAYS_YES=1)
-bin/aissh --always-yes production
-
-# Prevent AI from inspecting any local project
-bin/aissh --no-workspace production
-
-# Select the interface language
-bin/aissh --lang zh-CN production
-
-# Change the AI request timeout (default: 30m)
-bin/aissh --ai-timeout 10m production
-
-# Change the OpenSSH transport keepalive interval (default: 30s; no terminal input)
-bin/aissh --ssh-keepalive 20s production
-
-# Tell aissh the remote shell TMOUT; an empty line is sent near expiry only while AI runs
-bin/aissh --shell-tmout 10m production
-
-# Leave unset or explicitly disable to avoid injecting shell keepalive input
-bin/aissh --shell-tmout off production
-
-# Keep more SSH scrollback lines
-bin/aissh --scrollback-lines 50000 production
-
-# Disable local AI history for this connection
-bin/aissh --no-history production
-
-# Record input and command diagnostics (aissh-input.log in the temp directory: write counts, errors, marker state)
-AISSH_INPUT_DEBUG=1 bin/aissh production
-
-# Record OpenSSH protocol diagnostics (useful when the session ends with EOF)
-bin/aissh -vvv -E /tmp/aissh-ssh.log production
-```
-
-Run the following command for the complete option reference:
-
-```bash
-bin/aissh --help
-```
-
-## Safety by design
-
-- Nothing needs to be installed on the target server.
-- AI command proposals require explicit approval by default; `--always-yes` is an opt-in mode for commands that pass
-  three independent reviews below high risk.
-- High-risk, unknown, changed, incomplete, or failed risk reviews always fall back to manual confirmation.
-- High-risk commands are clearly highlighted in both views.
-- Local Codex and Claude Code inspect the workspace read-only by default; writes require explicit `--workspace-write`.
-- AI-created monitors are restricted to read-only commands. Built-in collectors run silently without approval. Custom collectors, alerts and restored custom widgets require manual review before their first run and after configuration changes. Approval covers the displayed schedule; the first run shows its command, output and exit status in the SSH terminal, and subsequent runs update monitor panels silently.
-- User-created monitor data is not shared with AI by default.
-- Local code is never uploaded or deployed automatically, and is not modified by default.
-- Saved secrets are resolved only for their bound SSH/service/model destination; they are not injected into arbitrary shell commands. Known secret values are filtered from model requests and saved aissh chat history.
-
-When a third-party model provider is used, the question, relevant SSH output, and approved command results are sent to
-the configured model API. Choose a provider that matches your data security requirements.
-
-## Roadmap
-
-- A second interactive shell
-- Reusable and persistent monitoring layouts
-- Richer streaming log panels
-- Conversation and incident-report export
-- More server and network-device connection modes
 
 ---
 
-`aissh` is not trying to replace SSH. Its goal is to make the remote environment you already use smarter, more visible,
-and more controllable—without requiring changes to your infrastructure.
+# Design principles
+
+### Local-first
+
+Your SSH credentials, conversations, and local workspace remain under your control.
+
+### No server agent
+
+Use standard SSH. No additional software needs to run on the target machine.
+
+### Human in the loop
+
+AI can reason and propose. Changes remain subject to explicit permission by default.
+
+### Agent-agnostic
+
+aissh should work with the AI agent you prefer rather than locking the workflow to one model.
+
+### Terminal-native
+
+aissh is designed around the workflow experienced engineers already know instead of replacing SSH with an entirely new abstraction.
+
+### Small surface area
+
+The target is not another enterprise operations platform.
+
+It is a better way to work with remote machines.
+
+---
+
+# Roadmap
+
+The project is intentionally early.
+
+Possible directions include:
+
+* richer remote system context
+* more infrastructure-aware tools
+* Docker / Kubernetes workflows
+* better multi-server workflows
+* more AI providers
+* extensible plugins
+* safer command execution
+* remote debugging workflows
+* improved local-code / remote-runtime integration
+
+The roadmap will be driven by real-world usage rather than trying to build an all-in-one operations platform.
+
+---
+
+# Contributing
+
+Issues, ideas, experiments and pull requests are welcome.
+
+If you use aissh on real servers, feedback about your workflow is especially valuable.
+
+Tell us:
+
+* what you were trying to do
+* what you expected AI to understand
+* where the workflow felt awkward
+* what you still had to do manually
+
+---
+
+# License
+
+See [LICENSE](LICENSE).
+
+---
+
+> **aissh is not trying to replace SSH.**
+>
+> **It is trying to make the remote machine a first-class workspace for AI-assisted engineering.**
+
