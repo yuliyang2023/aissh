@@ -1,5 +1,7 @@
 # aissh
 
+**English** | [简体中文](README.zh-CN.md)
+
 > **The AI workspace for remote machines.**
 >
 > Bring your AI coding agent, SSH terminal, live server state, and human-controlled execution into one workspace.
@@ -8,21 +10,23 @@
 
 It lets you use **Codex, Claude Code, or other AI providers** alongside a normal SSH session — without installing an agent, daemon, or script on the target server.
 
+Illustrative layout with the sidebar open; the values and AI responses below are examples.
+
 ```text
-┌───────────────────────────────┬──────────────────────┐
-│                               │  Live Server State    │
-│  SSH Terminal                 │                      │
-│                               │  CPU      12%         │
-│  root@server:~# /ai           │  Memory   48%         │
-│  Why is nginx returning       │  Disk     62%         │
-│  502 errors?                  │  Network  1.2 MB/s    │
-│                               │                      │
-│  AI is investigating...       ├──────────────────────┤
-│                               │  AI Conversation      │
-│  AI: I found repeated        │                      │
-│  upstream timeouts...         │  Full context        │
-│                               │  Investigation history│
-└───────────────────────────────┴──────────────────────┘
+┌───────────────────────────────────────┬───────────────────────────┐
+│                                       │ Live Server State         │
+│ SSH Terminal                          │                           │
+│                                       │ CPU      12%              │
+│ root@server:~# /ai                    │ Memory   48%              │
+│ Why is nginx returning 502 errors?    │ Disk     62%              │
+│                                       │ Network  1.2 MB/s         │
+│ AI is investigating...                │                           │
+│                                       ├───────────────────────────┤
+│ AI: I found repeated upstream         │ AI Conversation           │
+│ connection timeouts...                │                           │
+│                                       │ Full context              │
+│                                       │ Investigation history     │
+└───────────────────────────────────────┴───────────────────────────┘
 ```
 
 ## Why aissh?
@@ -86,9 +90,9 @@ This is intentional.
 
 ---
 
-# What you can do
+## What you can do
 
-## 🤖 Ask AI directly from SSH
+### 🤖 Ask AI directly from SSH
 
 Stay in the terminal and ask the AI about the problem you're working on.
 
@@ -112,7 +116,7 @@ The AI stays in the SSH workflow.
 
 ---
 
-## ⚡ Let AI investigate the problem
+### ⚡ Let AI investigate the problem
 
 aissh can use command output and the current server context to continue an investigation.
 
@@ -133,6 +137,8 @@ The process is being killed because it exceeds the memory limit.
 Let's inspect the recent memory usage before changing anything.
 ```
 
+The investigation commands run after you approve them, and their output is returned to the AI for further analysis.
+
 The important part is not that AI can run commands.
 
 **Modern coding agents can already do that.**
@@ -141,9 +147,9 @@ The point of aissh is that the agent operates inside a workspace designed around
 
 ---
 
-## 🛡️ AI proposes. You decide.
+### 🛡️ AI proposes. You decide.
 
-AI-generated commands are not executed automatically by default.
+AI-generated remote shell commands are not executed automatically by default.
 
 Every proposed command can show:
 
@@ -165,7 +171,7 @@ Run this command? [yes/no]
 
 High-risk commands are explicitly highlighted.
 
-For trusted environments, automatic approval can be enabled separately.
+For trusted environments, `--always-yes` enables automatic approval of commands below high risk after three independent AI risk reviews. High-risk or critical commands, unknown results, changed commands, and failed reviews still require manual confirmation.
 
 The default philosophy is:
 
@@ -173,9 +179,9 @@ The default philosophy is:
 
 ---
 
-## 📊 Live server state beside the terminal
+### 📊 Live server state beside the terminal
 
-Aissh includes a monitoring workspace directly inside the SSH interface.
+aissh includes a monitoring workspace directly inside the SSH interface. The sidebar is hidden by default; enter `/sidebar show` at the SSH prompt to open it in a terminal at least 92 columns wide.
 
 You can display:
 
@@ -190,19 +196,21 @@ You can display:
 For example:
 
 ```text
-┌──────────────────────┬──────────────────────┐
-│ System               │ Processes            │
-│ CPU       18%        │ nginx       3.2%     │
-│ Memory    42%        │ java       21.4%     │
-│ Load      1.82       │ postgres    8.1%     │
-├──────────────────────┼──────────────────────┤
-│ Network               │ Services             │
-│ RX       1.2 MB/s     │ nginx       running  │
-│ TX       0.8 MB/s     │ docker      running  │
-└──────────────────────┴──────────────────────┘
+┌────────────────────────┬────────────────────────┐
+│ System                 │ Processes              │
+│ CPU       18%          │ nginx       3.2%       │
+│ Memory    42%          │ java       21.4%       │
+│ Load      1.82         │ postgres    8.1%       │
+├────────────────────────┼────────────────────────┤
+│ Network                │ Services               │
+│ RX       1.2 MB/s      │ nginx       running    │
+│ TX       0.8 MB/s      │ docker      running    │
+└────────────────────────┴────────────────────────┘
 ```
 
 AI can open or update monitoring panels while investigating a problem.
+
+Built-in read-only collectors run automatically. Custom collection scripts require manual approval before their first run and when their configuration changes; approval covers recurring collection at the displayed interval. Available metrics depend on the tools and permissions on the target machine.
 
 So instead of:
 
@@ -214,9 +222,9 @@ the investigation happens in one place.
 
 ---
 
-# Local code + remote machine
+## Local code + remote machine
 
-One of the most useful workflows is debugging a running application together with its source code.
+When using the local Codex or Claude Code backend, one of the most useful workflows is debugging a running application together with its source code.
 
 For example:
 
@@ -247,6 +255,8 @@ The AI can inspect the relevant local code and compare it with what is happening
 
 Local workspace access is read-only by default.
 
+Direct DeepSeek and OpenAI-compatible model backends use the supplied SSH context and do not read your local workspace.
+
 If you explicitly enable write access:
 
 ```bash
@@ -259,7 +269,7 @@ the AI can modify the local project according to the configured provider's permi
 
 ---
 
-# A separate AI context for every server
+## A separate AI context for every server
 
 Different servers have different problems.
 
@@ -272,11 +282,13 @@ You can:
 * start a fresh investigation
 * keep context separated between servers
 
+Enter `/ai` to focus the AI conversation, then press `Ctrl+R` to browse saved sessions. Use `--no-history` to disable loading and saving local history.
+
 So when you return to a server later, you don't always have to explain the problem again.
 
 ---
 
-# Works with the AI tools you already use
+## Works with the AI tools you already use
 
 aissh is not another AI model.
 
@@ -284,10 +296,11 @@ Use the AI provider you already prefer.
 
 Currently supported:
 
-* **Codex**
-* **Claude Code**
-* OpenAI-compatible providers
-* other providers supported by the project
+* **Codex** — local CLI, the default (`--agent codex`)
+* **Claude Code** — local CLI (`--agent claude`)
+* **DeepSeek** — direct API (`--agent deepseek`)
+* **OpenAI-compatible providers** — direct API (`--agent model`)
+* **HTTP Agent endpoint** — configurable backend (`--agent http`)
 
 The goal is to keep the Agent layer replaceable.
 
@@ -311,7 +324,7 @@ aissh focuses on the layer around the Agent:
 
 ---
 
-# When is aissh useful?
+## When is aissh useful?
 
 ### Diagnose a production problem
 
@@ -351,16 +364,16 @@ aissh focuses on the layer around the Agent:
 
 ---
 
-# Quick Start
+## Quick Start
 
-## Requirements
+### Requirements
 
-* macOS or Linux
-* Go 1.23+
-* OpenSSH
-* a supported AI provider
+* macOS, Linux, or Windows with ConPTY support
+* Go 1.25+ to build from source
+* OpenSSH client and an interactive terminal
+* a supported AI provider (authenticated local CLI or configured API)
 
-Build from source:
+Build from source (macOS / Linux shell examples):
 
 ```bash
 git clone https://github.com/friparia/aissh.git
@@ -370,9 +383,7 @@ go test ./...
 go build -o bin/aissh ./cmd/aissh
 ```
 
-Authenticate your preferred AI provider.
-
-For Codex:
+The default backend is the local Codex CLI. Install and sign in to it, then verify it works:
 
 ```bash
 codex exec --ephemeral "reply with ok only"
@@ -390,17 +401,58 @@ Or connect directly:
 bin/aissh root@192.0.2.1
 ```
 
+After connecting, ask a question or open the sidebar:
+
+```text
+/ai why is nginx returning 502 errors?
+/sidebar show
+```
+
+### Choose an AI provider
+
+For Claude Code, install and sign in to the local `claude` CLI, then run:
+
+```bash
+bin/aissh --agent claude production
+```
+
+For DeepSeek:
+
+```bash
+export DEEPSEEK_API_KEY='...'
+bin/aissh --agent deepseek production
+```
+
+For another OpenAI-compatible API:
+
+```bash
+export AISSH_MODEL_URL='https://model.example/v1'
+export AISSH_MODEL_API_KEY='...'
+export AISSH_MODEL_NAME='your-model'
+bin/aissh --agent model production
+```
+
+Run `bin/aissh --help` for all options.
+
+### More documentation
+
+* [Usage and configuration guide (Chinese)](docs/usage.zh-CN.md)
+* [Desktop client and credentials (Chinese)](docs/desktop.md)
+* [Native iOS client (Chinese)](ios/README.md)
+
 ---
 
-# Design principles
+## Design principles
 
 ### Local-first
 
 Your SSH credentials, conversations, and local workspace remain under your control.
 
+AI requests go to your configured provider and may include your question, relevant SSH output, command results, and local code context when using a local coding agent.
+
 ### No server agent
 
-Use standard SSH. No additional software needs to run on the target machine.
+Use standard SSH and the target machine's existing tools. No resident agent, daemon, or preinstalled collection script is required.
 
 ### Human in the loop
 
@@ -422,7 +474,7 @@ It is a better way to work with remote machines.
 
 ---
 
-# Roadmap
+## Roadmap
 
 The project is intentionally early.
 
@@ -442,7 +494,7 @@ The roadmap will be driven by real-world usage rather than trying to build an al
 
 ---
 
-# Contributing
+## Contributing
 
 Issues, ideas, experiments and pull requests are welcome.
 
@@ -457,13 +509,12 @@ Tell us:
 
 ---
 
-# License
+## License
 
-See [LICENSE](LICENSE).
+This repository does not currently include a LICENSE file.
 
 ---
 
 > **aissh is not trying to replace SSH.**
 >
 > **It is trying to make the remote machine a first-class workspace for AI-assisted engineering.**
-
