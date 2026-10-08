@@ -89,7 +89,7 @@ func (a *App) resumePausedMonitoring() error {
 		return nil
 	}
 	if !a.monitorShellReady() {
-		return fmt.Errorf("监控已暂停；请先让 SSH 终端回到空闲提示符并清空未提交的输入，再点击刷新")
+		return fmt.Errorf("%s", a.t("监控已暂停；请先让 SSH 终端回到空闲提示符并清空未提交的输入，再点击刷新"))
 	}
 	a.monitorPrimaryPaused = false
 	return nil
@@ -135,8 +135,8 @@ func (a *App) startInBandCollection(item *panel.Panel, now time.Time, pipelineID
 	if state.visible {
 		decision.shown = true
 		a.monitorDecisions[r.scope()] = decision
-		a.renderSSHOutput([]byte("\r\n" + strings.ReplaceAll(a.safeText(fmt.Sprintf("[监控 %s · %s]\n$ %s\n", firstText(item.Title, r.Title, r.PanelID), now.Format("15:04:05"), item.Command)), "\n", "\r\n")))
-		a.updateSSHActivity(state.auditID, "running", "正在 SSH 终端采集")
+		a.renderSSHOutput([]byte("\r\n" + strings.ReplaceAll(a.safeText(a.t("[监控 %s · %s]\n$ %s\n", firstText(item.Title, r.Title, r.PanelID), now.Format("15:04:05"), item.Command)), "\n", "\r\n")))
+		a.updateSSHActivity(state.auditID, "running", a.t("正在 SSH 终端采集"))
 	}
 	// Only the fresh prompt after the completion marker can release user input.
 	a.outputTail.Append("\n[aissh monitor]\n")
@@ -173,7 +173,7 @@ func (a *App) processInBandMonitorOutput(data []byte) bool {
 	}
 	if len(state.buffer)+len(data) > widgets.MaxOutput {
 		state.failureStatus = "too_large"
-		a.pauseInBandMonitor(fmt.Errorf("监控输出超过 256 KiB，主通道采集已暂停"))
+		a.pauseInBandMonitor(fmt.Errorf("%s", a.t("监控输出超过 256 KiB，主通道采集已暂停")))
 		return true
 	}
 	visible, complete, content, err := state.consume(data)
@@ -197,14 +197,14 @@ func (a *App) processInBandMonitorOutput(data []byte) bool {
 	a.outputTail.value = ""
 	a.pendingError, a.errorCarry = nil, ""
 	if state.visible {
-		status, detail := "completed", "退出状态未知"
+		status, detail := "completed", a.t("退出状态未知")
 		if state.exitCode != nil {
-			detail = fmt.Sprintf("退出码：%d", *state.exitCode)
+			detail = a.t("退出码：%d", *state.exitCode)
 		}
 		if err != nil {
 			status = "failed"
 		}
-		a.renderSSHOutput([]byte("\r\n[监控完成 · " + detail + "]\r\n"))
+		a.renderSSHOutput([]byte("\r\n" + a.t("[监控完成 · %s]", detail) + "\r\n"))
 		a.updateSSHActivity(state.auditID, status, detail)
 		// consume keeps only the fresh prompt separate from collector bytes.
 		a.monitorPrompt = &monitorPromptState{}
@@ -221,7 +221,7 @@ func (a *App) processInBandMonitorOutput(data []byte) bool {
 
 func (state *inBandMonitorState) consume(data []byte) (visible []byte, complete bool, content string, err error) {
 	if len(state.buffer)+len(data) > widgets.MaxOutput {
-		return nil, true, "", fmt.Errorf("监控输出超过 256 KiB")
+		return nil, true, "", fmt.Errorf("monitor output exceeds 256 KiB")
 	}
 	state.buffer = append(state.buffer, data...)
 	output := decodeMonitorOutput(state.buffer)
@@ -369,7 +369,7 @@ func (a *App) pauseInBandMonitor(err error) {
 	}
 	a.inBandMonitor = nil
 	if state.visible {
-		a.renderSSHOutput([]byte("\r\n[监控采集暂停 · " + a.safeText(err.Error()) + " · 退出状态未知]\r\n"))
+		a.renderSSHOutput([]byte("\r\n" + a.t("[监控采集暂停 · %s · 退出状态未知]", a.safeText(err.Error())) + "\r\n"))
 		a.updateSSHActivity(state.auditID, "unknown", a.safeText(err.Error()))
 	}
 	a.monitorPrimaryPaused = true

@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"time"
 
 	"git.example.com/ai/wrd-ai-cli/internal/agent"
@@ -59,7 +58,7 @@ func (a *App) finishSSHActivity(execution *executionState) {
 		if *execution.ExitCode != 0 {
 			status = "failed"
 		}
-		detail = fmt.Sprintf("退出码：%d", *execution.ExitCode)
+		detail = a.t("退出码：%d", *execution.ExitCode)
 	}
 	if execution.Output != nil {
 		detail += "\n" + execution.Output.ContextString()

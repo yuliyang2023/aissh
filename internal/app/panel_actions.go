@@ -19,7 +19,7 @@ func (a *App) applyPanelAction(action agent.PanelAction) {
 	if err != nil {
 		role = "error"
 		if action.Panel.Pipeline != nil || action.Action == "probe" || action.Action == "map" || action.Panel.View != nil && action.Panel.View.Kind == "custom" {
-			a.pipelineReply("操作失败 panel=" + action.Panel.ID + " stage=" + action.Action + ": " + err.Error())
+			a.pipelineReply(a.t("操作失败 panel=%s stage=%s: %s", action.Panel.ID, action.Action, err.Error()))
 		}
 		message = a.t("监控面板操作失败（%s / %s）：%s", action.Action, action.Panel.ID, err.Error())
 	}
@@ -50,10 +50,10 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 		}
 	}
 	if purpose != "realtime" && purpose != "alert" {
-		return nil, "", fmt.Errorf("purpose 必须为 realtime（实时面板）或 alert（告警任务）")
+		return nil, "", fmt.Errorf("%s", a.t("purpose 必须为 realtime（实时面板）或 alert（告警任务）"))
 	}
 	if item != nil && item.IsAlert() != (purpose == "alert") {
-		return nil, "", fmt.Errorf("实时面板与告警任务不能互相覆盖，请使用新的 ID 创建独立任务")
+		return nil, "", fmt.Errorf("%s", a.t("实时面板与告警任务不能互相覆盖，请使用新的 ID 创建独立任务"))
 	}
 	if item != nil && (item.Origin != panel.OriginAI || item.Pinned) {
 		return nil, "", fmt.Errorf("%s", a.t("AI 只能修改或关闭自己创建的非固定面板"))
@@ -86,7 +86,7 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 			return nil, "", fmt.Errorf("%s", a.t("监控命令被只读策略拒绝：%s", err.Error()))
 		}
 		if item == nil && a.panels.CountPurpose(purpose == "alert") >= 16 {
-			return nil, "", fmt.Errorf("实时面板与告警任务各最多 16 个，请先关闭同类中不用的项目")
+			return nil, "", fmt.Errorf("%s", a.t("实时面板与告警任务各最多 16 个，请先关闭同类中不用的项目"))
 		}
 		// Validate the complete candidate before changing the live panel.
 		candidate := panel.Panel{ID: spec.ID, Kind: panel.KindMonitor, Origin: panel.OriginAI,
@@ -110,23 +110,23 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 		}
 		if spec.Alert != nil {
 			if purpose != "alert" {
-				return nil, "", fmt.Errorf("实时面板不配置提醒，请使用 purpose=alert 和新 ID 创建独立告警任务")
+				return nil, "", fmt.Errorf("%s", a.t("实时面板不配置提醒，请使用 purpose=alert 和新 ID 创建独立告警任务"))
 			}
 			if err := spec.Alert.Validate(); err != nil {
-				return nil, "", fmt.Errorf("提醒策略无效：%w", err)
+				return nil, "", fmt.Errorf("%s: %w", a.t("提醒策略无效"), err)
 			}
 			copy := *spec.Alert
 			candidate.Alert = &copy
 		}
 		if purpose == "alert" && (candidate.Alert == nil || (created && !candidate.Alert.Enabled)) {
-			return nil, "", fmt.Errorf("创建告警任务必须配置有效且启用的 alert 条件")
+			return nil, "", fmt.Errorf("%s", a.t("创建告警任务必须配置有效且启用的 alert 条件"))
 		}
 		if created || configUpdate {
 			candidate.AllowAIRead = spec.AllowAIRead
 		}
 
 		if item != nil && (item.Widget != nil || spec.View != nil && spec.View.Kind == "custom") && spec.ExpectedRevision != item.DefinitionRevision {
-			return nil, "", fmt.Errorf("组件版本已变化，请读取最新 definitionRevision=%d 后重试", item.DefinitionRevision)
+			return nil, "", fmt.Errorf("%s", a.t("组件版本已变化，请读取最新 definitionRevision=%d 后重试", item.DefinitionRevision))
 		}
 		if spec.Data != nil {
 			if err := spec.Data.Validate(); err != nil {
@@ -138,7 +138,7 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 		}
 		if spec.View != nil {
 			if a.safeText(spec.View.Source) != spec.View.Source {
-				return nil, "", fmt.Errorf("组件源码中不能包含凭据，请从采集数据读取指标")
+				return nil, "", fmt.Errorf("%s", a.t("组件源码中不能包含凭据，请从采集数据读取指标"))
 			}
 			if err := spec.View.Validate(); err != nil {
 				return nil, "", err
@@ -147,23 +147,23 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 				candidate.Widget = nil
 				candidate.DataContract = nil
 			} else if !a.config.DesktopUI || purpose == "alert" {
-				return nil, "", fmt.Errorf("自定义组件仅用于桌面实时面板")
+				return nil, "", fmt.Errorf("%s", a.t("自定义组件仅用于桌面实时面板"))
 			}
 		}
 		needsWidget := spec.View != nil && spec.View.Kind == "custom" || candidate.Widget != nil
 		if needsWidget && spec.View != nil && spec.View.SDKVersion == 2 {
-			return nil, "", fmt.Errorf("需要首采：先提交 pipeline probe、map，再使用 mapId 创建 v2 面板")
+			return nil, "", fmt.Errorf("%s", a.t("需要首采：先提交 pipeline probe、map，再使用 mapId 创建 v2 面板"))
 		}
 		if needsWidget && item == nil && a.config.DesktopUI {
-			return nil, "", fmt.Errorf("新组件需要 v2 首采管线：请先 probe、map，不再接受直接生成 v1 组件")
+			return nil, "", fmt.Errorf("%s", a.t("新组件需要 v2 首采管线：请先 probe、map，不再接受直接生成 v1 组件"))
 		}
 		if needsWidget && candidate.DataContract == nil {
-			return nil, "", fmt.Errorf("自定义组件需要 data 契约")
+			return nil, "", fmt.Errorf("%s", a.t("自定义组件需要 data 契约"))
 		}
 		contractChanged := item != nil && !reflect.DeepEqual(item.DataContract, candidate.DataContract)
 		commandChanged := candidate.Command != command
 		if needsWidget && item != nil && item.Widget != nil && (commandChanged || contractChanged) {
-			return nil, "", fmt.Errorf("修改旧组件的数据源需要 v2 首采验证：请先 probe、map，再提交 sdkVersion=2 组件")
+			return nil, "", fmt.Errorf("%s", a.t("修改旧组件的数据源需要 v2 首采验证：请先 probe、map，再提交 sdkVersion=2 组件"))
 		}
 		candidate.Command = command
 		if commandChanged || contractChanged {
@@ -198,19 +198,22 @@ func (a *App) executePanelAction(action agent.PanelAction) (*panel.Panel, string
 			status = a.t("监控面板已创建：%s（%s），每 %g 秒刷新", item.Title, item.ID, item.Interval.Seconds())
 		}
 		if item.IsAlert() {
-			status = strings.ReplaceAll(strings.ReplaceAll(status, "监控面板", "告警任务"), "刷新", "检查")
+			status = a.t("告警任务已更新：%s（%s），每 %g 秒检查", item.Title, item.ID, item.Interval.Seconds())
+			if created {
+				status = a.t("告警任务已创建：%s（%s），每 %g 秒检查", item.Title, item.ID, item.Interval.Seconds())
+			}
 		}
 		if item.Alert != nil && item.Alert.Enabled {
 			if a.config.DesktopUI {
-				status += fmt.Sprintf("；已配置异常提醒（%s，持续 %d 秒触发，恢复持续 %d 秒）", item.Alert.Kind, item.Alert.ForSeconds, item.Alert.RecoverySeconds)
+				status += a.t("；已配置异常提醒（%s，持续 %d 秒触发，恢复持续 %d 秒）", item.Alert.Kind, item.Alert.ForSeconds, item.Alert.RecoverySeconds)
 			} else {
-				status += "；提醒条件已附加，自动告警需在桌面客户端运行"
+				status += a.t("；提醒条件已附加，自动告警需在桌面客户端运行")
 			}
 		}
 		return item, status, nil
 	case "append":
 		if item != nil && item.Widget != nil {
-			return nil, "", fmt.Errorf("自定义组件请通过 view 更新，不能 append")
+			return nil, "", fmt.Errorf("%s", a.t("自定义组件请通过 view 更新，不能 append"))
 		}
 		if item == nil {
 			return nil, "", fmt.Errorf("%s", a.t("监控面板不存在：%s；请使用 create 或提供完整的 update 配置", spec.ID))

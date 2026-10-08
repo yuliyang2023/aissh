@@ -10,6 +10,17 @@
 
 你可以在正常使用 SSH 的同时，借助 **Codex、Claude Code 或其他 AI 后端**开展工作，无需在目标服务器上安装 Agent、守护进程或脚本。
 
+## 产品介绍视频
+
+[![观看 aissh 中文产品介绍视频](docs/media/aissh-product-tour-zh.jpg)](docs/media/aissh-product-tour-zh.mp4)
+
+**[观看产品介绍视频 — 1 分 30 秒](docs/media/aissh-product-tour-zh.mp4)** · 中文无声演示，含简要操作提示。
+
+完整演示 SSH 连接、AI 故障排查、命令审批、实时监控、本地源码关联和历史会话。视频使用真实 CLI 与本地 SSH 录制，服务器数据和 AI 回复为演示样例。
+
+<details>
+<summary>工作台布局示意</summary>
+
 以下为展开侧栏后的布局示意，文中的数值和 AI 回答均为示例。
 
 ```text
@@ -28,6 +39,8 @@
 │                                       │ 排查历史                  │
 └───────────────────────────────────────┴───────────────────────────┘
 ```
+
+</details>
 
 ## 为什么需要 aissh？
 

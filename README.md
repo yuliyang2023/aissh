@@ -10,6 +10,17 @@
 
 It lets you use **Codex, Claude Code, or other AI providers** alongside a normal SSH session — without installing an agent, daemon, or script on the target server.
 
+## Product tour
+
+[![Watch the aissh product tour](docs/media/aissh-product-tour.jpg)](docs/media/aissh-product-tour-en.mp4)
+
+**[Watch the product tour — 2:47](docs/media/aissh-product-tour-en.mp4)** · English narration and captions.
+
+See SSH connections, AI-assisted diagnosis, command approvals, live monitoring, local source code, and session history in one workflow. Recorded with the real CLI and local SSH, using sample server data and scripted AI responses.
+
+<details>
+<summary>Workspace layout</summary>
+
 Illustrative layout with the sidebar open; the values and AI responses below are examples.
 
 ```text
@@ -28,6 +39,8 @@ Illustrative layout with the sidebar open; the values and AI responses below are
 │                                       │ Investigation history     │
 └───────────────────────────────────────┴───────────────────────────┘
 ```
+
+</details>
 
 ## Why aissh?
 
