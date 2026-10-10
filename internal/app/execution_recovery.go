@@ -41,7 +41,12 @@ func (a *App) sendApprovedCommand(state *executionState) {
 		a.stopExecutionWait("transport_error")
 		return
 	}
-	data := []byte(isolateApprovedCommand(state.Command, state.Marker))
+	state.TextMarker = a.gatewayShellPrompt
+	wrapper := isolateApprovedCommand(state.Command, state.Marker)
+	if state.TextMarker {
+		wrapper = isolateGatewayApprovedCommand(state.Command, state.Marker)
+	}
+	data := []byte(wrapper)
 	a.debugInput("execution send marker=%s command_bytes=%d wrapper_bytes=%d", state.Marker, len(state.Command), len(data))
 	state.WriteJob = a.sshInput.enqueue(data, state.Marker, false)
 }
@@ -149,7 +154,34 @@ func (a *App) safePromptScreen() bool {
 	}
 	a.virtual.Lock()
 	defer a.virtual.Unlock()
-	return a.virtual.Mode()&vt10x.ModeAltScreen == 0 && a.virtual.CursorVisible()
+	return a.safePromptScreenLocked()
+}
+
+// Some SSH gateways keep their menu's alternate screen active after entering
+// a node shell. Only a visible user@host primary prompt permits shell actions
+// in that mode; generic editor and menu prompts must still pass through.
+func (a *App) safePromptScreenLocked() bool {
+	if !a.virtual.CursorVisible() {
+		return false
+	}
+	if a.virtual.Mode()&vt10x.ModeAltScreen == 0 {
+		return true
+	}
+	line, ok := a.terminalCursorLineLocked()
+	return a.gatewayShellPrompt && ok && trigger.LooksLikeShellPrompt(line)
+}
+
+func (a *App) refreshGatewayShellPrompt() {
+	// Never learn a gateway shell from a full-screen application encountered
+	// during command execution or recovery. A previously observed shell may
+	// still recover in the same alternate screen after Ctrl+C.
+	if a.virtual == nil || a.execution != nil || a.executionRecovery || a.inBandMonitor != nil || a.monitorAwaitingPrompt || len(a.lineInput) != 0 || a.aiLineCapture {
+		return
+	}
+	a.virtual.Lock()
+	defer a.virtual.Unlock()
+	line, ok := a.terminalCursorLineLocked()
+	a.gatewayShellPrompt = a.virtual.Mode()&vt10x.ModeAltScreen != 0 && a.virtual.CursorVisible() && ok && trigger.LooksLikeShellPrompt(line)
 }
 
 func (a *App) tryRecoverExecutionPrompt() {

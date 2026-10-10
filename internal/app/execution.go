@@ -20,6 +20,17 @@ func executionMarkerPrefix(marker string) string {
 	return "\x1b]777;aissh-" + marker + ";"
 }
 
+func executionTextMarkerPrefix(marker string) string {
+	return "__AISSH_DONE_" + marker + "__:"
+}
+
+func isolateGatewayApprovedCommand(command, marker string) string {
+	// Keep the random token separate from the format string so command echo
+	// cannot contain the actual marker. Gateways may filter OSC sequences.
+	completion := "printf '\\n__AISSH_DONE_%s__:%s\\n' " + quotePOSIXShell(marker) + " \"$?\""
+	return isolateApprovedCommandWithCompletion(command, completion, approvedCommandLineEnding())
+}
+
 // The outer subshell owns the completion trap; the inner one contains all
 // proposal side effects, including exit, exec, traps and stdout redirection.
 // eval keeps syntax errors inside that inner shell as well. Only printf emits
@@ -29,20 +40,27 @@ func isolateApprovedCommand(command, marker string) string {
 }
 
 func isolateApprovedCommandWithLineEnding(command, marker, lineEnding string) string {
+	completion := "printf '\\033]777;aissh-" + marker + ";%s\\007' \"$?\""
+	return isolateApprovedCommandWithCompletion(command, completion, lineEnding)
+}
+
+func isolateApprovedCommandWithCompletion(command, completion, lineEnding string) string {
 	command = strings.ReplaceAll(command, "\r\n", "\n")
 	command = strings.ReplaceAll(command, "\r", "\n")
-	completion := "printf '\\033]777;aissh-" + marker + ";%s\\007' \"$?\""
 	wrapper := "(\ntrap " + quotePOSIXShell(completion) + " 0\ntrap 'exit 130' 2\n(\ntrap - 0 2\neval " + quotePOSIXShell(command) + "\n)\n)"
 	return strings.ReplaceAll(wrapper, "\n", lineEnding) + "\r"
 }
 
-// consume removes only this execution's complete OSC marker. It retains partial
+// consume removes only this execution's complete marker. It retains partial
 // markers across PTY reads while passing ordinary output through immediately.
 // Output after the marker belongs to the next shell prompt, not this command.
 func (state *executionState) consume(data []byte) (output, after []byte, exitCode *int) {
 	buffer := append(state.Pending, data...)
 	state.Pending = nil
 	prefix := []byte(executionMarkerPrefix(state.Marker))
+	if state.TextMarker {
+		prefix = []byte(executionTextMarkerPrefix(state.Marker))
+	}
 	for len(buffer) > 0 {
 		index := bytes.Index(buffer, prefix)
 		if index < 0 {
@@ -68,10 +86,26 @@ func (state *executionState) consume(data []byte) (output, after []byte, exitCod
 			state.Pending = append([]byte(nil), buffer...)
 			return output, nil, nil
 		}
-		if digits > 0 && status[digits] == '\a' {
+		terminator := 0
+		if state.TextMarker {
+			if status[digits] == '\n' {
+				terminator = 1
+			} else if status[digits] == '\r' {
+				if digits+1 == len(status) {
+					state.Pending = append([]byte(nil), buffer...)
+					return output, nil, nil
+				}
+				if status[digits+1] == '\n' {
+					terminator = 2
+				}
+			}
+		} else if status[digits] == '\a' {
+			terminator = 1
+		}
+		if digits > 0 && terminator > 0 {
 			code, err := strconv.Atoi(string(status[:digits]))
 			if err == nil && code <= 255 {
-				return output, status[digits+1:], &code
+				return output, status[digits+terminator:], &code
 			}
 		}
 		// A malformed marker is ordinary output. Advance so it cannot stall

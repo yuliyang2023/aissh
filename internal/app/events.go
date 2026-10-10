@@ -104,6 +104,7 @@ type executionState struct {
 	StartedAt  time.Time
 	Inline     bool
 	Marker     string
+	TextMarker bool
 	Pending    []byte
 	ExitCode   *int
 	Completion string

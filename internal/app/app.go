@@ -151,6 +151,7 @@ type App struct {
 	terminalPasteMode       bool
 	terminalPasteBuffer     []byte
 	atPrompt                bool
+	gatewayShellPrompt      bool
 	sensitive               bool
 	lastCommand             string
 	outputTail              *rollingBuffer
@@ -539,6 +540,12 @@ func (a *App) stopSSH() {
 }
 
 func (a *App) writeTerminalOutput(tokens []terminalview.OutputToken) []terminalview.Line {
+	wasAlternate := a.virtual.Mode()&vt10x.ModeAltScreen != 0
+	defer func() {
+		if wasAlternate != (a.virtual.Mode()&vt10x.ModeAltScreen != 0) {
+			a.gatewayShellPrompt = false
+		}
+	}()
 	var history []terminalview.Line
 	for index := 0; index < len(tokens); {
 		token := tokens[index]
@@ -801,6 +808,7 @@ func (a *App) handleOutput(data []byte) {
 		a.execution.Output.Append(plain)
 	}
 	a.sensitive = trigger.LooksSensitive(a.outputTail.String())
+	a.refreshGatewayShellPrompt()
 	// Opening a saved AI conversation can focus its editor before SSH has
 	// authenticated. A password prompt must hand input back to the terminal.
 	if a.sensitive && a.focus == focusAI {
@@ -827,7 +835,11 @@ func (a *App) handleOutput(data []byte) {
 			a.outputTail.value = ""
 		}
 	}
-	if a.inBandMonitor == nil && !a.executionRecovery && (a.execution == nil || a.execution.finished()) && a.safePromptScreen() && trigger.LooksLikePrompt(a.outputTail.String()) {
+	promptScreenSafe := a.safePromptScreen()
+	if !promptScreenSafe && len(a.lineInput) == 0 && !a.aiLineCapture {
+		a.atPrompt = false
+	}
+	if a.inBandMonitor == nil && !a.executionRecovery && (a.execution == nil || a.execution.finished()) && promptScreenSafe && (trigger.LooksLikePrompt(a.outputTail.String()) || a.gatewayShellPrompt) {
 		if !a.atPrompt {
 			a.promptIdleSince = time.Now()
 		}

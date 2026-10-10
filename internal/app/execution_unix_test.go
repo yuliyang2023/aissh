@@ -52,6 +52,32 @@ func TestIsolateApprovedCommandReportsStatusAndProtectsOuterShell(t *testing.T) 
 	}
 }
 
+func TestGatewayCommandReportsStatusWithoutOSC(t *testing.T) {
+	for _, shell := range []string{"sh", "bash", "zsh"} {
+		path, err := exec.LookPath(shell)
+		if err != nil {
+			continue
+		}
+		t.Run(shell, func(t *testing.T) {
+			script := isolateGatewayApprovedCommand("printf RESULT; exit 7", "test")
+			if strings.Contains(script, executionTextMarkerPrefix("test")) {
+				t.Fatal("command echo contains the text marker")
+			}
+			command := exec.Command(path)
+			command.Stdin = strings.NewReader(strings.TrimSuffix(script, "\r") + "\nprintf OUTER_ALIVE\n")
+			data, err := command.Output()
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := &executionState{Marker: "test", TextMarker: true}
+			output, after, status := state.consume(data)
+			if status == nil || *status != 7 || string(output) != "RESULT\n" || string(after) != "OUTER_ALIVE" {
+				t.Fatalf("output=%q after=%q status=%v raw=%q", output, after, status, data)
+			}
+		})
+	}
+}
+
 func TestApprovedCommandCompletesInInteractivePTY(t *testing.T) {
 	path, err := exec.LookPath("bash")
 	if err != nil {
