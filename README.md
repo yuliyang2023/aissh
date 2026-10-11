@@ -396,6 +396,10 @@ go test ./...
 go build -o bin/aissh ./cmd/aissh
 ```
 
+The [Build CLI workflow](https://github.com/yuliyang2023/aissh/actions/workflows/build.yml) builds macOS, Linux, and Windows CLI binaries for x86_64 (`amd64`) and aarch64 (`arm64`) on pushes to `main`, `v*` tags, pull requests, and manual runs. Download the archive and `SHA256SUMS` from a run's artifacts. macOS/Linux packages use `.tar.gz`; Windows packages use `.zip` and contain `aissh.exe`.
+
+To build all six packages locally, run `make dist` (Go and `zip` required). Set `BUILD_TARGETS=windows/arm64` to build a single target. Packages are written to `dist/`.
+
 The default backend is the local Codex CLI. Install and sign in to it, then verify it works:
 
 ```bash
