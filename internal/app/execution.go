@@ -27,20 +27,21 @@ func executionTextMarkerPrefix(marker string) string {
 func isolateGatewayApprovedCommand(command, marker string) string {
 	// Keep the random token separate from the format string so command echo
 	// cannot contain the actual marker. Gateways may filter OSC sequences.
-	completion := "printf '\\n__AISSH_DONE_%s__:%s\\n' " + quotePOSIXShell(marker) + " \"$?\""
+	completion := "printf '\\n__AISSH_DONE_%s__:%s\\n' " + quotePOSIXShell(marker) + " \"$__aissh_status\""
 	return isolateApprovedCommandWithCompletion(command, completion, approvedCommandLineEnding())
 }
 
-// The outer subshell owns the completion trap; the inner one contains all
-// proposal side effects, including exit, exec, traps and stdout redirection.
-// eval keeps syntax errors inside that inner shell as well. Only printf emits
-// the actual OSC bytes, so terminal echo cannot impersonate command completion.
+// The inner subshell contains all proposal side effects, including exit, exec,
+// traps and stdout redirection. The outer subshell records its status and emits
+// a completion marker without installing a trap. Eval keeps syntax errors
+// inside the inner shell as well. Only printf emits the actual OSC bytes, so
+// terminal echo cannot impersonate command completion.
 func isolateApprovedCommand(command, marker string) string {
 	return isolateApprovedCommandWithLineEnding(command, marker, approvedCommandLineEnding())
 }
 
 func isolateApprovedCommandWithLineEnding(command, marker, lineEnding string) string {
-	completion := "printf '\\033]777;aissh-" + marker + ";%s\\007' \"$?\""
+	completion := "printf '\\033]777;aissh-%s;%s\\007' " + quotePOSIXShell(marker) + " \"$__aissh_status\""
 	return isolateApprovedCommandWithCompletion(command, completion, lineEnding)
 }
 
@@ -51,7 +52,9 @@ func isolateApprovedCommandWithCompletion(command, completion, lineEnding string
 	// an interactive gateway can enter an approval prompt while the writer is
 	// still sending the wrapper's closing lines; those bytes then become menu
 	// input. With a single line, the shell starts eval only after the final CR.
-	wrapper := "(trap " + quotePOSIXShell(completion) + " 0; trap 'exit 130' 2; (trap - 0 2; eval " + quotePOSIXShell(command) + "))"
+	// The inner subshell isolates command side effects; the outer one records
+	// its exit status and emits the marker explicitly, without a completion trap.
+	wrapper := "( (eval " + quotePOSIXShell(command) + "); __aissh_status=$?; " + completion + " )"
 	return strings.ReplaceAll(wrapper, "\n", lineEnding) + "\r"
 }
 
