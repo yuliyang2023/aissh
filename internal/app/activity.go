@@ -56,6 +56,9 @@ func (a *App) finishSSHActivity(execution *executionState) {
 	if execution.Completion == "shell_prompt_returned" {
 		status, detail = "completed", a.t("Shell 已返回提示符；退出码未知")
 	}
+	if execution.Completion == "completion_marker_received" {
+		status, detail = "completed", a.t("已收到命令完成标记；退出码未知")
+	}
 	if execution.ExitCode != nil {
 		status = "completed"
 		if *execution.ExitCode != 0 {

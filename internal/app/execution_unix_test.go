@@ -146,7 +146,7 @@ func TestApprovedCommandCompletesInInteractivePTY(t *testing.T) {
 				a.processSSHOutput(read())
 			}
 			transcript = ""
-			command := "printf '\\nSTARTED\\n'; sleep 0.05; printf 'DONE\\n'"
+			command := "printf '\\nSTARTED\\n'\nsleep 0.05\nprintf 'DONE\\n'"
 			wantStatus := "shell_prompt_returned; exit_status=unknown"
 			if interrupted {
 				command = "printf '\\nSTARTED\\n'; sleep 30"

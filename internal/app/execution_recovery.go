@@ -42,25 +42,37 @@ func (a *App) sendApprovedCommand(state *executionState) {
 		a.stopExecutionWait("transport_error")
 		return
 	}
-	state.Direct = true
+	state.ShellPrompt = ""
 	if a.virtual != nil {
 		a.virtual.Lock()
 		line, ok := a.terminalCursorLineLocked()
-		if ok && trigger.LooksLikePrompt(line) {
+		if ok && a.virtual.CursorVisible() && a.safePromptScreenLocked() && trigger.LooksLikePrompt(line) {
 			state.ShellPrompt = strings.TrimSpace(line)
 		}
 		a.virtual.Unlock()
 	}
-	// Send only the approved command. Shell wrappers can change the command
-	// classified by a bastion's approval policy, even for a permitted command.
-	data := []byte(directApprovedCommand(state.Command))
+	state.Direct = state.ShellPrompt != ""
+	state.EchoMarker = !state.Direct
+	marker := ""
+	if state.EchoMarker {
+		marker = state.Marker
+	}
+	data := []byte(approvedShellInput(state.Command, marker))
 	a.outputTail.value = ""
-	a.debugInput("execution send marker=%s command_bytes=%d direct=true", state.Marker, len(data))
+	a.debugInput("execution send marker=%s command_bytes=%d prompt_mode=%t", state.Marker, len(data), state.Direct)
 	state.WriteJob = a.sshInput.enqueueApprovedCommand(data, state.Marker, a.config.AIKeystrokeInput)
 }
 
-func directApprovedCommand(command string) string {
+// Like iTerm2's shellInput, keep multiline scripts in the current shell and
+// append an echo receipt only when a primary prompt cannot be recognised.
+func approvedShellInput(command, marker string) string {
 	command = strings.ReplaceAll(strings.ReplaceAll(command, "\r\n", "\n"), "\r", "\n")
+	if strings.Contains(command, "\n") || marker != "" {
+		command = "eval " + quotePOSIXShell(command)
+	}
+	if marker != "" {
+		command += "; echo '-- FINISHED' " + quotePOSIXShell(marker)
+	}
 	return strings.ReplaceAll(command, "\n", approvedCommandLineEnding()) + "\r"
 }
 
@@ -277,7 +289,7 @@ func (a *App) retireExecution(state *executionState) {
 	}
 	// Keep parsers for recent commands to absorb duplicate/late markers, including
 	// ones split across reads, without treating them as the next command's result.
-	a.retiredExecutions = append(a.retiredExecutions, &executionState{Marker: state.Marker, Pending: state.Pending})
+	a.retiredExecutions = append(a.retiredExecutions, &executionState{Marker: state.Marker, Pending: state.Pending, EchoMarker: state.EchoMarker, TextMarker: state.TextMarker})
 	if len(a.retiredExecutions) > 32 {
 		a.retiredExecutions = a.retiredExecutions[1:]
 	}
@@ -287,12 +299,15 @@ func (a *App) filterRetiredExecutionMarkers(data []byte) []byte {
 	for _, state := range a.retiredExecutions {
 		var visible []byte
 		for {
+			if state.EchoMarker {
+				state.ReceiptReceived = false
+			}
 			output, after, code := state.consume(data)
 			visible = append(visible, output...)
-			if code == nil {
+			if code == nil && !state.ReceiptReceived {
 				break
 			}
-			a.debugInput("execution ignored late marker=%s exit_status=%d", state.Marker, *code)
+			a.debugInput("execution ignored late marker=%s", state.Marker)
 			data = after
 		}
 		data = visible

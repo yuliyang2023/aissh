@@ -68,6 +68,9 @@ func (state *executionState) consume(data []byte) (output, after []byte, exitCod
 	if state.TextMarker {
 		prefix = []byte(executionTextMarkerPrefix(state.Marker))
 	}
+	if state.EchoMarker {
+		prefix = []byte("-- FINISHED " + state.Marker)
+	}
 	for len(buffer) > 0 {
 		index := bytes.Index(buffer, prefix)
 		if index < 0 {
@@ -85,6 +88,25 @@ func (state *executionState) consume(data []byte) (output, after []byte, exitCod
 		output = append(output, buffer[:index]...)
 		buffer = buffer[index:]
 		status := buffer[len(prefix):]
+		if state.EchoMarker {
+			if len(status) == 0 || (status[0] == '\r' && len(status) == 1) {
+				state.Pending = append([]byte(nil), buffer...)
+				return output, nil, nil
+			}
+			terminator := 0
+			if status[0] == '\n' {
+				terminator = 1
+			} else if status[0] == '\r' && status[1] == '\n' {
+				terminator = 2
+			}
+			if terminator > 0 {
+				state.ReceiptReceived = true
+				return output, status[terminator:], nil
+			}
+			output = append(output, buffer[0])
+			buffer = buffer[1:]
+			continue
+		}
 		digits := 0
 		for digits < len(status) && digits < 3 && status[digits] >= '0' && status[digits] <= '9' {
 			digits++

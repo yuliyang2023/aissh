@@ -97,22 +97,24 @@ type chatMessage struct {
 }
 
 type executionState struct {
-	SessionID    string
-	ProposalID   string
-	Command      string
-	Output       *contextBuffer
-	StartedAt    time.Time
-	Inline       bool
-	Marker       string
-	TextMarker   bool
-	Pending      []byte
-	ExitCode     *int
-	Completion   string
-	WriteJob     *sshWriteJob
-	WaitWarned   bool
-	Direct       bool
-	ShellPrompt  string
-	LastOutputAt time.Time
+	SessionID       string
+	ProposalID      string
+	Command         string
+	Output          *contextBuffer
+	StartedAt       time.Time
+	Inline          bool
+	Marker          string
+	TextMarker      bool
+	Pending         []byte
+	ExitCode        *int
+	Completion      string
+	WriteJob        *sshWriteJob
+	WaitWarned      bool
+	Direct          bool
+	EchoMarker      bool
+	ReceiptReceived bool
+	ShellPrompt     string
+	LastOutputAt    time.Time
 }
 
 type inlineAIState struct {
