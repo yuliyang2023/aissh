@@ -31,6 +31,7 @@ export function Workbench({
   const [state, setState] = useState<WorkbenchState | null>(null);
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
+  const [terminalFocusRequest, setTerminalFocusRequest] = useState(0);
   const [prompt, setPrompt] = useState('');
   const [editingWorkspace, setEditingWorkspace] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -97,13 +98,18 @@ export function Workbench({
       setPending(false);
     }
   }
-  const blocked = !online || pending || state?.busy || state?.executing || !!state?.proposal;
+  const blocked = !online || pending || state?.busy || state?.executing || !!state?.proposal || state?.terminalTakeover;
+  useEffect(() => {
+    if (active && state?.terminalTakeover) setTerminalFocusRequest((value) => value + 1);
+  }, [active, state?.terminalTakeover]);
   const status = !sessionLive(session)
     ? '连接已结束'
     : !state
       ? '正在连接工作台…'
       : !online
         ? '工作台连接中断'
+        : state.terminalTakeover
+          ? '终端已接管，请在右侧终端完成或退出审批'
         : state.executing
           ? '正在执行命令'
           : state.busy
@@ -280,7 +286,19 @@ export function Workbench({
             {...chatSubmit}
           />
           <div className="composer-actions">
-            <small>Enter 发送 · Shift + Enter 换行</small>
+            <button
+              className="button small"
+              type="button"
+              disabled={!online || pending}
+              onClick={async () => {
+                if (await action({ kind: 'terminal-takeover' })) {
+                  setTerminalFocusRequest((value) => value + 1);
+                }
+              }}
+              title="取消本地 AI 等待并暂停自动采集，将输入交回终端；不会自动结束远端命令"
+            >
+              取消 AI，接管终端
+            </button>
             <button className="button primary small" disabled={blocked || !prompt.trim()}>
               <Send size={14} />
               发送
@@ -291,6 +309,7 @@ export function Workbench({
       {split.divider}
       <div className="native-ssh">
         <Terminal
+          focusRequest={terminalFocusRequest}
           session={session}
           active={active}
           onReconnect={onReconnect}

@@ -171,6 +171,7 @@ export interface MonitorPanel {
   pinned: boolean;
 }
 export interface WorkbenchState {
+  terminalTakeover?: boolean;
   model?: string;
   modelOptions?: string[];
   codexThreadId?: string;
@@ -198,6 +199,7 @@ export interface WorkbenchState {
 }
 export interface WorkbenchCommand {
   kind:
+    | 'terminal-takeover'
     | 'model'
     | 'prompt'
     | 'workspace'

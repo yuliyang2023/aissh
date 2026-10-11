@@ -165,6 +165,11 @@ type App struct {
 
 	agent                 agent.Provider
 	agentBusy             bool
+	agentCancel           context.CancelFunc
+	agentGeneration       uint64
+	terminalTakeover      bool
+	gatewayApproval       bool
+	interactionTail       string
 	agentInline           *inlineAIState
 	agentSessionID        string
 	codexThreadID         string
@@ -721,6 +726,12 @@ func (a *App) ensureSidebarVisible() {
 }
 
 func (a *App) handleEvent(event interface{}) {
+	if scoped, ok := event.(agentOperationEvent); ok {
+		if scoped.generation != a.agentGeneration {
+			return
+		}
+		event = scoped.event
+	}
 	switch value := event.(type) {
 	case widgetCompiledEvent:
 		a.widgetCompiled(value)
@@ -825,6 +836,21 @@ func (a *App) handleOutput(data []byte) {
 	}
 	a.sensitive = trigger.LooksSensitive(a.outputTail.String())
 	a.refreshGatewayShellPrompt()
+	if a.terminalTakeover {
+		plain := trigger.StripANSI(a.outputTail.String())
+		line := plain[strings.LastIndexAny(plain, "\r\n")+1:]
+		prompt := trigger.LooksLikePrompt(plain)
+		if a.gatewayApproval {
+			prompt = trigger.LooksLikeShellPrompt(line)
+		}
+		if prompt && a.safePromptScreen() && !a.sensitive {
+			a.terminalTakeover = false
+			a.gatewayApproval = false
+			a.interactionTail = ""
+		} else {
+			a.atPrompt = false
+		}
+	}
 	// Opening a saved AI conversation can focus its editor before SSH has
 	// authenticated. A password prompt must hand input back to the terminal.
 	if a.sensitive && a.focus == focusAI {
@@ -855,7 +881,7 @@ func (a *App) handleOutput(data []byte) {
 	if !promptScreenSafe && len(a.lineInput) == 0 && !a.aiLineCapture {
 		a.atPrompt = false
 	}
-	if a.inBandMonitor == nil && !a.executionRecovery && (a.execution == nil || a.execution.finished()) && promptScreenSafe && (trigger.LooksLikePrompt(a.outputTail.String()) || a.gatewayShellPrompt) {
+	if !a.terminalTakeover && a.inBandMonitor == nil && !a.executionRecovery && (a.execution == nil || a.execution.finished()) && promptScreenSafe && (trigger.LooksLikePrompt(a.outputTail.String()) || a.gatewayShellPrompt) {
 		if !a.atPrompt {
 			a.promptIdleSince = time.Now()
 		}

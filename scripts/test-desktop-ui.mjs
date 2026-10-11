@@ -14,6 +14,7 @@ import { testModalEscape } from './test-modal-escape.mjs';
 import { testStreamingChat } from './test-streaming-chat.mjs';
 import { testMarkdownChat } from './test-markdown-chat.mjs';
 import { testModels } from './test-models.mjs';
+import { testTerminalTakeover } from './test-terminal-takeover.mjs';
 import { testIMEComposer, testWorkbenchIME } from './test-ime-composer.mjs';
 import { installMonitoringMock, testMonitoring, testPet, testPetSessionReads } from './test-monitoring.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -309,7 +310,13 @@ await page.addInitScript((aiSelectionOnly) => {
         WorkbenchAction: async (id, command) => {
           window.__test.actions.push({ id, ...command });
           const state = workbenches[id];
-          if (command.kind === 'model') {
+          if (command.kind === 'terminal-takeover') {
+            state.busy = false;
+            state.executing = false;
+            state.proposal = undefined;
+            state.terminalTakeover = true;
+            publishWorkbench(id);
+          } else if (command.kind === 'model') {
             if (state.busy || state.executing || state.proposal || !state.modelOptions.includes(command.text)) throw new Error('model unavailable');
             state.model = command.text;
             const conversation = conversations.find(c => c.id === state.conversationId && c.hostId === sessions.find(s => s.id === id)?.hostId);
@@ -369,7 +376,10 @@ const openSettings = async (name = '主机') => {
 };
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  if (process.env.MODELS_ONLY) {
+  if (process.env.TAKEOVER_ONLY) {
+    await testTerminalTakeover(page);
+    assert.deepEqual(errors, []);
+  } else if (process.env.MODELS_ONLY) {
     await testModels(page, openSettings);
     assert.deepEqual(errors, []);
   } else if (process.env.WORKSPACE_ONLY) {

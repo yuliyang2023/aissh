@@ -34,9 +34,10 @@ func (a *App) publishDesktopState() {
 
 func (a *App) desktopState() credentialui.WorkbenchState {
 	state := credentialui.WorkbenchState{
-		Notices:        append([]credentialui.WorkbenchNotice(nil), a.desktopNotices...),
-		CodexThreadID:  a.codexThreadID,
-		ConversationID: a.historyConversationID, Busy: a.agentBusy,
+		TerminalTakeover: a.terminalTakeover,
+		Notices:          append([]credentialui.WorkbenchNotice(nil), a.desktopNotices...),
+		CodexThreadID:    a.codexThreadID,
+		ConversationID:   a.historyConversationID, Busy: a.agentBusy,
 		Status: a.safeText(a.agentStatus), Executing: a.execution != nil || a.executionRecovery,
 		CanApprove: a.desktopCanApprove(), ApprovalStatus: a.safeText(a.approvalStatus),
 		Messages: []credentialui.WorkbenchMessage{}, Panels: []credentialui.MonitorPanel{},
@@ -248,6 +249,9 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 		return errors.New("操作已过期或连接已结束")
 	}
 	switch command.Kind {
+	case "terminal-takeover":
+		a.takeOverTerminal("已取消本次 AI 交互")
+		return nil
 	case "model":
 		return a.switchConversationModel(strings.TrimSpace(command.Text))
 	case "widget-cancel":
@@ -288,6 +292,9 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 		a.appendPersistentChat(chatMessage{Role: "system", Content: message, Time: time.Now()})
 		a.dirty = true
 	case "prompt":
+		if a.terminalTakeover {
+			return errors.New("请先在终端完成或退出审批，回到 Shell 提示符后再向 AI 提问")
+		}
 		prompt := strings.TrimSpace(command.Text)
 		if prompt == "" || len(prompt) > 64*1024 {
 			return errors.New("请输入有效的问题（最多 64 KB）")

@@ -37,6 +37,14 @@ func (a *App) handleInput(data []byte) {
 		a.handleZmodemInput(data)
 		return
 	}
+	if len(data) == 1 && data[0] == 0x07 && !a.terminalPasteMode && !a.aiPasteMode {
+		a.takeOverTerminal("已取消本次 AI 交互")
+		return
+	}
+	if a.terminalTakeover {
+		a.handleSensitiveTerminalInput(data)
+		return
+	}
 	if a.config.DesktopUI {
 		// Mouse reports and terminal shortcuts belong to the remote application;
 		// the desktop has separate controls for AI and local scrolling.
@@ -1073,6 +1081,9 @@ func (a *App) openAIConversation() {
 }
 
 func (a *App) inputStatus() string {
+	if a.terminalTakeover {
+		return a.t("终端已接管；可输入 Q 退出金库申请，自动采集已暂停")
+	}
 	if a.executionRecovery {
 		return a.t("等待新的 Shell 提示符；Ctrl+C 重新同步")
 	}

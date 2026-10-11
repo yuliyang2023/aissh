@@ -105,6 +105,8 @@ jobs:
             CHROME_PATH=/usr/bin/google-chrome AI_SELECTION_ONLY=1 node scripts/test-desktop-ui.mjs
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/aissh-ui-test/node_modules/playwright/index.mjs" \
             CHROME_PATH=/usr/bin/google-chrome MODELS_ONLY=1 node scripts/test-desktop-ui.mjs
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/aissh-ui-test/node_modules/playwright/index.mjs" \
+            CHROME_PATH=/usr/bin/google-chrome TAKEOVER_ONLY=1 node scripts/test-desktop-ui.mjs
 
       - name: Verify macOS 13 compatibility metadata
         if: runner.os == 'macOS'

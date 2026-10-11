@@ -132,7 +132,7 @@ func (a *App) continuePipelineAI() {
 	a.agentBusy = true
 	a.agentStatus = "正在配置监控数据映射"
 	a.dirty = true
-	go a.runAgentStream(request, true)
+	a.launchAgentStream(request, true)
 }
 func (a *App) executePipelineAction(operation string, spec agent.PanelSpec) (*panel.Panel, string, error) {
 	a.initPipelines()

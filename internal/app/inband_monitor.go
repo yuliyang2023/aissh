@@ -16,6 +16,7 @@ import (
 var inBandMonitorScreenRestore = []byte("\x1b[2K\r")
 
 type inBandMonitorState struct {
+	writeJob        *sshWriteJob
 	visible         bool
 	shown           int
 	after           []byte
@@ -140,7 +141,9 @@ func (a *App) startInBandCollection(item *panel.Panel, now time.Time, pipelineID
 	}
 	// Only the fresh prompt after the completion marker can release user input.
 	a.outputTail.Append("\n[aissh monitor]\n")
-	if _, err := a.writeSSH([]byte(command)); err != nil {
+	if a.sshInput != nil {
+		state.writeJob = a.sshInput.enqueue([]byte(command), "", false)
+	} else if _, err := a.writeSSH([]byte(command)); err != nil {
 		a.pauseInBandMonitor(fmt.Errorf("%s: %w", a.t("主会话监控已暂停"), err))
 	}
 }

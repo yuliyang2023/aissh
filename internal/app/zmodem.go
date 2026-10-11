@@ -43,6 +43,9 @@ func (a *App) processSSHOutput(data []byte) {
 	if len(data) == 0 {
 		return
 	}
+	if a.observeGatewayApproval(data) {
+		return
+	}
 	data = a.filterRetiredExecutionMarkers(data)
 	if len(data) == 0 {
 		return
