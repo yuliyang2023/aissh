@@ -29,17 +29,16 @@ type Credential struct {
 }
 
 type Host struct {
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	Address          string `json:"address"`
-	Port             int    `json:"port"`
-	User             string `json:"user"`
-	Group            string `json:"group"`
-	CredentialID     string `json:"credentialId"`
-	JumpHostID       string `json:"jumpHostId"`
-	AIProfileID      string `json:"aiProfileId"`
-	AIKeystrokeInput bool   `json:"aiKeystrokeInput,omitempty"`
-	Workspace        string `json:"workspace"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Address      string `json:"address"`
+	Port         int    `json:"port"`
+	User         string `json:"user"`
+	Group        string `json:"group"`
+	CredentialID string `json:"credentialId"`
+	JumpHostID   string `json:"jumpHostId"`
+	AIProfileID  string `json:"aiProfileId"`
+	Workspace    string `json:"workspace"`
 }
 
 type Resource struct {

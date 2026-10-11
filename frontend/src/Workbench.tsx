@@ -300,6 +300,19 @@ export function Workbench({
             >
               取消 AI，接管终端
             </button>
+            <button
+              className={'button small' + (state?.aiKeystrokeInput ? ' primary' : '')}
+              type="button"
+              disabled={!online || pending}
+              aria-pressed={state?.aiKeystrokeInput ?? false}
+              onClick={() => void action({
+                kind: 'ai-keystroke-input',
+                text: String(!state?.aiKeystrokeInput),
+              })}
+              title="仅对本会话审批通过的 AI 命令逐字符发送，适用于不接受粘贴命令的字符堡垒机"
+            >
+              AI 逐字符：{state?.aiKeystrokeInput ? '开' : '关'}
+            </button>
             <button className="button primary small" disabled={blocked || !prompt.trim()}>
               <Send size={14} />
               发送

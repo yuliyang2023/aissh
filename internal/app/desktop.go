@@ -36,6 +36,7 @@ func (a *App) desktopState() credentialui.WorkbenchState {
 	state := credentialui.WorkbenchState{
 		TerminalTakeover: a.terminalTakeover,
 		SystemCollection: a.config.SystemCollection,
+		AIKeystrokeInput: a.config.AIKeystrokeInput,
 		Notices:          append([]credentialui.WorkbenchNotice(nil), a.desktopNotices...),
 		CodexThreadID:    a.codexThreadID,
 		ConversationID:   a.historyConversationID, Busy: a.agentBusy,
@@ -252,6 +253,17 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 	switch command.Kind {
 	case "terminal-takeover":
 		a.takeOverTerminal("已取消本次 AI 交互")
+		return nil
+	case "ai-keystroke-input":
+		switch command.Text {
+		case "true":
+			a.config.AIKeystrokeInput = true
+		case "false":
+			a.config.AIKeystrokeInput = false
+		default:
+			return errors.New("无效的 AI 逐字符发送设置")
+		}
+		a.dirty = true
 		return nil
 	case "system-collection":
 		switch command.Text {

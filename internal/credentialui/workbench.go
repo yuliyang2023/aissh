@@ -20,6 +20,7 @@ import (
 type WorkbenchState struct {
 	TerminalTakeover bool                `json:"terminalTakeover,omitempty"`
 	SystemCollection bool                `json:"systemCollection"`
+	AIKeystrokeInput bool                `json:"aiKeystrokeInput"`
 	Model            string              `json:"model,omitempty"`
 	ModelOptions     []string            `json:"modelOptions,omitempty"`
 	Notices          []WorkbenchNotice   `json:"notices,omitempty"`

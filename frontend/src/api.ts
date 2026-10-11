@@ -22,7 +22,6 @@ export interface Host {
   credentialId: string;
   jumpHostId: string;
   aiProfileId: string;
-  aiKeystrokeInput?: boolean;
   workspace: string;
 }
 export interface Resource {
@@ -174,6 +173,7 @@ export interface MonitorPanel {
 export interface WorkbenchState {
   terminalTakeover?: boolean;
   systemCollection: boolean;
+  aiKeystrokeInput: boolean;
   model?: string;
   modelOptions?: string[];
   codexThreadId?: string;
@@ -202,6 +202,7 @@ export interface WorkbenchState {
 export interface WorkbenchCommand {
   kind:
     | 'terminal-takeover'
+    | 'ai-keystroke-input'
     | 'system-collection'
     | 'model'
     | 'prompt'
