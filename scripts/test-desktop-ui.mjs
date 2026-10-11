@@ -418,7 +418,10 @@ try {
         const workspace = dialog.getByLabel('AI 工作目录（本机）', { exact: true });
         assert.equal(await workspace.isDisabled(), profileId === 'model-custom');
         if (profileId === 'builtin-codex') await workspace.fill('/test/project');
-        await dialog.getByRole('button', { name: '连接并新建对话', exact: true }).click();
+        await dialog.getByRole('button', {
+          name: mode === 'direct' ? '连接并新建对话' : '创建对话',
+          exact: true,
+        }).click();
         await dialog.waitFor({ state: 'hidden' });
         const created = await page.evaluate(() => window.__test.conversations[0]);
         assert.equal(created.aiProfileId, profileId);
