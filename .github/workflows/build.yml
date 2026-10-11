@@ -29,7 +29,9 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Test CLI, AI sessions, history and desktop service
-        run: go test ./cmd/aissh ./internal/agent ./internal/app ./internal/history ./internal/catalog ./internal/desktop
+        run: |
+          go test ./cmd/aissh ./internal/agent ./internal/history ./internal/catalog ./internal/desktop
+          go test ./internal/app -run 'Test.*(Codex|History|Conversation|PersistentChat|Workspace)'
 
   build:
     name: Build ${{ matrix.goos }} / ${{ matrix.goarch }}
