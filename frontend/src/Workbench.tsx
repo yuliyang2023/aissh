@@ -133,6 +133,7 @@ export function Workbench({
         active={active}
         candidates={state?.widgetCandidates}
         panels={state?.panels || []}
+        systemCollection={state?.systemCollection ?? false}
         online={online}
         pending={pending}
         now={now}

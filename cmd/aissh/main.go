@@ -91,6 +91,7 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 		Workspace:           currentDirectory(),
 		WorkspaceWritable:   enabledValue(os.Getenv("AISSH_WORKSPACE_WRITE")),
 		AlwaysYes:           enabledValue(os.Getenv("AISSH_ALWAYS_YES")),
+		SystemCollection:    enabledValue(os.Getenv("AISSH_SYSTEM_COLLECTION")),
 		InputDebug:          enabledValue(firstNonEmpty(os.Getenv("AISSH_INPUT_DEBUG"), inputDebug)),
 		ModelURL:            os.Getenv("AISSH_MODEL_URL"),
 		ModelAPIKey:         firstNonEmpty(os.Getenv("AISSH_MODEL_API_KEY"), os.Getenv("DEEPSEEK_API_KEY")),
@@ -206,6 +207,10 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 			config.AlwaysYes = true
 		case value == "--no-always-yes":
 			config.AlwaysYes = false
+		case value == "--system-collection":
+			config.SystemCollection = true
+		case value == "--no-system-collection":
+			config.SystemCollection = false
 		case value == "--no-ai-keepalive" || value == "--no-ssh-keepalive":
 			config.SSHKeepalive = 0
 			config.DisableSSHKeepalive = true
@@ -388,6 +393,8 @@ aissh options:
   --workspace DIR     Local code workspace (default: current directory)
   --workspace-write   Allow Codex/Claude to modify files in the local workspace
   --always-yes        Auto-approve non-high-risk commands after 3 independent risk reviews
+  --system-collection Enable automatic remote monitor collection (default: off)
+  --no-system-collection Disable automatic remote monitor collection
   --no-workspace      Disable local workspace access for Codex/Claude
   --model-url URL     OpenAI-compatible model API base URL
   --model-name MODEL  Direct model name
@@ -451,6 +458,8 @@ aissh选项:
   --workspace DIR     供 Codex/Claude 使用的本机代码工作区，默认当前目录
   --workspace-write   允许 Codex/Claude 修改本机工作区文件（默认只读）
   --always-yes        经 3 次独立风险复核后自动批准非高风险命令
+  --system-collection 开启自动远端监控采集（默认关闭）
+  --no-system-collection 关闭自动远端监控采集
   --no-workspace      禁止 Codex/Claude 访问本机工作区
   --model-url URL     OpenAI-compatible 模型 API 地址
   --model-name MODEL  直连模型名称

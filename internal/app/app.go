@@ -57,6 +57,7 @@ type Config struct {
 	Workspace           string
 	WorkspaceWritable   bool
 	AlwaysYes           bool
+	SystemCollection    bool
 	InputDebug          bool
 	ModelURL            string
 	ModelAPIKey         string
@@ -895,9 +896,11 @@ func (a *App) handleOutput(data []byte) {
 func (a *App) scheduleMonitors() {
 	now := time.Now()
 	a.expireWidgetCandidates(now)
-	a.schedulePipelines(now)
+	if a.config.SystemCollection {
+		a.schedulePipelines(now)
+		a.scheduleInBandMonitor(now)
+	}
 	a.continuePipelineAI()
-	a.scheduleInBandMonitor(now)
 }
 
 func (a *App) applyMonitorResult(value monitorResultEvent) {

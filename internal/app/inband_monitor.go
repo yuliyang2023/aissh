@@ -73,7 +73,7 @@ func (a *App) scheduleInBandMonitor(now time.Time) {
 }
 
 func (a *App) canStartInBandMonitor() bool {
-	return !a.monitorPrimaryPaused && a.monitorWorkspaceVisible() && a.monitorShellReady()
+	return a.config.SystemCollection && !a.monitorPrimaryPaused && a.monitorWorkspaceVisible() && a.monitorShellReady()
 }
 
 func (a *App) monitorShellReady() bool {

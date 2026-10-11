@@ -172,6 +172,7 @@ export interface MonitorPanel {
 }
 export interface WorkbenchState {
   terminalTakeover?: boolean;
+  systemCollection: boolean;
   model?: string;
   modelOptions?: string[];
   codexThreadId?: string;
@@ -200,6 +201,7 @@ export interface WorkbenchState {
 export interface WorkbenchCommand {
   kind:
     | 'terminal-takeover'
+    | 'system-collection'
     | 'model'
     | 'prompt'
     | 'workspace'

@@ -35,6 +35,7 @@ func (a *App) publishDesktopState() {
 func (a *App) desktopState() credentialui.WorkbenchState {
 	state := credentialui.WorkbenchState{
 		TerminalTakeover: a.terminalTakeover,
+		SystemCollection: a.config.SystemCollection,
 		Notices:          append([]credentialui.WorkbenchNotice(nil), a.desktopNotices...),
 		CodexThreadID:    a.codexThreadID,
 		ConversationID:   a.historyConversationID, Busy: a.agentBusy,
@@ -251,6 +252,17 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 	switch command.Kind {
 	case "terminal-takeover":
 		a.takeOverTerminal("已取消本次 AI 交互")
+		return nil
+	case "system-collection":
+		switch command.Text {
+		case "true":
+			a.config.SystemCollection = true
+		case "false":
+			a.config.SystemCollection = false
+		default:
+			return errors.New("无效的自动采集设置")
+		}
+		a.dirty = true
 		return nil
 	case "model":
 		return a.switchConversationModel(strings.TrimSpace(command.Text))
