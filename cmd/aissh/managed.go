@@ -52,6 +52,7 @@ func prepareManaged(config *app.Config) (func(), error) {
 		config.SSHArgs = lease.Args
 		config.SSHEnvironment = lease.Env
 		config.HostLabel = h.Name
+		config.AIKeystrokeInput = config.AIKeystrokeInput || h.AIKeystrokeInput
 		config.HistoryTarget = "profile:" + h.ID
 		if h.Workspace != "" {
 			config.Workspace = h.Workspace

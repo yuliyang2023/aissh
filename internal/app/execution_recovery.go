@@ -48,7 +48,7 @@ func (a *App) sendApprovedCommand(state *executionState) {
 	}
 	data := []byte(wrapper)
 	a.debugInput("execution send marker=%s command_bytes=%d wrapper_bytes=%d", state.Marker, len(state.Command), len(data))
-	state.WriteJob = a.sshInput.enqueue(data, state.Marker, false)
+	state.WriteJob = a.sshInput.enqueueApprovedCommand(data, state.Marker, a.config.AIKeystrokeInput)
 }
 
 func (a *App) finishSSHWrite(event sshWriteEvent) {

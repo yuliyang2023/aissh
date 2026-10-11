@@ -389,6 +389,15 @@ export function HostEditor({
                   ))}
                 </select>
               </Field>
+              <label className="checkbox-line">
+                <input
+                  type="checkbox"
+                  checked={value.aiKeystrokeInput ?? false}
+                  onChange={(e) => field('aiKeystrokeInput', e.target.checked)}
+                />
+                <span>AI 审批命令逐字符发送</span>
+              </label>
+              <p className="field-note">适用于不接受粘贴命令的字符堡垒机；只影响审批通过的 AI 命令，发送会更慢。</p>
               <Field
                 label="本机工作区"
                 hint="AI 可以读取的本机项目目录；桌面连接不填则关闭本机文件访问。"

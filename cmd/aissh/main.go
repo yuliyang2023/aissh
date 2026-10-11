@@ -92,6 +92,7 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 		WorkspaceWritable:   enabledValue(os.Getenv("AISSH_WORKSPACE_WRITE")),
 		AlwaysYes:           enabledValue(os.Getenv("AISSH_ALWAYS_YES")),
 		SystemCollection:    enabledValue(os.Getenv("AISSH_SYSTEM_COLLECTION")),
+		AIKeystrokeInput:    enabledValue(os.Getenv("AISSH_AI_KEYSTROKE_INPUT")),
 		InputDebug:          enabledValue(firstNonEmpty(os.Getenv("AISSH_INPUT_DEBUG"), inputDebug)),
 		ModelURL:            os.Getenv("AISSH_MODEL_URL"),
 		ModelAPIKey:         firstNonEmpty(os.Getenv("AISSH_MODEL_API_KEY"), os.Getenv("DEEPSEEK_API_KEY")),
@@ -182,6 +183,8 @@ func parseArgs(args []string) (app.Config, bool, bool, error) {
 			return config, false, true, nil
 		case value == "--no-history":
 			config.HistoryDir = ""
+		case value == "--ai-keystroke-input":
+			config.AIKeystrokeInput = true
 		case value == "--conversation":
 			if index+1 >= len(args) || strings.TrimSpace(args[index+1]) == "" {
 				return config, false, false, fmt.Errorf("--conversation requires an ID")
@@ -395,6 +398,7 @@ aissh options:
   --always-yes        Auto-approve non-high-risk commands after 3 independent risk reviews
   --system-collection Enable automatic remote monitor collection (default: off)
   --no-system-collection Disable automatic remote monitor collection
+  --ai-keystroke-input Send approved AI commands one character at a time
   --no-workspace      Disable local workspace access for Codex/Claude
   --model-url URL     OpenAI-compatible model API base URL
   --model-name MODEL  Direct model name
@@ -460,6 +464,7 @@ aissh选项:
   --always-yes        经 3 次独立风险复核后自动批准非高风险命令
   --system-collection 开启自动远端监控采集（默认关闭）
   --no-system-collection 关闭自动远端监控采集
+  --ai-keystroke-input 将审批通过的 AI 命令逐字符发送
   --no-workspace      禁止 Codex/Claude 访问本机工作区
   --model-url URL     OpenAI-compatible 模型 API 地址
   --model-name MODEL  直连模型名称

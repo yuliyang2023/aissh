@@ -22,6 +22,7 @@ export interface Host {
   credentialId: string;
   jumpHostId: string;
   aiProfileId: string;
+  aiKeystrokeInput?: boolean;
   workspace: string;
 }
 export interface Resource {

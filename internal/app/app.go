@@ -58,6 +58,7 @@ type Config struct {
 	WorkspaceWritable   bool
 	AlwaysYes           bool
 	SystemCollection    bool
+	AIKeystrokeInput    bool
 	InputDebug          bool
 	ModelURL            string
 	ModelAPIKey         string
