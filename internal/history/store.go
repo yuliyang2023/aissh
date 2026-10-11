@@ -24,6 +24,7 @@ const (
 )
 
 type Message struct {
+	AIProfileID    string          `json:"aiProfileId,omitempty"`
 	CodexThreadID  string          `json:"codexThreadId,omitempty"`
 	Version        int             `json:"version"`
 	Target         string          `json:"target"`
@@ -36,6 +37,7 @@ type Message struct {
 }
 
 type Conversation struct {
+	AIProfileID   string
 	CodexThreadID string
 	ID            string
 	Title         string
@@ -122,6 +124,9 @@ func (s *Store) LoadConversations(target string) ([]Conversation, error) {
 			conversations = append(conversations, conversation)
 		}
 		conversation.Messages = append(conversation.Messages, message)
+		if message.AIProfileID != "" {
+			conversation.AIProfileID = message.AIProfileID
+		}
 		if message.CodexThreadID != "" {
 			conversation.CodexThreadID = message.CodexThreadID
 		}

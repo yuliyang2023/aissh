@@ -63,7 +63,10 @@ func prepareManaged(config *app.Config) (func(), error) {
 	if profileID == "" {
 		profileID = data.DefaultAIProfileID
 	}
-	if profileID != "" {
+	config.AIProfileID = profileID
+	if profileID == catalog.BuiltinCodexProfileID {
+		config.AgentProvider = "codex"
+	} else if profileID != "" {
 		p, err := data.AIProfile(profileID)
 		if err != nil {
 			close()

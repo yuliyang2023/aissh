@@ -96,6 +96,14 @@ jobs:
         shell: pwsh
         run: ./scripts/build-desktop.ps1
 
+      - name: Test conversation AI selection in desktop UI
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/aissh-ui-test" --no-audit --no-fund playwright@1.56.1
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/aissh-ui-test/node_modules/playwright/index.mjs" \
+            CHROME_PATH=/usr/bin/google-chrome AI_SELECTION_ONLY=1 node scripts/test-desktop-ui.mjs
+
       - name: Verify macOS 13 compatibility metadata
         if: runner.os == 'macOS'
         run: python3 scripts/check-macos-bundle.py "dist/desktop/WRD AI SSH.app" "$GOARCH" "$MACOSX_DEPLOYMENT_TARGET"

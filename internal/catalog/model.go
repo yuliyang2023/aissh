@@ -61,6 +61,9 @@ type Resource struct {
 	Discovery     *ResourceDiscovery `json:"discovery,omitempty"`
 }
 
+// BuiltinCodexProfileID selects local Codex independently of saved defaults.
+const BuiltinCodexProfileID = "builtin-codex"
+
 type AIProfile struct {
 	KeepCodexSession bool   `json:"keepCodexSession,omitempty"`
 	ID               string `json:"id"`

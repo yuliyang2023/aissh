@@ -251,6 +251,7 @@ func (a *App) persistChatMessage(message chatMessage) {
 		workspace = &value
 	}
 	err := a.historyStore.Append(a.historyTarget, history.Message{
+		AIProfileID:    a.config.AIProfileID,
 		ConversationID: a.historyConversationID,
 		CodexThreadID:  a.codexThreadID,
 		Workspace:      workspace,

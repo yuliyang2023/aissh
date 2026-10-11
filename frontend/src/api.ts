@@ -130,6 +130,7 @@ export interface Session {
   status: 'starting' | 'running' | 'ended' | 'failed';
 }
 export interface Conversation {
+  aiProfileId?: string;
   codexThreadId?: string;
   id: string;
   hostId: string;
@@ -292,6 +293,12 @@ type Backend = ExternalBackend & {
   ListConversations(): Promise<Conversation[]>;
   CreateConversation(hostId: string): Promise<Conversation>;
   CreateConversationWithWorkspace(hostId: string, workspace: string): Promise<Conversation>;
+  CreateConversationWithAI(hostId: string, workspace: string, aiProfileId: string): Promise<Conversation>;
+  CreateDirectConversationWithAI(
+    host: Host,
+    saveHost: boolean,
+    aiProfileId: string,
+  ): Promise<{ host: Host; conversation: Conversation }>;
   CreateDirectConversation(
     host: Host,
     saveHost: boolean,
