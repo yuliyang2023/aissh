@@ -2,10 +2,7 @@ package app
 
 import (
 	"context"
-	"strings"
 	"time"
-
-	"git.example.com/ai/wrd-ai-cli/internal/trigger"
 )
 
 type agentOperation struct {
@@ -91,38 +88,4 @@ func (a *App) takeOverTerminal(reason string) {
 	a.outputTail.value = ""
 	a.appendPersistentChat(chatMessage{Role: "system", Content: reason + "；已暂停 AI 和自动采集，可直接在终端输入。远端命令不会因此自动结束。", Time: time.Now()})
 	a.dirty = true
-}
-
-func (a *App) observeGatewayApproval(data []byte) bool {
-	if a.zmodem != nil {
-		return false
-	}
-	a.interactionTail += string(data)
-	if len(a.interactionTail) > 8192 {
-		a.interactionTail = a.interactionTail[len(a.interactionTail)-8192:]
-	}
-	plain := trigger.StripANSI(a.interactionTail)
-	line := plain[strings.LastIndexAny(plain, "\r\n")+1:]
-	if a.terminalTakeover || trigger.LooksLikeShellPrompt(line) {
-		return false
-	}
-	if !strings.Contains(plain, "金库式审批") && !strings.Contains(plain, "选择金库授权模式") && !strings.Contains(strings.ReplaceAll(plain, " ", ""), "输入Q退出本次申请") {
-		return false
-	}
-	hidden := a.inBandMonitor != nil && !a.inBandMonitor.visible
-	a.takeOverTerminal("检测到堡垒机金库审批，需要人工操作")
-	a.gatewayApproval = true
-	if hidden {
-		// A collector may already have swallowed fragmented approval output.
-		start := strings.Index(a.interactionTail, "你所操作")
-		if start < 0 {
-			start = strings.Index(a.interactionTail, "选择金库授权模式")
-		}
-		if start < 0 {
-			start = 0
-		}
-		a.processVisibleSSHOutput([]byte(a.interactionTail[start:]))
-		return true
-	}
-	return false
 }

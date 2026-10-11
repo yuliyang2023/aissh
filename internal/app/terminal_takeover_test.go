@@ -19,8 +19,8 @@ func unwrapAgentTestEvent(event interface{}) interface{} {
 	return event
 }
 
-func TestGatewayApprovalReturnsQToTerminal(t *testing.T) {
-	const menu = "\r\n你所操作的指令需要金库式审批（如果已有申请未到可认证的时间，可退出本次申请耐心等待），选择金库授权模式:\r\n1>远程授权,无口令\r\n操作中输入Q退出本次申请\r\n"
+func TestManualTakeoverReturnsQToTerminalRegardlessOfMenuText(t *testing.T) {
+	const menu = "\r\n请选择授权流程:\r\nA>管理员二次认证\r\n输入退出取消当前请求\r\n"
 	for _, desktop := range []bool{false, true} {
 		for _, monitoring := range []bool{false, true} {
 			t.Run(fmt.Sprintf("desktop=%t/monitoring=%t", desktop, monitoring), func(t *testing.T) {
@@ -41,8 +41,18 @@ func TestGatewayApprovalReturnsQToTerminal(t *testing.T) {
 				for _, b := range []byte(menu) {
 					a.processSSHOutput([]byte{b})
 				}
+				if a.terminalTakeover {
+					t.Fatal("menu text unexpectedly triggered terminal takeover")
+				}
+				if desktop {
+					if err := a.handleDesktopCommand(credentialui.WorkbenchCommand{Kind: "terminal-takeover", Deadline: time.Now().Add(time.Second).UnixMilli()}); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					a.handleInput([]byte{7})
+				}
 				if !a.terminalTakeover || a.agentBusy || a.execution != nil || a.executionRecovery || a.inBandMonitor != nil || a.monitorAwaitingPrompt || a.focus != focusTerminal {
-					t.Fatal("approval did not release terminal")
+					t.Fatal("manual takeover did not release terminal")
 				}
 				a.handleInput([]byte("Q\r"))
 				if terminal.String() != "Q\r" || len(a.monitorDeferredInput) != 0 {
