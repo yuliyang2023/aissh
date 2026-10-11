@@ -99,9 +99,11 @@ func (a *App) collectExecutionOutput() error {
 		a.finishBastionMonitor(false)
 		return nil
 	}
-	a.execution.Completion = "output_collected_manually"
+	state := a.execution
+	state.Completion = "output_collected_manually"
 	a.appendPersistentChat(chatMessage{Role: "system", Content: a.t("已收集当前输出；远端命令的退出状态未知，未发送中断。"), Time: time.Now()})
 	a.submitExecutionResult()
+	a.restorePromptAfterManualCollection(a.outputTail.String(), state.ShellPrompt)
 	a.dirty = true
 	return nil
 }
@@ -123,6 +125,7 @@ func (a *App) finishBastionMonitor(prompt bool) {
 	a.atPrompt = prompt
 	if !prompt {
 		a.monitorPrimaryPaused = true
+		a.restorePromptAfterManualCollection(string(s.buffer), s.compatibility.ShellPrompt)
 	}
 	a.monitorDeferredInput = append(a.monitorDeferredInput, s.pendingInput...)
 	if prompt {
@@ -142,4 +145,32 @@ func (a *App) finishBastionMonitor(prompt bool) {
 	a.appendPersistentChat(chatMessage{Role: "system", Content: a.t("已收集当前输出；远端命令的退出状态未知，未发送中断。"), Time: time.Now()})
 	a.flushDeferredMonitorInput()
 	a.dirty = true
+}
+
+// Manual collection is the explicit boundary for the local capture. Recheck
+// the already rendered prompt so another PTY read is not required to approve
+// the next command. This never completes a capture or proves an exit status.
+func (a *App) restorePromptAfterManualCollection(output, previousPrompt string) {
+	if a.virtual == nil || a.executionRecovery || a.zmodem != nil || len(a.lineInput) != 0 || !a.lineReliable || a.terminalPasteMode || !trigger.LooksLikePrompt(output) {
+		return
+	}
+	a.refreshGatewayShellPrompt()
+	a.virtual.Lock()
+	line, ok := a.terminalCursorLineLocked()
+	safe := a.safePromptScreenLocked()
+	a.virtual.Unlock()
+	if !ok || !safe || !trigger.LooksLikePrompt(line) {
+		return
+	}
+	// Do not treat a numbered menu option or PS2 as an idle shell. Generic
+	// prompts are accepted only when they match the pre-command shell prompt.
+	trimmed := strings.TrimSpace(line)
+	known := previousPrompt != "" && trimmed == strings.TrimSpace(previousPrompt) && (strings.HasSuffix(trimmed, "$") || strings.HasSuffix(trimmed, "#") || strings.HasSuffix(trimmed, "%"))
+	if !trigger.LooksLikeShellPrompt(line) && !known {
+		return
+	}
+	a.atPrompt, a.sensitive = true, false
+	a.monitorAwaitingPrompt = false
+	a.promptIdleSince = time.Now()
+	a.pendingError, a.errorCarry = nil, ""
 }

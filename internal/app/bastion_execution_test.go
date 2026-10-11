@@ -1,9 +1,13 @@
 package app
 
 import (
+	"io"
 	"strings"
 	"testing"
 	"time"
+
+	"git.example.com/ai/wrd-ai-cli/internal/agent"
+	"git.example.com/ai/wrd-ai-cli/internal/credentialui"
 )
 
 func TestBastionMonitorSendsRawScriptAndCollectsWithoutInterrupt(t *testing.T) {
@@ -30,6 +34,112 @@ func TestBastionMonitorSendsRawScriptAndCollectsWithoutInterrupt(t *testing.T) {
 	}
 	if terminal.String() != before || a.inBandMonitor != nil || state.exitCode != nil || !strings.Contains(state.rawContent, "CPU sample") {
 		t.Fatal("manual monitor collection wrote input or invented exit status")
+	}
+	a.config.DesktopUI = true
+	item.Command = "printf 'next CPU sample\\n'"
+	a.ensureMonitorAudit(a.panelMonitorAudit(item))
+	if !a.desktopState().CanApprove {
+		t.Fatal("next approval remained blocked after manually collecting a monitor at the shell prompt")
+	}
+	a.approveProposal()
+	a.monitorLast[item.ID] = time.Time{}
+	a.scheduleMonitors()
+	if a.inBandMonitor == nil || !strings.HasSuffix(terminal.String(), rawApprovedShellInput(item.Command)) {
+		t.Fatal("newly approved monitor remained paused after manual collection")
+	}
+}
+
+func TestBastionManualCollectionRestoresNextDesktopApproval(t *testing.T) {
+	for _, prompt := range []string{"[deployer@node ~]$ ", "$ "} {
+		for _, alt := range []bool{false, true} {
+			if alt && prompt == "$ " {
+				continue // A generic prompt cannot identify a gateway shell.
+			}
+			a, requests := executionTestApp(t)
+			a.config.DesktopUI, a.config.BastionCompatibility = true, true
+			a.screenOut = io.Discard
+			state := a.execution
+			a.execution = nil
+			prefix := ""
+			if alt {
+				prefix = "\x1b[?1049h"
+			}
+			a.processSSHOutput([]byte(prefix + prompt))
+			a.execution, a.atPrompt = state, false
+			terminal := &recoveryTestPTY{}
+			a.sshPTY = terminal
+			a.sendApprovedCommand(state)
+			awaitExecutionWrite(t, a)
+			a.processSSHOutput([]byte("\r\nRESULT\r\n" + prompt))
+			if state.finished() || a.atPrompt {
+				t.Fatal("regex prompt automatically collected the command")
+			}
+			before := terminal.String()
+			if err := a.collectExecutionOutput(); err != nil {
+				t.Fatal(err)
+			}
+			if terminal.String() != before || state.ExitCode != nil {
+				t.Fatal("manual collection wrote remote input or invented an exit code")
+			}
+			select {
+			case <-requests:
+			case <-time.After(time.Second):
+				t.Fatal("missing execution result")
+			}
+			deadline := time.After(time.Second)
+			for a.agentBusy {
+				select {
+				case e := <-a.events:
+					a.handleEvent(e)
+				case <-deadline:
+					t.Fatal("result analysis did not finish")
+				}
+			}
+			a.finishAgentTurn(agent.Turn{Proposal: &agent.Proposal{ID: "next", Command: "echo next", Risk: "read_only"}}, nil)
+			if !a.desktopState().CanApprove {
+				t.Fatalf("next approval blocked without new PTY output: prompt=%q alt=%t", prompt, alt)
+			}
+			if err := a.handleDesktopCommand(credentialui.WorkbenchCommand{Kind: "approve", ProposalID: "next", Deadline: time.Now().Add(time.Minute).UnixMilli()}); err != nil {
+				t.Fatalf("next approval failed: %v", err)
+			}
+			deadline = time.After(time.Second)
+			for a.execution == nil {
+				select {
+				case e := <-a.events:
+					a.handleEvent(e)
+				case <-deadline:
+					t.Fatal("approved second command did not start")
+				}
+			}
+			awaitExecutionWrite(t, a)
+			if !strings.HasSuffix(terminal.String(), "echo next\r") {
+				t.Fatal("approved second command was not sent verbatim")
+			}
+		}
+	}
+}
+
+func TestBastionManualCollectionDoesNotEnableApprovalInMenus(t *testing.T) {
+	for _, output := range []string{"", "\r\n选择授权模式\r\n1>", "\r\nPassword: ", "\r\n> ", "\r\nworking..."} {
+		a, _ := executionTestApp(t)
+		a.config.DesktopUI, a.config.BastionCompatibility = true, true
+		a.screenOut = io.Discard
+		state := a.execution
+		a.execution = nil
+		a.processSSHOutput([]byte("[root@node ~]# "))
+		a.execution, a.atPrompt = state, false
+		a.sshPTY = &recoveryTestPTY{}
+		a.sendApprovedCommand(state)
+		awaitExecutionWrite(t, a)
+		a.processSSHOutput([]byte(output))
+		if err := a.collectExecutionOutput(); err != nil {
+			t.Fatal(err)
+		}
+		a.agentBusy = false
+		a.proposal = &agent.Proposal{ID: "next", Command: "echo next"}
+		if a.atPrompt || a.desktopCanApprove() {
+			t.Fatalf("unsafe or stale prompt enabled approval: %q", output)
+		}
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"git.example.com/ai/wrd-ai-cli/internal/monitorplan"
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
 	"git.example.com/ai/wrd-ai-cli/internal/policy"
+	"git.example.com/ai/wrd-ai-cli/internal/trigger"
 	"git.example.com/ai/wrd-ai-cli/internal/widgets"
 )
 
@@ -134,6 +135,13 @@ func (a *App) startInBandCollection(item *panel.Panel, now time.Time, pipelineID
 	command := inBandMonitorCommand(marker, item.Command)
 	if a.config.BastionCompatibility {
 		state.compatibility = &executionState{BastionCompatibility: true, Multiline: strings.ContainsAny(item.Command, "\r\n")}
+		if a.virtual != nil {
+			a.virtual.Lock()
+			if line, ok := a.terminalCursorLineLocked(); ok && a.safePromptScreenLocked() && trigger.LooksLikePrompt(line) {
+				state.compatibility.ShellPrompt = strings.TrimSpace(line)
+			}
+			a.virtual.Unlock()
+		}
 		state.visible = true
 		command = rawApprovedShellInput(item.Command)
 	}
