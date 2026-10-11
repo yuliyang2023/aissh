@@ -5,11 +5,27 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func TestDirectModelProviderCallsHTTPService(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer test-token" {
+			t.Errorf("path=%q authorization=%q", r.URL.Path, r.Header.Get("Authorization"))
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": `{"type":"finished","message":"HTTP works","proposal":null,"panelActions":[]}`}}}})
+	}))
+	defer server.Close()
+	provider := NewDirectModelProvider("Model", server.URL+"/v1", "test-token", "custom-model", true)
+	turn, err := provider.Stream(context.Background(), Request{Event: "start", Prompt: "test"}, Callbacks{})
+	if err != nil || turn.Message != "HTTP works" {
+		t.Fatalf("turn=%+v err=%v", turn, err)
+	}
+}
 
 func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return function(request)

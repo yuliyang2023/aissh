@@ -314,7 +314,7 @@ func (d Data) validate() error {
 				return errors.New("本机 CLI 使用其自身登录；API Key 请使用直连模型模式")
 			}
 		case "model", "deepseek", "http":
-			if _, err := ServiceURL(p.URL); err != nil {
+			if _, err := AIServiceURL(p.URL); err != nil {
 				return err
 			}
 		default:
@@ -342,11 +342,20 @@ func (d Data) validate() error {
 }
 
 func ServiceURL(value string) (*url.URL, error) {
+	return serviceURL(value, false)
+}
+
+// AIServiceURL permits explicitly configured model and agent HTTP endpoints.
+func AIServiceURL(value string) (*url.URL, error) {
+	return serviceURL(value, true)
+}
+
+func serviceURL(value string, allowRemoteHTTP bool) (*url.URL, error) {
 	u, err := url.Parse(value)
 	if err != nil || u.Hostname() == "" || u.User != nil || u.Fragment != "" || u.RawQuery != "" || (u.Scheme != "https" && u.Scheme != "http") {
 		return nil, errors.New("请输入不含账号密码、查询参数的 HTTP(S) 地址")
 	}
-	if u.Scheme == "http" && u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" && u.Hostname() != "::1" {
+	if !allowRemoteHTTP && u.Scheme == "http" && u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" && u.Hostname() != "::1" {
 		return nil, errors.New("非本机 HTTP 服务必须使用 HTTPS")
 	}
 	if u.Port() != "" {

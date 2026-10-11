@@ -62,6 +62,8 @@ SSH 异常退出时，会话历史会保存退出错误及最近 16 KiB 终端�
 
 本机 Codex / Claude Code 使用其原有登录状态。若从 Finder 启动时找不到 CLI，可在 AI 配置中填写 CLI 的绝对路径。模型 API Key 通过「兼容 OpenAI API 的模型」或「DeepSeek」配置并保存在凭据库。HTTP Agent 也支持绑定 Bearer Token。
 
+自定义模型服务和 HTTP Agent 地址支持 HTTP 或 HTTPS，包括非本机地址，例如 `http://192.168.1.100:8000/v1`。地址可包含路径，不接受内嵌账号密码、查询参数或片段。
+
 桌面主机未设置「本机工作区」时关闭本机文件访问；选择目录后沿用 aissh 默认只读工作区策略。已有命令行用法及 `--workspace-write` 保持可用。
 
 ## 实时面板与告警监控

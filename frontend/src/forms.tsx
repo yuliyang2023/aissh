@@ -735,7 +735,10 @@ export function AIEditor({
             </>
           ) : (
             <>
-              <Field label={value.provider === 'http' ? 'Agent 流式接口地址' : '模型服务地址'}>
+              <Field
+                label={value.provider === 'http' ? 'Agent 流式接口地址' : '模型服务地址'}
+                hint="支持 HTTP 或 HTTPS 地址，可包含 /v1 等路径。"
+              >
                 <input
                   required
                   value={value.url}
