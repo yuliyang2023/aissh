@@ -21,7 +21,7 @@ export async function testModels(page, openSettings) {
   await dialog.getByLabel('AI 配置', { exact: true }).selectOption(profile.id);
   await dialog.getByRole('button', { name: '创建对话', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
-  await page.getByRole('button', { name: '连接并继续', exact: true }).click();
+  await page.getByRole('button', { name: '连接并开始', exact: true }).click();
   const model = page.locator('.native-workbench:visible').getByLabel('当前 AI 模型', { exact: true });
   await model.waitFor();
   assert.equal(await model.inputValue(), 'model-a');
