@@ -4,6 +4,8 @@
 
 macOS 构建产物是 `dist/desktop/WRD AI SSH.app`。可直接双击，或复制到「应用程序」。首次运行创建空的本机配置，不导入或扫描你的密码。
 
+GitHub 的 [Build Desktop workflow](https://github.com/yuliyang2023/aissh/actions/workflows/desktop.yml) 构建 macOS、Linux、Windows 的 x86_64（amd64）和 aarch64（arm64）桌面 GUI。可通过 `gh workflow run desktop.yml --ref main` 手动触发，在运行记录的 Artifacts 中下载对应平台的压缩包和 `SHA256SUMS`。macOS 的 ZIP 包含 `.app`，Windows 的 ZIP 和 Linux 的 TAR.GZ 包含桌面程序及配套 CLI，解压后应保持包内目录结构。Linux 运行需要 GTK3、WebKitGTK 4.1；Windows 运行需要 WebView2。macOS 包使用本地临时签名，未进行 Apple 公证。
+
 客户端直接进入统一工作区。最左侧是按服务器分组的 SSH + AI 会话列表，每项显示对话标题、摘要和连接状态；没有单独的「SSH 会话」管理页或第二份工作区列表。可搜索、折叠服务器分组，也可收起整个侧栏（记住选择）。运行中的会话点击即返回 AI / SSH / 监控工作区；离线会话先展示本机历史，点击「连接并继续」恢复所选上下文。查看历史不需要连接 SSH，历史命令建议不会再次执行。
 
 左下角固定提供「外联系统」「本地知识」「设置」三个入口。「外联系统」管理系统说明、服务地址、关联主机和访问授权；「设置」管理主机、凭据和 AI 配置。管理页面保留会话侧栏，可点击「返回工作区」或直接选择会话，切换页面不会重启 SSH、清空终端或丢失尚未发送的 AI 输入。
