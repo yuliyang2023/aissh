@@ -26,7 +26,8 @@ func TestIsolateApprovedCommandReportsStatusAndProtectsOuterShell(t *testing.T) 
 			{"multiline", "printf 'first\\n'\nprintf 'second\\n'", "first\nsecond\n", 0},
 			{"exit", "printf 'missing\\n'\nexit 7", "missing\n", 7},
 			{"exec", "exec printf 'replaced\\n'", "replaced\n", 0},
-			{"syntax_error", "if then", "", 1},
+			// POSIX shells differ in the exact syntax-error code (e.g. 1 or 2).
+			{"syntax_error", "if then", "", -1},
 			{"errexit", "set -e; false; printf WRONG", "", 1},
 			{"own_trap", "trap 'printf own-trap' 0; exit 9", "own-trap", 9},
 			{"redirect_stdout", "exec >/dev/null; printf hidden; exit 3", "", 3},
@@ -44,7 +45,8 @@ func TestIsolateApprovedCommandReportsStatusAndProtectsOuterShell(t *testing.T) 
 				}
 				state := &executionState{Marker: "test"}
 				output, after, status := state.consume(data)
-				if status == nil || *status != tc.status || string(output) != tc.output || string(after) != "OUTER_ALIVE\n" {
+				statusMatches := status != nil && (*status == tc.status || tc.status == -1 && *status != 0)
+				if !statusMatches || string(output) != tc.output || string(after) != "OUTER_ALIVE\n" {
 					t.Fatalf("command=%q output=%q after=%q status=%v raw=%q", tc.command, output, after, status, data)
 				}
 			})

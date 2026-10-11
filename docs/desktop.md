@@ -20,7 +20,7 @@ GitHub 的 [Build Desktop workflow](https://github.com/yuliyang2023/aissh/action
 
 Codex 会话默认在退出时删除。在「设置 → AI 配置」编辑本机 Codex，开启「退出后保留 Codex 会话」后，下次连接创建的会话会保留，在线对话和离线历史提供「在本地 Codex 继续」及复制命令入口。退出后在同一台电脑、使用同一 Codex 配置运行 `codex resume <thread-id>`。切换新对话也会保留旧 thread；风险复核仍使用临时会话。此前已删除的 thread 无法恢复。
 
-CLI 可用 `aissh --keep-codex-session sdp` 开启保留，或设置 `AISSH_KEEP_CODEX_SESSION=1`；`--no-keep-codex-session` 显式恢复删除行为。启动参数优先于环境变量和保存的 AI 配置。开启保留时，AI 对话会显示恢复命令并随本机历史保存；退出后也可通过 Ctrl+R 选择历史查看该命令。关闭本机历史时，退出前需要自行保存恢复命令。
+CLI 可用 `aissh --keep-codex-session sdp` 开启保留，或设置 `AISSH_KEEP_CODEX_SESSION=1`；`--no-keep-codex-session` 显式恢复删除行为。启动参数优先于环境变量和保存的 AI 配置。开启保留时，AI 对话会显示恢复命令并随本机历史保存，正常退出后也会在终端打印；重新进入 aissh 后可通过 Ctrl+R 选择历史查看该命令。关闭本机历史时，需要自行保存恢复命令。
 
 1. 在「凭据」中添加账号密码、SSH 私钥引用、私钥口令、SSH Agent 或 API Token。
 2. 在「主机」中填写地址、端口和账号，选择登录凭据。主机名称可留空，自动使用 `用户名@地址:端口`（用户名优先使用填写的账号，其次使用凭据账号；都未填写时使用 `地址:端口`），直接连接也遵循这一规则。分组、跳板机、AI 配置和本机工作区在「更多设置」中；需要跳板机时先添加跳板机，再绑定到目标主机。

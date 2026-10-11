@@ -421,6 +421,9 @@ func (a *App) Run() error {
 		if closer, ok := a.agent.(interface{ Close() error }); ok {
 			_ = closer.Close()
 		}
+		if !a.config.DesktopUI && a.config.KeepCodexSession && a.codexThreadID != "" {
+			_, _ = fmt.Fprintf(os.Stdout, "\n%s\n", a.t("本地恢复 Codex：codex resume %s", a.codexThreadID))
+		}
 		if a.controlDir != "" {
 			_ = os.RemoveAll(a.controlDir)
 		}
