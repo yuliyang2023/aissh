@@ -14,7 +14,7 @@ func TestManagedAISelectionOverridesDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := store.SaveAIProfile(catalog.AIProfile{Name: "selected", Provider: "model", URL: "http://selected.internal/v1", Model: "second"}, false)
+	second, err := store.SaveAIProfile(catalog.AIProfile{Name: "selected", Provider: "model", URL: "http://selected.internal/v1", Model: "second", Models: []string{"third"}}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,6 +31,9 @@ func TestManagedAISelectionOverridesDefault(t *testing.T) {
 		}
 		if config.AIProfileID != expected {
 			t.Fatalf("profile=%q want=%q", config.AIProfileID, expected)
+		}
+		if selected == second.ID && (len(config.ModelOptions) != 2 || config.ModelOptions[1] != "third") {
+			t.Fatal("saved model choices were not passed to the conversation")
 		}
 		if selected == catalog.BuiltinCodexProfileID {
 			if config.AgentProvider != "codex" {

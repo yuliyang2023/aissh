@@ -12,6 +12,36 @@ import (
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
+func TestDirectModelSwitchUsesNewModelAndKeepsContext(t *testing.T) {
+	requests := make(chan directChatRequest, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body directChatRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if r.Header.Get("Authorization") != "Bearer same-token" {
+			t.Error("credential changed")
+		}
+		requests <- body
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": `{"type":"finished","message":"first answer","proposal":null,"panelActions":[]}`}}}})
+	}))
+	defer server.Close()
+	provider := NewDirectModelProvider("Model", server.URL, "same-token", "first", true)
+	turn, err := provider.Stream(context.Background(), Request{Event: "start", Prompt: "earlier question"}, Callbacks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.SetModel("second")
+	next, err := provider.Stream(context.Background(), Request{Event: "message", SessionID: turn.Session.ID, Prompt: "follow up"}, Callbacks{})
+	if err != nil || next.Session.ID != turn.Session.ID {
+		t.Fatalf("next=%+v err=%v", next, err)
+	}
+	first, second := <-requests, <-requests
+	if first.Model != "first" || second.Model != "second" || !strings.Contains(second.Messages[0].Content, "earlier question") || !strings.Contains(second.Messages[0].Content, "first answer") {
+		t.Fatalf("requests lost model or context: %+v %+v", first, second)
+	}
+}
+
 func TestDirectModelProviderCallsHTTPService(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer test-token" {

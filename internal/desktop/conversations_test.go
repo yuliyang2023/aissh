@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"git.example.com/ai/wrd-ai-cli/internal/agent"
 	"git.example.com/ai/wrd-ai-cli/internal/catalog"
 	"git.example.com/ai/wrd-ai-cli/internal/credentialui"
 	"git.example.com/ai/wrd-ai-cli/internal/history"
@@ -287,7 +288,7 @@ func TestConversationAISelectionPersistsAndOverridesHostDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := s.SaveAIProfile(catalog.AIProfile{Name: "conversation model", Provider: "model", URL: "http://other.internal/v1", Model: "second"}, false)
+	second, err := s.SaveAIProfile(catalog.AIProfile{Name: "conversation model", Provider: "model", URL: "http://other.internal/v1", Model: "second", Models: []string{"third"}}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,6 +353,13 @@ func TestConversationAISelectionPersistsAndOverridesHostDefault(t *testing.T) {
 	direct, err := s.CreateDirectConversationWithAI(catalog.Host{Address: "direct.example", Port: 22}, false, second.ID)
 	if err != nil || direct.Conversation.AIProfileID != second.ID {
 		t.Fatalf("direct=%+v err=%v", direct, err)
+	}
+	provider, _, err := s.knowledgeProviderWithModel(host.ID, second.ID, "third")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.(*agent.DirectModelProvider).CurrentModel() != "third" {
+		t.Fatal("conversation summary did not use selected model")
 	}
 }
 

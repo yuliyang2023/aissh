@@ -669,6 +669,7 @@ export function AIEditor({
   createCredential,
 }: { item: AIProfile; data: Catalog; createCredential: CredentialChooser } & Base) {
   const [value, set] = useState({ ...item });
+  const [modelsText, setModelsText] = useState((item.models || []).join('\n'));
   const [isDefault, setDefault] = useState(
     data.defaultAIProfileId === item.id || data.aiProfiles.length === 0,
   );
@@ -682,7 +683,14 @@ export function AIEditor({
     setError('');
     try {
       await api.SaveAIProfile(
-        { ...value, credentialId: local ? '' : value.credentialId, url: local ? '' : value.url },
+        {
+          ...value,
+          models: value.provider === 'model'
+            ? [...new Set(modelsText.split(/[\n,，]/).map((model) => model.trim()).filter(Boolean))]
+            : [],
+          credentialId: local ? '' : value.credentialId,
+          url: local ? '' : value.url,
+        },
         isDefault,
       );
       onSaved();
@@ -767,7 +775,10 @@ export function AIEditor({
               退出后保留 Codex 会话，可在本地终端继续（默认删除；下次连接生效）
             </label>
           )}
-          <Field label="模型名称" hint={local ? '留空使用 CLI 的默认模型。' : undefined}>
+          <Field
+            label={value.provider === 'model' ? '默认模型名称' : '模型名称'}
+            hint={local ? '留空使用 CLI 的默认模型。' : undefined}
+          >
             <input
               required={!local && value.provider !== 'http'}
               value={value.model}
@@ -775,6 +786,17 @@ export function AIEditor({
               placeholder={local ? '跟随 CLI 默认配置' : '请输入模型名称'}
             />
           </Field>
+          {value.provider === 'model' && (
+            <Field label="可选模型" hint="每行一个模型名称，也可用逗号分隔。默认模型会自动加入，可在会话中切换。">
+              <textarea
+                aria-label="可选模型"
+                rows={4}
+                value={modelsText}
+                onChange={(event) => setModelsText(event.target.value)}
+                placeholder={'model-a\nmodel-b\nmodel-c'}
+              />
+            </Field>
+          )}
           <label className="check">
             <input
               type="checkbox"

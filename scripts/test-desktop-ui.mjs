@@ -13,6 +13,7 @@ import { testMonitorResize } from './test-monitor-resize.mjs';
 import { testModalEscape } from './test-modal-escape.mjs';
 import { testStreamingChat } from './test-streaming-chat.mjs';
 import { testMarkdownChat } from './test-markdown-chat.mjs';
+import { testModels } from './test-models.mjs';
 import { testIMEComposer, testWorkbenchIME } from './test-ime-composer.mjs';
 import { installMonitoringMock, testMonitoring, testPet, testPetSessionReads } from './test-monitoring.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -285,7 +286,12 @@ await page.addInitScript((aiSelectionOnly) => {
           }
           updateSession(id, 'running');
           const session = sessions.find(s => s.id === id);
+          const conversation = conversations.find(c => c.id === session.conversationId && c.hostId === session.hostId);
+          const host = [...data.hosts, ...data.conversationHosts].find(h => h.id === session.hostId);
+          const profile = data.aiProfiles.find(p => p.id === (conversation?.aiProfileId || host?.aiProfileId || data.defaultAIProfileId));
+          const modelOptions = profile?.provider === 'model' ? [...new Set([profile.model, ...(profile.models || [])].filter(Boolean))] : [];
           workbenches[id] = {
+            model: conversation?.aiModel || profile?.model || '', modelOptions,
             workspace: conversations.find(c => c.id === session.conversationId && c.hostId === session.hostId)?.workspace ?? [...data.hosts, ...data.conversationHosts].find(h => h.id === session.hostId)?.workspace ?? '',
             workspaceSupported: true, workspaceWritable: false,
             conversationId: session.conversationId, busy: false, status: '', canApprove: false, executing: false, approvalStatus: '',
@@ -303,7 +309,14 @@ await page.addInitScript((aiSelectionOnly) => {
         WorkbenchAction: async (id, command) => {
           window.__test.actions.push({ id, ...command });
           const state = workbenches[id];
-          if (command.kind === 'workspace') {
+          if (command.kind === 'model') {
+            if (state.busy || state.executing || state.proposal || !state.modelOptions.includes(command.text)) throw new Error('model unavailable');
+            state.model = command.text;
+            const conversation = conversations.find(c => c.id === state.conversationId && c.hostId === sessions.find(s => s.id === id)?.hostId);
+            if (conversation) conversation.aiModel = command.text;
+            persistConversations();
+            publishWorkbench(id);
+          } else if (command.kind === 'workspace') {
             if (command.text === '/missing') throw new Error('无法访问本机工作目录');
             state.workspace = command.text;
             const conversation = conversations.find(c => c.id === state.conversationId && c.hostId === sessions.find(s => s.id === id)?.hostId);
@@ -356,7 +369,10 @@ const openSettings = async (name = '主机') => {
 };
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  if (process.env.WORKSPACE_ONLY) {
+  if (process.env.MODELS_ONLY) {
+    await testModels(page, openSettings);
+    assert.deepEqual(errors, []);
+  } else if (process.env.WORKSPACE_ONLY) {
     await testWorkspace(page, out);
     assert.deepEqual(errors, []);
   } else if (process.env.MODAL_ESCAPE_ONLY) {

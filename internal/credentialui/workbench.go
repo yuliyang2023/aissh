@@ -18,6 +18,8 @@ import (
 // Workbench data travels over the per-session authenticated loopback channel,
 // never through terminal escape sequences or the remote SSH environment.
 type WorkbenchState struct {
+	Model            string              `json:"model,omitempty"`
+	ModelOptions     []string            `json:"modelOptions,omitempty"`
 	Notices          []WorkbenchNotice   `json:"notices,omitempty"`
 	WidgetCandidates []widgets.Candidate `json:"widgetCandidates,omitempty"`
 	WidgetTransfer   widgets.Transfer    `json:"-"`

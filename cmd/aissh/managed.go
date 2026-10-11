@@ -77,6 +77,9 @@ func prepareManaged(config *app.Config) (func(), error) {
 		config.AgentProvider = p.Provider
 		config.ModelURL = p.URL
 		config.ModelName = p.Model
+		if p.Provider == "model" {
+			config.ModelOptions = p.ModelChoices()
+		}
 		config.ModelAPIKey = ""
 		config.AgentToken = ""
 		config.AgentURL = p.URL

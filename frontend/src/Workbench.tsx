@@ -148,6 +148,22 @@ export function Workbench({
           </div>
         </header>
         <CodexResume threadId={state?.codexThreadId} />
+        {!!state?.modelOptions?.length && (
+          <div className="chat-workspace chat-model">
+            <label htmlFor={'model-' + session.id}>AI 模型</label>
+            <select
+              id={'model-' + session.id}
+              aria-label="当前 AI 模型"
+              value={state.model || ''}
+              disabled={!!blocked}
+              onChange={(event) => void action({ kind: 'model', text: event.target.value })}
+            >
+              {state.modelOptions.map((model) => (
+                <option key={model} value={model}>{model}</option>
+              ))}
+            </select>
+          </div>
+        )}
         {state && (
           <div className="chat-workspace" aria-label="当前 AI 工作目录">
             <FolderOpen size={14} />

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"git.example.com/ai/wrd-ai-cli/internal/agent"
 	"git.example.com/ai/wrd-ai-cli/internal/credentialui"
 	"git.example.com/ai/wrd-ai-cli/internal/panel"
 	"git.example.com/ai/wrd-ai-cli/internal/policy"
@@ -40,6 +41,10 @@ func (a *App) desktopState() credentialui.WorkbenchState {
 		CanApprove: a.desktopCanApprove(), ApprovalStatus: a.safeText(a.approvalStatus),
 		Messages: []credentialui.WorkbenchMessage{}, Panels: []credentialui.MonitorPanel{},
 		AlertMonitors: []credentialui.MonitorPanel{},
+	}
+	if provider, ok := a.agent.(*agent.DirectModelProvider); ok && agentMode(a.config) == "model" {
+		state.Model = provider.CurrentModel()
+		state.ModelOptions = append([]string(nil), a.config.ModelOptions...)
 	}
 	if provider, ok := a.agent.(localWorkspaceAgent); ok {
 		state.WorkspaceSupported = true
@@ -243,6 +248,8 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 		return errors.New("操作已过期或连接已结束")
 	}
 	switch command.Kind {
+	case "model":
+		return a.switchConversationModel(strings.TrimSpace(command.Text))
 	case "widget-cancel":
 		c := a.widgetCandidates[command.PanelID]
 		if c == nil || c.id != command.CandidateID {

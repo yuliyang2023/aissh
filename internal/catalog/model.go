@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -65,14 +66,27 @@ type Resource struct {
 const BuiltinCodexProfileID = "builtin-codex"
 
 type AIProfile struct {
-	KeepCodexSession bool   `json:"keepCodexSession,omitempty"`
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	Provider         string `json:"provider"`
-	URL              string `json:"url"`
-	Model            string `json:"model"`
-	CredentialID     string `json:"credentialId"`
-	CLIPath          string `json:"cliPath"`
+	KeepCodexSession bool     `json:"keepCodexSession,omitempty"`
+	ID               string   `json:"id"`
+	Name             string   `json:"name"`
+	Provider         string   `json:"provider"`
+	URL              string   `json:"url"`
+	Model            string   `json:"model"`
+	Models           []string `json:"models,omitempty"`
+	CredentialID     string   `json:"credentialId"`
+	CLIPath          string   `json:"cliPath"`
+}
+
+// ModelChoices includes the default for profiles saved before multiple models.
+func (p AIProfile) ModelChoices() []string {
+	choices := []string{}
+	for _, model := range append([]string{p.Model}, p.Models...) {
+		model = strings.TrimSpace(model)
+		if model != "" && !slices.Contains(choices, model) {
+			choices = append(choices, model)
+		}
+	}
+	return choices
 }
 
 type Data struct {
@@ -325,6 +339,14 @@ func (d Data) validate() error {
 		}
 		if !textField(p.Model) || !textField(p.CLIPath) || (p.CLIPath != "" && !filepath.IsAbs(p.CLIPath)) {
 			return errors.New("模型名称无效，或 CLI 路径不是绝对路径")
+		}
+		if len(p.Models) > 64 || (len(p.Models) > 0 && p.Provider != "model") {
+			return errors.New("仅兼容 OpenAI API 配置支持模型列表，最多 64 个模型")
+		}
+		for _, model := range p.Models {
+			if strings.TrimSpace(model) == "" || !textField(model) {
+				return errors.New("模型列表包含无效名称")
+			}
 		}
 		if p.CredentialID != "" {
 			c, err := d.Credential(p.CredentialID)

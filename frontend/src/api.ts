@@ -96,6 +96,7 @@ export const newKnowledge = (kind: Knowledge['kind'] = 'experience'): Knowledge 
   updatedAt: '',
 });
 export interface AIProfile {
+  models?: string[];
   keepCodexSession?: boolean;
   id: string;
   name: string;
@@ -130,6 +131,7 @@ export interface Session {
   status: 'starting' | 'running' | 'ended' | 'failed';
 }
 export interface Conversation {
+  aiModel?: string;
   aiProfileId?: string;
   codexThreadId?: string;
   id: string;
@@ -169,6 +171,8 @@ export interface MonitorPanel {
   pinned: boolean;
 }
 export interface WorkbenchState {
+  model?: string;
+  modelOptions?: string[];
   codexThreadId?: string;
   workspace: string;
   workspaceSupported: boolean;
@@ -194,6 +198,7 @@ export interface WorkbenchState {
 }
 export interface WorkbenchCommand {
   kind:
+    | 'model'
     | 'prompt'
     | 'workspace'
     | 'approve'

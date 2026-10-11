@@ -14,6 +14,7 @@ import (
 
 // ConversationInfo is independent of the lifetime of its SSH terminal.
 type ConversationInfo struct {
+	AIModel       string `json:"aiModel,omitempty"`
 	AIProfileID   string `json:"aiProfileId,omitempty"`
 	CodexThreadID string `json:"codexThreadId,omitempty"`
 	ID            string `json:"id"`
@@ -28,7 +29,7 @@ type ConversationInfo struct {
 var errConversationNotFound = errors.New("这台服务器上未找到该 AI 会话，请刷新后重试")
 
 func conversationInfo(hostID string, c history.Conversation) ConversationInfo {
-	info := ConversationInfo{AIProfileID: c.AIProfileID, CodexThreadID: c.CodexThreadID, ID: c.ID, HostID: hostID, Title: c.Title,
+	info := ConversationInfo{AIModel: c.AIModel, AIProfileID: c.AIProfileID, CodexThreadID: c.CodexThreadID, ID: c.ID, HostID: hostID, Title: c.Title,
 		StartedAt: c.StartedAt.Format(time.RFC3339Nano), UpdatedAt: c.UpdatedAt.Format(time.RFC3339Nano)}
 	for _, message := range c.Messages {
 		if message.Role == "system" {

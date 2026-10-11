@@ -61,6 +61,7 @@ type Config struct {
 	ModelURL            string
 	ModelAPIKey         string
 	ModelName           string
+	ModelOptions        []string
 	ScrollbackLines     int
 	AIContextChars      int
 	AITimeout           time.Duration
@@ -257,8 +258,16 @@ func New(config Config) (*App, error) {
 			return nil, err
 		}
 		for _, conversation := range conversations {
-			if conversation.ID == config.ConversationID && conversation.Workspace != nil {
-				config.Workspace = *conversation.Workspace
+			if conversation.ID == config.ConversationID {
+				if conversation.Workspace != nil {
+					config.Workspace = *conversation.Workspace
+				}
+				for _, model := range config.ModelOptions {
+					if mode == "model" && model == conversation.AIModel {
+						config.ModelName = model
+						break
+					}
+				}
 				break
 			}
 		}
