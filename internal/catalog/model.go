@@ -62,13 +62,14 @@ type Resource struct {
 }
 
 type AIProfile struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Provider     string `json:"provider"`
-	URL          string `json:"url"`
-	Model        string `json:"model"`
-	CredentialID string `json:"credentialId"`
-	CLIPath      string `json:"cliPath"`
+	KeepCodexSession bool   `json:"keepCodexSession,omitempty"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Provider         string `json:"provider"`
+	URL              string `json:"url"`
+	Model            string `json:"model"`
+	CredentialID     string `json:"credentialId"`
+	CLIPath          string `json:"cliPath"`
 }
 
 type Data struct {

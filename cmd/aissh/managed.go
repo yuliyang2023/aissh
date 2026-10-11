@@ -78,6 +78,9 @@ func prepareManaged(config *app.Config) (func(), error) {
 		config.AgentToken = ""
 		config.AgentURL = p.URL
 		config.CodexModel = p.Model
+		if !config.KeepCodexSessionSet {
+			config.KeepCodexSession = p.KeepCodexSession
+		}
 		config.ClaudeModel = p.Model
 		if p.CLIPath != "" {
 			if p.Provider == "codex" {

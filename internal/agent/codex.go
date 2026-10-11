@@ -359,6 +359,7 @@ type codexRunner func(context.Context, string, []string, string) ([]byte, []byte
 // over SSH.
 type CodexProvider struct {
 	Streaming          bool // Desktop clients opt into App Server events.
+	KeepSession        bool // Keep persisted threads for local codex resume.
 	Path               string
 	Model              string
 	Timeout            time.Duration
@@ -532,6 +533,12 @@ func (p *CodexProvider) Stream(ctx context.Context, request Request, callbacks C
 		p.owned[session.ID] = struct{}{}
 		p.mu.Unlock()
 		for _, staleThreadID := range staleThreadIDs {
+			if p.KeepSession {
+				p.mu.Lock()
+				delete(p.owned, staleThreadID)
+				p.mu.Unlock()
+				continue
+			}
 			if p.deleteThread(staleThreadID) == nil {
 				p.mu.Lock()
 				delete(p.owned, staleThreadID)
@@ -608,7 +615,7 @@ func (p *CodexProvider) AssessRisk(ctx context.Context, request RiskAssessmentRe
 	return riskAssessmentFromResponse(result, request.Proposal.Command)
 }
 
-// Close removes the persisted Codex threads created for this provider. One
+// Close removes persisted Codex threads unless KeepSession is enabled. One
 // provider belongs to one aissh SSH process, so its Codex session lifetime
 // follows the SSH session lifetime while aissh keeps its own text history.
 func (p *CodexProvider) Close() error {
@@ -639,6 +646,9 @@ func (p *CodexProvider) Close() error {
 	p.owned = make(map[string]struct{})
 	p.mu.Unlock()
 
+	if p.KeepSession {
+		return nil
+	}
 	var closeErrors []error
 	for _, threadID := range threadIDs {
 		if err := p.deleteThread(threadID); err != nil {

@@ -34,6 +34,7 @@ func (a *App) publishDesktopState() {
 func (a *App) desktopState() credentialui.WorkbenchState {
 	state := credentialui.WorkbenchState{
 		Notices:        append([]credentialui.WorkbenchNotice(nil), a.desktopNotices...),
+		CodexThreadID:  a.codexThreadID,
 		ConversationID: a.historyConversationID, Busy: a.agentBusy,
 		Status: a.safeText(a.agentStatus), Executing: a.execution != nil || a.executionRecovery,
 		CanApprove: a.desktopCanApprove(), ApprovalStatus: a.safeText(a.approvalStatus),

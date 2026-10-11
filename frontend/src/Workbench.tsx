@@ -11,6 +11,7 @@ import { CommandReview } from './CommandReview';
 import { useChatSubmit } from './useChatSubmit';
 import { useWorkbenchSplit } from './useWorkbenchSplit';
 import { WorkspaceEditor } from './Workspace';
+import { CodexResume } from './CodexResume';
 
 export function Workbench({
   session,
@@ -146,6 +147,7 @@ export function Workbench({
             </small>
           </div>
         </header>
+        <CodexResume threadId={state?.codexThreadId} />
         {state && (
           <div className="chat-workspace" aria-label="当前 AI 工作目录">
             <FolderOpen size={14} />

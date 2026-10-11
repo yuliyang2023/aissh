@@ -215,6 +215,7 @@ func (a *App) finishAgentTurn(turn agent.Turn, err error) {
 	}
 	if turn.Session.ID != "" {
 		a.agentSessionID = turn.Session.ID
+		a.rememberCodexThread(turn.Session.ID)
 		a.agentSeedContext = ""
 	}
 	if turn.Message != "" {

@@ -48,6 +48,8 @@ type Config struct {
 	AgentToken          string
 	CodexPath           string
 	CodexModel          string
+	KeepCodexSession    bool
+	KeepCodexSessionSet bool
 	ClaudePath          string
 	ClaudeModel         string
 	Language            string
@@ -164,6 +166,7 @@ type App struct {
 	agentBusy             bool
 	agentInline           *inlineAIState
 	agentSessionID        string
+	codexThreadID         string
 	agentStatus           string
 	agentThought          string
 	notifyAI              func(title, message string)
@@ -331,6 +334,7 @@ func newAgentProvider(config Config) (agent.Provider, error) {
 	switch mode {
 	case "codex", "local":
 		provider := agent.NewCodexProvider(config.CodexPath, config.CodexModel)
+		provider.KeepSession = config.KeepCodexSession
 		provider.Streaming = config.DesktopUI
 		provider.Language = config.Language
 		provider.SetLocalWorkspaceWritable(config.WorkspaceWritable)

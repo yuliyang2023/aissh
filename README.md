@@ -408,6 +408,8 @@ codex exec --ephemeral "reply with ok only"
 
 Then connect normally:
 
+Codex threads are deleted on exit by default. Use `bin/aissh --keep-codex-session production` or `AISSH_KEEP_CODEX_SESSION=1` to retain them. The AI conversation displays and saves `codex resume <thread-id>` for continuing in a local terminal on the same computer. `--no-keep-codex-session` forces deletion; CLI flags override the environment and saved AI profile. The desktop AI profile has a retention checkbox that applies to the next connection, with a copyable resume command in both live conversations and offline history.
+
 ```bash
 bin/aissh production
 ```

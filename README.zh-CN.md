@@ -408,6 +408,8 @@ codex exec --ephemeral "只回答 ok"
 
 然后照常连接：
 
+Codex 会话默认在退出时删除。使用 `bin/aissh --keep-codex-session production` 或 `AISSH_KEEP_CODEX_SESSION=1` 可保留会话；AI 对话会显示并保存 `codex resume <thread-id>`，退出后可在同一台电脑的终端继续。`--no-keep-codex-session` 强制删除，启动参数优先于环境变量及保存的 AI 配置。桌面端可在「设置 → AI 配置」开启「退出后保留 Codex 会话」（下次连接生效），在线对话和离线历史均提供复制恢复命令入口。
+
 ```bash
 bin/aissh production
 ```

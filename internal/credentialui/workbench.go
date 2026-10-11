@@ -22,6 +22,7 @@ type WorkbenchState struct {
 	WidgetCandidates []widgets.Candidate `json:"widgetCandidates,omitempty"`
 	WidgetTransfer   widgets.Transfer    `json:"-"`
 
+	CodexThreadID      string             `json:"codexThreadId,omitempty"`
 	ConversationID     string             `json:"conversationId"`
 	Workspace          string             `json:"workspace"`
 	WorkspaceSupported bool               `json:"workspaceSupported"`

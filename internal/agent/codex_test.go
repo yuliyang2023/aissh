@@ -321,6 +321,36 @@ func TestCodexProviderClosesThreadWithSSHSession(t *testing.T) {
 	}
 }
 
+func TestCodexProviderRetainsThreadsAcrossNewConversationAndClose(t *testing.T) {
+	provider := NewCodexProvider("codex", "")
+	provider.KeepSession = true
+	provider.lookPath = func(string) (string, error) { return "codex", nil }
+	calls := 0
+	provider.run = func(_ context.Context, _ string, args []string, _ string) ([]byte, []byte, error) {
+		if len(args) > 0 && args[0] == "delete" {
+			t.Fatalf("retained thread was deleted: %v", args)
+		}
+		calls++
+		id := []string{"first-thread", "second-thread"}[calls-1]
+		return []byte(`{"type":"thread.started","thread_id":"` + id + `"}` + "\n" +
+			`{"type":"item.completed","item":{"type":"agent_message","text":"{\"type\":\"finished\",\"message\":\"done\",\"proposal\":null,\"panelActions\":[]}"}}` + "\n"), nil, nil
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := provider.Stream(context.Background(), Request{Event: "start", Prompt: "check"}, Callbacks{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := provider.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("calls=%d", calls)
+	}
+}
+
 func TestCodexProviderKeepsOnlyOneThreadPerSSHSession(t *testing.T) {
 	provider := NewCodexProvider("codex", "")
 	provider.lookPath = func(string) (string, error) { return "/usr/local/bin/codex", nil }

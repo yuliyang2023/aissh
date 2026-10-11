@@ -96,6 +96,7 @@ export const newKnowledge = (kind: Knowledge['kind'] = 'experience'): Knowledge 
   updatedAt: '',
 });
 export interface AIProfile {
+  keepCodexSession?: boolean;
   id: string;
   name: string;
   provider: string;
@@ -129,6 +130,7 @@ export interface Session {
   status: 'starting' | 'running' | 'ended' | 'failed';
 }
 export interface Conversation {
+  codexThreadId?: string;
   id: string;
   hostId: string;
   title: string;
@@ -166,6 +168,7 @@ export interface MonitorPanel {
   pinned: boolean;
 }
 export interface WorkbenchState {
+  codexThreadId?: string;
   workspace: string;
   workspaceSupported: boolean;
   workspaceWritable: boolean;

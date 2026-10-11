@@ -757,6 +757,13 @@ export function AIEditor({
               />
             </>
           )}
+          {value.provider === 'codex' && (
+            <label className="check">
+              <input type="checkbox" checked={!!value.keepCodexSession}
+                onChange={(e) => set((p) => ({ ...p, keepCodexSession: e.target.checked }))} />
+              退出后保留 Codex 会话，可在本地终端继续（默认删除；下次连接生效）
+            </label>
+          )}
           <Field label="模型名称" hint={local ? '留空使用 CLI 的默认模型。' : undefined}>
             <input
               required={!local && value.provider !== 'http'}
