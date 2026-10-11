@@ -55,6 +55,7 @@ jobs:
       GOARCH: ${{ matrix.goarch }}
       CGO_ENABLED: ${{ matrix.cgo }}
       AISSH_DESKTOP_TAGS: ${{ matrix.desktop_tags || '' }}
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
 
     steps:
       - name: Checkout
@@ -94,6 +95,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/build-desktop.ps1
+
+      - name: Verify macOS 13 compatibility metadata
+        if: runner.os == 'macOS'
+        run: python3 scripts/check-macos-bundle.py "dist/desktop/WRD AI SSH.app" "$GOARCH" "$MACOSX_DEPLOYMENT_TARGET"
 
       - name: Package macOS or Linux desktop
         if: runner.os != 'Windows'
