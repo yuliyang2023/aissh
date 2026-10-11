@@ -718,7 +718,7 @@ export function AIEditor({
             />
           </Field>
           <Field label="AI 后端">
-            <select value={value.provider} onChange={(e) => field('provider', e.target.value)}>
+            <select aria-label="AI 后端" value={value.provider} onChange={(e) => field('provider', e.target.value)}>
               <option value="codex">本机 Codex</option>
               <option value="claude">本机 Claude Code</option>
               <option value="model">兼容 OpenAI API 的模型</option>
