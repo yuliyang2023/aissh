@@ -439,7 +439,7 @@ func (a *App) schedulePipelines(now time.Time) {
 	sort.Strings(ids)
 	for _, id := range ids {
 		b := a.pipelineBatches[id]
-		if b == nil || b.running {
+		if b == nil || b.running || (!a.config.SystemCollection && b.draftID == "" && b.candidateID == "") {
 			continue
 		}
 
@@ -460,7 +460,7 @@ func (a *App) schedulePipelines(now time.Time) {
 			a.failPipelineBatch(b, "采集等待超时，请确认 SSH 位于空闲提示符")
 			continue
 		}
-		if !a.canStartInBandMonitor() || now.Sub(a.terminalInputAt) < 750*time.Millisecond {
+		if !a.canStartInBandCollection() || now.Sub(a.terminalInputAt) < 750*time.Millisecond {
 			continue
 		}
 		b.running = true

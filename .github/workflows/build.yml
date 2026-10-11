@@ -31,7 +31,7 @@ jobs:
       - name: Test CLI, AI sessions, history and desktop service
         run: |
           go test ./cmd/aissh ./internal/agent ./internal/history ./internal/catalog ./internal/desktop
-          go test ./internal/app -run 'Test.*(Codex|History|Conversation|PersistentChat|Workspace|TerminalTakeover|Gateway|Desktop|Execution|Approval|AlwaysYes|Resource|CtrlCRecovers)'
+          go test ./internal/app -run 'Test.*(Bastion|ExplicitProbe|Codex|History|Conversation|PersistentChat|Workspace|TerminalTakeover|Gateway|Desktop|Execution|Approval|AlwaysYes|Resource|CtrlCRecovers)'
 
   build:
     name: Build ${{ matrix.goos }} / ${{ matrix.goarch }}

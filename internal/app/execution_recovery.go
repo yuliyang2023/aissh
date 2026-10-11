@@ -42,6 +42,8 @@ func (a *App) sendApprovedCommand(state *executionState) {
 		a.stopExecutionWait("transport_error")
 		return
 	}
+	state.BastionCompatibility = a.config.BastionCompatibility
+	state.Multiline = strings.ContainsAny(state.Command, "\r\n")
 	state.ShellPrompt = ""
 	if a.virtual != nil {
 		a.virtual.Lock()
@@ -51,16 +53,20 @@ func (a *App) sendApprovedCommand(state *executionState) {
 		}
 		a.virtual.Unlock()
 	}
-	state.Direct = state.ShellPrompt != ""
+	state.Direct = state.BastionCompatibility || state.ShellPrompt != ""
 	state.EchoMarker = !state.Direct
 	marker := ""
 	if state.EchoMarker {
 		marker = state.Marker
 	}
-	data := []byte(approvedShellInput(state.Command, marker))
+	input := approvedShellInput(state.Command, marker)
+	if state.BastionCompatibility {
+		input = rawApprovedShellInput(state.Command)
+	}
+	data := []byte(input)
 	a.outputTail.value = ""
 	a.debugInput("execution send marker=%s command_bytes=%d prompt_mode=%t", state.Marker, len(data), state.Direct)
-	state.WriteJob = a.sshInput.enqueueApprovedCommand(data, state.Marker, a.config.AIKeystrokeInput)
+	state.WriteJob = a.sshInput.enqueueApprovedCommand(data, state.Marker, a.config.BastionCompatibility)
 }
 
 // Like iTerm2's shellInput, keep multiline scripts in the current shell and
@@ -80,7 +86,7 @@ const executionPromptQuietDelay = 300 * time.Millisecond
 
 func (a *App) checkDirectExecutionPrompt(now time.Time) {
 	state := a.execution
-	if state == nil || !state.Direct || state.finished() || state.sending() || a.executionRecovery || a.sensitive || a.zmodem != nil || state.LastOutputAt.IsZero() || now.Sub(state.LastOutputAt) < executionPromptQuietDelay || a.virtual == nil || !trigger.LooksLikePrompt(a.outputTail.String()) {
+	if state == nil || state.BastionCompatibility || !state.Direct || state.finished() || state.sending() || a.executionRecovery || a.sensitive || a.zmodem != nil || state.LastOutputAt.IsZero() || now.Sub(state.LastOutputAt) < executionPromptQuietDelay || a.virtual == nil || !trigger.LooksLikePrompt(a.outputTail.String()) {
 		return
 	}
 	a.virtual.Lock()
@@ -268,6 +274,7 @@ func (a *App) tryRecoverExecutionPrompt() {
 }
 
 func (a *App) checkExecutionWait(now time.Time) {
+	a.checkBastionExecutionPrompt()
 	a.checkDirectExecutionPrompt(now)
 	state := a.execution
 	if state == nil || state.finished() || state.WaitWarned || state.StartedAt.IsZero() || now.Sub(state.StartedAt) < executionWaitNoticeDelay {
@@ -275,7 +282,9 @@ func (a *App) checkExecutionWait(now time.Time) {
 	}
 	state.WaitWarned = true
 	notice := a.t("仍未收到命令完成标记；按 Ctrl+C 中断并重新同步 Shell。")
-	if state.Direct {
+	if state.BastionCompatibility {
+		notice = a.t("等待收集输出；没有 Shell Integration 或多行命令，请点击‘收集输出’。该操作不会中断远端命令。")
+	} else if state.Direct {
 		notice = a.t("仍在等待 Shell 返回提示符；需要人工交互时可取消 AI 并接管终端。")
 	}
 	a.appendPersistentChat(chatMessage{Role: "system", Content: notice, Time: now})

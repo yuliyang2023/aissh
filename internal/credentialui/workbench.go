@@ -18,14 +18,15 @@ import (
 // Workbench data travels over the per-session authenticated loopback channel,
 // never through terminal escape sequences or the remote SSH environment.
 type WorkbenchState struct {
-	TerminalTakeover bool                `json:"terminalTakeover,omitempty"`
-	SystemCollection bool                `json:"systemCollection"`
-	AIKeystrokeInput bool                `json:"aiKeystrokeInput"`
-	Model            string              `json:"model,omitempty"`
-	ModelOptions     []string            `json:"modelOptions,omitempty"`
-	Notices          []WorkbenchNotice   `json:"notices,omitempty"`
-	WidgetCandidates []widgets.Candidate `json:"widgetCandidates,omitempty"`
-	WidgetTransfer   widgets.Transfer    `json:"-"`
+	CanCollectOutput     bool                `json:"canCollectOutput"`
+	TerminalTakeover     bool                `json:"terminalTakeover,omitempty"`
+	SystemCollection     bool                `json:"systemCollection"`
+	BastionCompatibility bool                `json:"bastionCompatibility"`
+	Model                string              `json:"model,omitempty"`
+	ModelOptions         []string            `json:"modelOptions,omitempty"`
+	Notices              []WorkbenchNotice   `json:"notices,omitempty"`
+	WidgetCandidates     []widgets.Candidate `json:"widgetCandidates,omitempty"`
+	WidgetTransfer       widgets.Transfer    `json:"-"`
 
 	CodexThreadID      string             `json:"codexThreadId,omitempty"`
 	ConversationID     string             `json:"conversationId"`

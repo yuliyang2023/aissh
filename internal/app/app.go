@@ -30,46 +30,46 @@ import (
 )
 
 type Config struct {
-	DesktopUI           bool
-	ProfileID           string
-	AIProfileID         string
-	HostLabel           string
-	HistoryTarget       string
-	ConversationID      string
-	ConversationChanged func(string)
-	SSHEnvironment      []string
-	SecretFilter        *redact.Filter
-	Resources           *resources.Executor
-	Version             string
-	SSHPath             string
-	SSHArgs             []string
-	AgentProvider       string
-	AgentURL            string
-	AgentToken          string
-	CodexPath           string
-	CodexModel          string
-	KeepCodexSession    bool
-	KeepCodexSessionSet bool
-	ClaudePath          string
-	ClaudeModel         string
-	Language            string
-	HistoryDir          string
-	Workspace           string
-	WorkspaceWritable   bool
-	AlwaysYes           bool
-	SystemCollection    bool
-	AIKeystrokeInput    bool
-	InputDebug          bool
-	ModelURL            string
-	ModelAPIKey         string
-	ModelName           string
-	ModelOptions        []string
-	ScrollbackLines     int
-	AIContextChars      int
-	AITimeout           time.Duration
-	SSHKeepalive        time.Duration
-	DisableSSHKeepalive bool
-	ShellTMOUT          time.Duration
+	DesktopUI            bool
+	ProfileID            string
+	AIProfileID          string
+	HostLabel            string
+	HistoryTarget        string
+	ConversationID       string
+	ConversationChanged  func(string)
+	SSHEnvironment       []string
+	SecretFilter         *redact.Filter
+	Resources            *resources.Executor
+	Version              string
+	SSHPath              string
+	SSHArgs              []string
+	AgentProvider        string
+	AgentURL             string
+	AgentToken           string
+	CodexPath            string
+	CodexModel           string
+	KeepCodexSession     bool
+	KeepCodexSessionSet  bool
+	ClaudePath           string
+	ClaudeModel          string
+	Language             string
+	HistoryDir           string
+	Workspace            string
+	WorkspaceWritable    bool
+	AlwaysYes            bool
+	SystemCollection     bool
+	BastionCompatibility bool
+	InputDebug           bool
+	ModelURL             string
+	ModelAPIKey          string
+	ModelName            string
+	ModelOptions         []string
+	ScrollbackLines      int
+	AIContextChars       int
+	AITimeout            time.Duration
+	SSHKeepalive         time.Duration
+	DisableSSHKeepalive  bool
+	ShellTMOUT           time.Duration
 }
 
 const terminalFrameInterval = time.Second / 30
@@ -900,8 +900,8 @@ func (a *App) handleOutput(data []byte) {
 func (a *App) scheduleMonitors() {
 	now := time.Now()
 	a.expireWidgetCandidates(now)
+	a.schedulePipelines(now)
 	if a.config.SystemCollection {
-		a.schedulePipelines(now)
 		a.scheduleInBandMonitor(now)
 	}
 	a.continuePipelineAI()

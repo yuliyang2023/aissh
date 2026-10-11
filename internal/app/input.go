@@ -37,6 +37,10 @@ func (a *App) handleInput(data []byte) {
 		a.handleZmodemInput(data)
 		return
 	}
+	if !a.config.DesktopUI && len(data) == 1 && data[0] == 0x19 && !a.terminalPasteMode && !a.aiPasteMode && a.canCollectExecutionOutput() {
+		_ = a.collectExecutionOutput() // Ctrl+Y: local snapshot, no remote input.
+		return
+	}
 	if len(data) == 1 && data[0] == 0x07 && !a.terminalPasteMode && !a.aiPasteMode {
 		a.takeOverTerminal("已取消本次 AI 交互")
 		return

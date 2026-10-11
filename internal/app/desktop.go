@@ -34,12 +34,13 @@ func (a *App) publishDesktopState() {
 
 func (a *App) desktopState() credentialui.WorkbenchState {
 	state := credentialui.WorkbenchState{
-		TerminalTakeover: a.terminalTakeover,
-		SystemCollection: a.config.SystemCollection,
-		AIKeystrokeInput: a.config.AIKeystrokeInput,
-		Notices:          append([]credentialui.WorkbenchNotice(nil), a.desktopNotices...),
-		CodexThreadID:    a.codexThreadID,
-		ConversationID:   a.historyConversationID, Busy: a.agentBusy,
+		TerminalTakeover:     a.terminalTakeover,
+		CanCollectOutput:     a.canCollectExecutionOutput(),
+		SystemCollection:     a.config.SystemCollection,
+		BastionCompatibility: a.config.BastionCompatibility,
+		Notices:              append([]credentialui.WorkbenchNotice(nil), a.desktopNotices...),
+		CodexThreadID:        a.codexThreadID,
+		ConversationID:       a.historyConversationID, Busy: a.agentBusy,
 		Status: a.safeText(a.agentStatus), Executing: a.execution != nil || a.executionRecovery,
 		CanApprove: a.desktopCanApprove(), ApprovalStatus: a.safeText(a.approvalStatus),
 		Messages: []credentialui.WorkbenchMessage{}, Panels: []credentialui.MonitorPanel{},
@@ -254,14 +255,16 @@ func (a *App) handleDesktopCommand(command credentialui.WorkbenchCommand) error 
 	case "terminal-takeover":
 		a.takeOverTerminal("已取消本次 AI 交互")
 		return nil
-	case "ai-keystroke-input":
+	case "execution-collect":
+		return a.collectExecutionOutput()
+	case "bastion-compatibility":
 		switch command.Text {
 		case "true":
-			a.config.AIKeystrokeInput = true
+			a.config.BastionCompatibility = true
 		case "false":
-			a.config.AIKeystrokeInput = false
+			a.config.BastionCompatibility = false
 		default:
-			return errors.New("无效的 AI 逐字符发送设置")
+			return errors.New("无效的堡垒机兼容模式设置")
 		}
 		a.dirty = true
 		return nil

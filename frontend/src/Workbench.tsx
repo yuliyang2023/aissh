@@ -98,7 +98,13 @@ export function Workbench({
       setPending(false);
     }
   }
-  const blocked = !online || pending || state?.busy || state?.executing || !!state?.proposal || state?.terminalTakeover;
+  const blocked =
+    !online ||
+    pending ||
+    state?.busy ||
+    state?.executing ||
+    !!state?.proposal ||
+    state?.terminalTakeover;
   useEffect(() => {
     if (active && state?.terminalTakeover) setTerminalFocusRequest((value) => value + 1);
   }, [active, state?.terminalTakeover]);
@@ -110,13 +116,13 @@ export function Workbench({
         ? '工作台连接中断'
         : state.terminalTakeover
           ? '终端已接管，请在右侧终端完成或退出审批'
-        : state.executing
-          ? '正在执行命令'
-          : state.busy
-            ? state.status || 'AI 正在处理…'
-            : state.proposal
-              ? '等待确认命令'
-              : '就绪';
+          : state.executing
+            ? '正在执行命令'
+            : state.busy
+              ? state.status || 'AI 正在处理…'
+              : state.proposal
+                ? '等待确认命令'
+                : '就绪';
   return (
     <div
       ref={split.ref}
@@ -166,7 +172,9 @@ export function Workbench({
               onChange={(event) => void action({ kind: 'model', text: event.target.value })}
             >
               {state.modelOptions.map((model) => (
-                <option key={model} value={model}>{model}</option>
+                <option key={model} value={model}>
+                  {model}
+                </option>
               ))}
             </select>
           </div>
@@ -301,18 +309,31 @@ export function Workbench({
               取消 AI，接管终端
             </button>
             <button
-              className={'button small' + (state?.aiKeystrokeInput ? ' primary' : '')}
+              className={'button small' + (state?.bastionCompatibility ? ' primary' : '')}
               type="button"
               disabled={!online || pending}
-              aria-pressed={state?.aiKeystrokeInput ?? false}
-              onClick={() => void action({
-                kind: 'ai-keystroke-input',
-                text: String(!state?.aiKeystrokeInput),
-              })}
-              title="仅对本会话审批通过的 AI 命令逐字符发送，适用于不接受粘贴命令的字符堡垒机"
+              aria-pressed={state?.bastionCompatibility ?? false}
+              onClick={() =>
+                void action({
+                  kind: 'bastion-compatibility',
+                  text: String(!state?.bastionCompatibility),
+                })
+              }
+              title="仅本会话生效：逐字符原样发送已批准命令，不添加包装；无 Shell Integration 或多行命令需手动收集输出"
             >
-              AI 逐字符：{state?.aiKeystrokeInput ? '开' : '关'}
+              堡垒机兼容模式：{state?.bastionCompatibility ? '开' : '关'}
             </button>
+            {state?.canCollectOutput && (
+              <button
+                className="button small"
+                type="button"
+                disabled={!online || pending}
+                onClick={() => void action({ kind: 'execution-collect' })}
+                title="收集已收到的输出交给 AI，不发送 Ctrl+C；远端命令可能仍在运行"
+              >
+                收集输出
+              </button>
+            )}
             <button className="button primary small" disabled={blocked || !prompt.trim()}>
               <Send size={14} />
               发送

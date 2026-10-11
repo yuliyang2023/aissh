@@ -173,7 +173,7 @@ export interface MonitorPanel {
 export interface WorkbenchState {
   terminalTakeover?: boolean;
   systemCollection: boolean;
-  aiKeystrokeInput: boolean;
+  bastionCompatibility: boolean;
   model?: string;
   modelOptions?: string[];
   codexThreadId?: string;
@@ -195,14 +195,16 @@ export interface WorkbenchState {
   canApprove: boolean;
   approvalStatus: string;
   executing: boolean;
+  canCollectOutput: boolean;
   panels: MonitorPanel[];
   alertMonitors?: MonitorPanel[];
   updatedAt: string;
 }
 export interface WorkbenchCommand {
   kind:
+    | 'execution-collect'
     | 'terminal-takeover'
-    | 'ai-keystroke-input'
+    | 'bastion-compatibility'
     | 'system-collection'
     | 'model'
     | 'prompt'
@@ -304,7 +306,11 @@ type Backend = ExternalBackend & {
   ListConversations(): Promise<Conversation[]>;
   CreateConversation(hostId: string): Promise<Conversation>;
   CreateConversationWithWorkspace(hostId: string, workspace: string): Promise<Conversation>;
-  CreateConversationWithAI(hostId: string, workspace: string, aiProfileId: string): Promise<Conversation>;
+  CreateConversationWithAI(
+    hostId: string,
+    workspace: string,
+    aiProfileId: string,
+  ): Promise<Conversation>;
   CreateDirectConversationWithAI(
     host: Host,
     saveHost: boolean,

@@ -97,6 +97,10 @@ aissh -J bastion internal-server
 
 Existing `~/.ssh/config`, keys, SSH agent, jump hosts, and OpenSSH options remain usable.
 
+The desktop session's **Bastion compatibility mode** switch, beside terminal takeover, is off by default. When enabled, approved commands are typed verbatim without added `eval`, subshells, or completion markers. Single-line commands are collected automatically only after remote Shell Integration events; otherwise click **Collect output**. Multiline commands always require manual collection. Prompt regexes cannot trigger collection. Collecting output sends no Ctrl+C and does not assert that the remote command has finished. For the CLI, use `--bastion-compatibility` and Ctrl+Y to collect output.
+
+Automatic system collection is off by default. Explicitly requested monitor probes and mapping verification still require script approval and run once without enabling recurring collection. Manually collected monitor receipts preserve output with an unknown exit status; monitoring maps require a verified successful receipt.
+
 This is intentional.
 
 **aissh changes your local workflow, not your server infrastructure.**

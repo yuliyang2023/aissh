@@ -83,6 +83,13 @@ func (a *App) processSSHOutput(data []byte) {
 }
 
 func (a *App) processRegularSSHOutput(data []byte) {
+	if state := a.execution; state != nil && state.BastionCompatibility {
+		state.observeShellIntegration(data)
+		a.processVisibleSSHOutput(data)
+		a.checkBastionExecutionPrompt()
+		a.submitExecutionResult()
+		return
+	}
 	if state := a.execution; state != nil && !state.Direct && state.ExitCode == nil && (!state.EchoMarker || !state.ReceiptReceived) {
 		output, after, exitCode := state.consume(data)
 		a.processVisibleSSHOutput(output)
