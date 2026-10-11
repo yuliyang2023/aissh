@@ -404,6 +404,35 @@ try {
     await page.locator('.session-select').first().waitFor();
     await testTerminalScroll(page, out, engine);
     assert.deepEqual(errors, []);
+  } else if (process.env.AI_SELECTION_ONLY) {
+    await page.evaluate(() => { window.__test.trusted = true; });
+    for (const mode of ['existing', 'direct']) {
+      for (const profileId of ['builtin-codex', 'model-custom']) {
+        await page.getByRole('button', { name: '新建会话', exact: true }).first().click();
+        const dialog = page.getByRole('dialog');
+        if (mode === 'direct') {
+          await dialog.getByRole('button', { name: '直接连接', exact: true }).click();
+          await dialog.getByLabel('主机地址', { exact: true }).fill('192.0.2.88');
+        }
+        await dialog.getByLabel('AI 配置', { exact: true }).selectOption(profileId);
+        const workspace = dialog.getByLabel('AI 工作目录（本机）', { exact: true });
+        assert.equal(await workspace.isDisabled(), profileId === 'model-custom');
+        if (profileId === 'builtin-codex') await workspace.fill('/test/project');
+        await dialog.getByRole('button', { name: '连接并新建对话', exact: true }).click();
+        await dialog.waitFor({ state: 'hidden' });
+        const created = await page.evaluate(() => window.__test.conversations[0]);
+        assert.equal(created.aiProfileId, profileId);
+        assert.equal(created.workspace, profileId === 'builtin-codex' ? '/test/project' : '');
+        assert.equal(created.hostId === 'host-one', mode === 'existing');
+        assert.equal(await page.evaluate(() => window.__test.data.hosts[0].aiProfileId), 'model-default');
+      }
+    }
+    await page.reload();
+    await page.getByRole('button', { name: '新建会话', exact: true }).first().waitFor();
+    const retained = await page.evaluate(() => window.__test.conversations.filter(c => c.aiProfileId));
+    assert.equal(retained.length, 4);
+    assert.deepEqual(errors, []);
+    console.log('PASS: Codex and compatible OpenAI model selection in both connection modes, workspace behavior, host defaults and persisted choices');
   } else {
   await page.locator('.session-select').first().waitFor();
   assert.equal(await page.locator('.session-select').count(), 3);
@@ -535,35 +564,6 @@ try {
     await page.getByRole('heading', { name: '设置', exact: true }).waitFor({ state: 'hidden' });
     assert.deepEqual(errors, []);
     console.log('PASS: unified session sidebar, settings navigation, state preservation, native AI/SSH/monitor workspace, collapse, search, history, streaming, approvals, monitoring and disconnect');
-  } else if (process.env.AI_SELECTION_ONLY) {
-    await page.evaluate(() => { window.__test.trusted = true; });
-    for (const mode of ['existing', 'direct']) {
-      for (const profileId of ['builtin-codex', 'model-custom']) {
-        await page.getByRole('button', { name: '新建会话', exact: true }).first().click();
-        const dialog = page.getByRole('dialog');
-        if (mode === 'direct') {
-          await dialog.getByRole('button', { name: '直接连接', exact: true }).click();
-          await dialog.getByLabel('主机地址', { exact: true }).fill('192.0.2.88');
-        }
-        await dialog.getByLabel('AI 配置', { exact: true }).selectOption(profileId);
-        const workspace = dialog.getByLabel('AI 工作目录（本机）', { exact: true });
-        assert.equal(await workspace.isDisabled(), profileId === 'model-custom');
-        if (profileId === 'builtin-codex') await workspace.fill('/test/project');
-        await dialog.getByRole('button', { name: '连接并新建对话', exact: true }).click();
-        await dialog.waitFor({ state: 'hidden' });
-        const created = await page.evaluate(() => window.__test.conversations[0]);
-        assert.equal(created.aiProfileId, profileId);
-        assert.equal(created.workspace, profileId === 'builtin-codex' ? '/test/project' : '');
-        assert.equal(created.hostId === 'host-one', mode === 'existing');
-        assert.equal(await page.evaluate(() => window.__test.data.hosts[0].aiProfileId), 'model-default');
-      }
-    }
-    await page.reload();
-    await page.getByRole('button', { name: '新建会话', exact: true }).first().waitFor();
-    const retained = await page.evaluate(() => window.__test.conversations.filter(c => c.aiProfileId));
-    assert.equal(retained.length, 4);
-    assert.deepEqual(errors, []);
-    console.log('PASS: Codex and compatible OpenAI model selection in both connection modes, workspace behavior, host defaults and persisted choices');
   } else if (process.env.DIALOG_ONLY) {
     for (const viewport of [{ width: 1180, height: 760 }, { width: 940, height: 650 }]) {
       await page.setViewportSize(viewport);
