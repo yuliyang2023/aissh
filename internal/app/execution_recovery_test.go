@@ -111,7 +111,7 @@ func TestCtrlCRecoversMissingMarkerAndReportsUnknownOnce(t *testing.T) {
 		t.Fatal("approval did not resume after recovery")
 	}
 	awaitExecutionWrite(t, a)
-	if a.execution == nil || a.execution.Command != "echo next" || !strings.HasSuffix(terminal.String(), isolateApprovedCommand("echo next", a.execution.Marker)) {
+	if a.execution == nil || a.execution.Command != "echo next" || !strings.HasSuffix(terminal.String(), directApprovedCommand("echo next")) {
 		t.Fatal("next approved command was not sent after recovery")
 	}
 }

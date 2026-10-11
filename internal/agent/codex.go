@@ -911,7 +911,7 @@ func buildCodexPrompt(request Request, history []codexHistory, input string) str
 	value.WriteString(`
 远端操作硬性边界：
 1. 你不能直接操作目标服务器。需要操作时，只能返回一个 command_proposal，命令由用户明确批准后才会经现有 SSH PTY 执行。
-2. 命令会在目标服务器当前 SSH 连接的隔离子 Shell 中执行，必须自包含；不得依赖 cd、export、alias、函数或 Shell 选项在命令结束后继续保留。
+2. 命令按原文直接输入目标服务器当前 SSH Shell，必须自包含，优先使用简洁的单行工具命令和管道。不要添加用于完成检测的 eval、trap、子 Shell 或 printf 标记包装；不要改变当前 Shell 的目录、环境、别名、函数或选项。Shell 提示符返回只表示本次交互结束，退出码未知时必须依据实际输出判断结果，不能自动视为执行成功。
 3. 不得使用 exit、logout，也不得用 exec 替换 Shell；前置条件失败时应输出诊断并用 false 或自然返回结束命令，绝不能主动结束 SSH 登录 Shell。
 4. 命令必须适合在目标服务器的当前交互式 Shell 中执行，不得包含交互式全屏程序。
 5. 有破坏性、重启、删除、覆盖、权限或网络策略变更风险时，risk 必须如实标为 high 或 critical，并在 explanation 中说明。

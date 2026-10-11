@@ -827,6 +827,9 @@ func (a *App) monitorWorkspaceVisible() bool {
 }
 
 func (a *App) handleOutput(data []byte) {
+	if a.execution != nil && a.execution.Direct && !a.execution.finished() {
+		a.execution.LastOutputAt = time.Now()
+	}
 	a.observeTerminalClear(data)
 	plain := trigger.StripANSI(string(data))
 	a.outputTail.Append(plain)

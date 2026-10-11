@@ -33,6 +33,7 @@ func TestMain(m *testing.M) {
 }
 func pipelineTestApp(t *testing.T) *App {
 	a := desktopTestApp(t)
+	a.config.SystemCollection = true
 	a.agent = nil
 	dir := t.TempDir()
 	if err := os.Symlink("/bin/sh", filepath.Join(dir, "sh")); err != nil {

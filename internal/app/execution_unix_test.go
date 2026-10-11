@@ -133,20 +133,24 @@ func TestApprovedCommandCompletesInInteractivePTY(t *testing.T) {
 					}
 					transcript += string(data)
 					return data
+				case <-time.After(50 * time.Millisecond):
+					a.checkExecutionWait(time.Now())
+					a.submitExecutionResult()
+					return nil
 				case <-ctx.Done():
 					t.Fatalf("PTY timed out: execution=%+v recovery=%v recovery_output=%v interrupt=%+v tail=%q safe=%v sensitive=%v transcript=%q", a.execution, a.executionRecovery, a.executionRecoveryOutput, a.executionInterrupt, a.outputTail.String(), a.safePromptScreen(), a.sensitive, transcript)
 					return nil
 				}
 			}
 			for !strings.Contains(transcript, "AISSH_TEST_READY> ") {
-				read()
+				a.processSSHOutput(read())
 			}
 			transcript = ""
-			command := "printf '\\nSTARTED\\n'; sleep 0.05; printf 'DONE\\n'; exit 7"
-			wantStatus := "exit_status=7"
+			command := "printf '\\nSTARTED\\n'; sleep 0.05; printf 'DONE\\n'"
+			wantStatus := "shell_prompt_returned; exit_status=unknown"
 			if interrupted {
 				command = "printf '\\nSTARTED\\n'; sleep 30"
-				wantStatus = "cancelled; exit_status=130"
+				wantStatus = "cancelled; exit_status=unknown"
 			}
 
 			a.sshPTY = terminal
@@ -163,7 +167,7 @@ func TestApprovedCommandCompletesInInteractivePTY(t *testing.T) {
 			}
 			select {
 			case request := <-requests:
-				if request.Completion != wantStatus || (!interrupted && !strings.HasSuffix(request.Output, "\r\nDONE")) {
+				if request.Completion != wantStatus || (!interrupted && !strings.Contains(request.Output, "\r\nDONE")) {
 					t.Fatalf("result=%#v transcript=%q", request, transcript)
 				}
 			case <-ctx.Done():
@@ -219,7 +223,7 @@ func TestCtrlCDuringLongCommandParsingRestoresAIInRealPTY(t *testing.T) {
 			}
 			a.handleEvent(event)
 		case <-ctx.Done():
-			t.Fatalf("PTY timed out: execution=%+v recovery=%v transcript=%q", a.execution, a.executionRecovery, transcript)
+			t.Fatalf("PTY timed out: recovery=%v prompt=%v transcript=%q", a.executionRecovery, a.atPrompt, transcript)
 		}
 	}
 	for !strings.Contains(transcript, "AISSH_TEST_READY> ") {
@@ -228,7 +232,7 @@ func TestCtrlCDuringLongCommandParsingRestoresAIInRealPTY(t *testing.T) {
 	transcript = ""
 	gate := &gatedSSHWriter{target: terminal, entered: make(chan struct{}), release: make(chan struct{})}
 	a.sshInput = newSSHInputWriter(a.ctx, gate, a.events)
-	command := "cat <<'UPLOAD_END'\n" + strings.Repeat("QUJDREVGR0g=\n", 20000) + "UPLOAD_END\nprintf MUST_NOT_RUN"
+	command := "printf '%s' '" + strings.Repeat("QUJDREVGR0g=", 20000) + "'; printf MUST_NOT_RUN"
 	a.execution.Command = command
 	a.sendApprovedCommand(a.execution)
 	select {
@@ -236,11 +240,11 @@ func TestCtrlCDuringLongCommandParsingRestoresAIInRealPTY(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("command did not start writing")
 	}
-	for !strings.Contains(transcript, "eval") {
+	for !strings.Contains(transcript, "printf") {
 		readEvent()
 	}
-	// The shell is still parsing the outer compound command. Its EXIT trap has
-	// not been installed and cannot emit a completion marker after this Ctrl+C.
+	// The shell is still reading the approved command. Ctrl+C must discard the
+	// unsent suffix before recovering, so the trailing command cannot execute.
 	a.handleInput([]byte{3})
 	close(gate.release)
 	for a.execution != nil || a.agentBusy || !a.atPrompt {

@@ -71,7 +71,7 @@ func TestInBandMonitorStateReportsRemoteFailure(t *testing.T) {
 }
 
 func TestScheduleInBandMonitorUsesPrimaryPTY(t *testing.T) {
-	application, err := New(Config{SSHArgs: []string{"server"}})
+	application, err := New(Config{SSHArgs: []string{"server"}, SystemCollection: true})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hinshun/vt10x"
@@ -41,14 +42,55 @@ func (a *App) sendApprovedCommand(state *executionState) {
 		a.stopExecutionWait("transport_error")
 		return
 	}
-	state.TextMarker = a.gatewayShellPrompt
-	wrapper := isolateApprovedCommand(state.Command, state.Marker)
-	if state.TextMarker {
-		wrapper = isolateGatewayApprovedCommand(state.Command, state.Marker)
+	state.Direct = true
+	if a.virtual != nil {
+		a.virtual.Lock()
+		line, ok := a.terminalCursorLineLocked()
+		if ok && trigger.LooksLikePrompt(line) {
+			state.ShellPrompt = strings.TrimSpace(line)
+		}
+		a.virtual.Unlock()
 	}
-	data := []byte(wrapper)
-	a.debugInput("execution send marker=%s command_bytes=%d wrapper_bytes=%d", state.Marker, len(state.Command), len(data))
+	// Send only the approved command. Shell wrappers can change the command
+	// classified by a bastion's approval policy, even for a permitted command.
+	data := []byte(directApprovedCommand(state.Command))
+	a.outputTail.value = ""
+	a.debugInput("execution send marker=%s command_bytes=%d direct=true", state.Marker, len(data))
 	state.WriteJob = a.sshInput.enqueueApprovedCommand(data, state.Marker, a.config.AIKeystrokeInput)
+}
+
+func directApprovedCommand(command string) string {
+	command = strings.ReplaceAll(strings.ReplaceAll(command, "\r\n", "\n"), "\r", "\n")
+	return strings.ReplaceAll(command, "\n", approvedCommandLineEnding()) + "\r"
+}
+
+const executionPromptQuietDelay = 300 * time.Millisecond
+
+func (a *App) checkDirectExecutionPrompt(now time.Time) {
+	state := a.execution
+	if state == nil || !state.Direct || state.finished() || state.sending() || a.executionRecovery || a.sensitive || a.zmodem != nil || state.LastOutputAt.IsZero() || now.Sub(state.LastOutputAt) < executionPromptQuietDelay || a.virtual == nil || !trigger.LooksLikePrompt(a.outputTail.String()) {
+		return
+	}
+	a.virtual.Lock()
+	line, ok := a.terminalCursorLineLocked()
+	visible := a.virtual.CursorVisible()
+	alt := a.virtual.Mode()&vt10x.ModeAltScreen != 0
+	a.virtual.Unlock()
+	if !ok || !visible || !trigger.LooksLikePrompt(line) {
+		return
+	}
+	// A menu's numbered options and PS2 must not look like completion. Accept
+	// the prompt seen before sending, or a primary user@host shell prompt (which
+	// may change after cd). Alternate-screen menus require the latter.
+	known := state.ShellPrompt != "" && strings.TrimSpace(line) == state.ShellPrompt
+	if !trigger.LooksLikeShellPrompt(line) && (!known || alt) {
+		return
+	}
+	state.Completion = "shell_prompt_returned"
+	a.atPrompt = true
+	a.promptIdleSince = now
+	a.pendingError, a.errorCarry = nil, ""
+	a.dirty = true
 }
 
 func (a *App) finishSSHWrite(event sshWriteEvent) {
@@ -214,17 +256,25 @@ func (a *App) tryRecoverExecutionPrompt() {
 }
 
 func (a *App) checkExecutionWait(now time.Time) {
+	a.checkDirectExecutionPrompt(now)
 	state := a.execution
 	if state == nil || state.finished() || state.WaitWarned || state.StartedAt.IsZero() || now.Sub(state.StartedAt) < executionWaitNoticeDelay {
 		return
 	}
 	state.WaitWarned = true
-	a.appendPersistentChat(chatMessage{Role: "system", Content: a.t("仍未收到命令完成标记；按 Ctrl+C 中断并重新同步 Shell。"), Time: now})
+	notice := a.t("仍未收到命令完成标记；按 Ctrl+C 中断并重新同步 Shell。")
+	if state.Direct {
+		notice = a.t("仍在等待 Shell 返回提示符；需要人工交互时可取消 AI 并接管终端。")
+	}
+	a.appendPersistentChat(chatMessage{Role: "system", Content: notice, Time: now})
 	a.debugInput("execution waiting marker=%s sending=%t pending_bytes=%d", state.Marker, state.sending(), len(state.Pending))
 	a.dirty = true
 }
 
 func (a *App) retireExecution(state *executionState) {
+	if state.Direct {
+		return
+	}
 	// Keep parsers for recent commands to absorb duplicate/late markers, including
 	// ones split across reads, without treating them as the next command's result.
 	a.retiredExecutions = append(a.retiredExecutions, &executionState{Marker: state.Marker, Pending: state.Pending})

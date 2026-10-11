@@ -53,6 +53,9 @@ func (a *App) updateSSHActivity(proposalID, status, detail string) {
 
 func (a *App) finishSSHActivity(execution *executionState) {
 	status, detail := "unknown", execution.completionDescription()
+	if execution.Completion == "shell_prompt_returned" {
+		status, detail = "completed", a.t("Shell 已返回提示符；退出码未知")
+	}
 	if execution.ExitCode != nil {
 		status = "completed"
 		if *execution.ExitCode != 0 {

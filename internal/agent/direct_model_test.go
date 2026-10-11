@@ -76,7 +76,7 @@ func TestDirectModelProviderReturnsStructuredProposalAndPanel(t *testing.T) {
 		if body.Model != "deepseek-test" || body.ResponseFormat["type"] != "json_object" || len(body.Messages) != 1 {
 			t.Fatalf("body=%#v", body)
 		}
-		for _, want := range []string{"JSON Schema", "不能直接操作目标服务器", "SSH 最近输出", "不要调用任何本机工具", "不得使用 exit、logout", "隔离子 Shell"} {
+		for _, want := range []string{"JSON Schema", "不能直接操作目标服务器", "SSH 最近输出", "不要调用任何本机工具", "不得使用 exit、logout", "命令按原文直接输入"} {
 			if !strings.Contains(body.Messages[0].Content, want) {
 				t.Fatalf("prompt missing %q: %s", want, body.Messages[0].Content)
 			}

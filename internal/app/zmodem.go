@@ -83,7 +83,7 @@ func (a *App) processSSHOutput(data []byte) {
 }
 
 func (a *App) processRegularSSHOutput(data []byte) {
-	if state := a.execution; state != nil && state.ExitCode == nil {
+	if state := a.execution; state != nil && !state.Direct && state.ExitCode == nil {
 		output, after, exitCode := state.consume(data)
 		a.processVisibleSSHOutput(output)
 		if exitCode != nil {
@@ -158,7 +158,7 @@ func (a *App) enterZmodemPassthrough(data []byte) {
 // its completion marker out of the binary channel and restore the TUI before
 // analyzing the result; otherwise the marker would be lost in raw output.
 func (a *App) processZmodemOutput(data []byte) {
-	if state := a.execution; state != nil && state.ExitCode == nil {
+	if state := a.execution; state != nil && !state.Direct && state.ExitCode == nil {
 		output, after, exitCode := state.consume(data)
 		a.handleZmodemOutput(output)
 		if exitCode != nil {
