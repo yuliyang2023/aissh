@@ -47,7 +47,11 @@ func isolateApprovedCommandWithLineEnding(command, marker, lineEnding string) st
 func isolateApprovedCommandWithCompletion(command, completion, lineEnding string) string {
 	command = strings.ReplaceAll(command, "\r\n", "\n")
 	command = strings.ReplaceAll(command, "\r", "\n")
-	wrapper := "(\ntrap " + quotePOSIXShell(completion) + " 0\ntrap 'exit 130' 2\n(\ntrap - 0 2\neval " + quotePOSIXShell(command) + "\n)\n)"
+	// Keep the wrapper on one input line. If the command is on its own line,
+	// an interactive gateway can enter an approval prompt while the writer is
+	// still sending the wrapper's closing lines; those bytes then become menu
+	// input. With a single line, the shell starts eval only after the final CR.
+	wrapper := "(trap " + quotePOSIXShell(completion) + " 0; trap 'exit 130' 2; (trap - 0 2; eval " + quotePOSIXShell(command) + "))"
 	return strings.ReplaceAll(wrapper, "\n", lineEnding) + "\r"
 }
 
